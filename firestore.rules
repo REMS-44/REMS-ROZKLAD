@@ -51,6 +51,9 @@ service cloud.firestore {
     match /workspaces/{workspaceId}/schedule/{lessonId} {
       allow write: if admin() || dispatcher();
     }
+    match /workspaces/{workspaceId}/roomBookings/{bookingId} {
+      allow write: if admin() || dispatcher();
+    }
     match /workspaces/{workspaceId}/locks/{lockId} {
       allow write: if admin() || dispatcher();
     }

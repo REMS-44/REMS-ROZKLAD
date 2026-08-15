@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -867,49 +867,57 @@ window.REMS_INITIAL_DATA = {
       "id": 1,
       "name": "230",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 2,
       "name": "321",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 3,
       "name": "322",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 4,
       "name": "322а",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 5,
       "name": "324",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 6,
       "name": "324а",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 7,
       "name": "325",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     },
     {
       "id": 8,
       "name": "325а",
       "status": "active",
-      "note": ""
+      "note": "",
+      "showInGrid": true
     }
   ],
   "teachers": [],
@@ -1662,5 +1670,6 @@ window.REMS_INITIAL_DATA = {
       "start": "18:40",
       "end": "20:00"
     }
-  ]
+  ],
+  "roomBookings": []
 };

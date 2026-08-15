@@ -7,17 +7,18 @@ import {
 
 const ARRAY_COLLECTIONS=["groups","students","rooms","teachers","curricula","disciplines","lessonTypes"];
 const SCHEDULE_COLLECTION="schedule";
+const ROOM_BOOKINGS_COLLECTION="roomBookings";
 const LOCAL_DATA_KEYS=["remsScheduleData_v09","remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 
 function recoveryScore(st){
   if(!st||typeof st!=="object")return -1;
   const n=k=>Array.isArray(st[k])?st[k].length:0;
-  return n("students")*4+n("teachers")*4+n("disciplines")*3+n("schedule")*3+n("rooms")*2+n("groups")*2+n("curricula")*2+n("lessonTypes");
+  return n("students")*4+n("teachers")*4+n("disciplines")*3+n("schedule")*3+n("roomBookings")*3+n("rooms")*2+n("groups")*2+n("curricula")*2+n("lessonTypes");
 }
 function recoverySummary(st){
   if(!st)return "локальної копії не знайдено";
   const n=k=>Array.isArray(st[k])?st[k].length:0;
-  return `${n("students")} студентів · ${n("teachers")} викладачів · ${n("rooms")} аудиторій · ${n("disciplines")} дисциплін · ${n("schedule")} занять`;
+  return `${n("students")} студентів · ${n("teachers")} викладачів · ${n("rooms")} аудиторій · ${n("disciplines")} дисциплін · ${n("schedule")} занять · ${n("roomBookings")} бронювань`;
 }
 function bestLocalRecoveryState(){
   const candidates=[];
@@ -47,7 +48,7 @@ window.REMS_CLOUD={
   canWrite:()=>{
     if(profile?.enabled===false)return false;
     if(profile?.role==="admin")return true;
-    if(profile?.role==="dispatcher")return ["schedule","timetable","home"].includes(window.REMS_CURRENT_PAGE?.());
+    if(profile?.role==="dispatcher")return ["schedule","timetable","roomGrid","home"].includes(window.REMS_CURRENT_PAGE?.());
     return false;
   },
   schedulePush,
@@ -164,6 +165,8 @@ async function loadRemoteState(){
   }
   const ss=await getDocs(collRef(SCHEDULE_COLLECTION));
   base.schedule=ss.docs.map(d=>d.data()).sort(sortById);
+  const bs=await getDocs(collRef(ROOM_BOOKINGS_COLLECTION));
+  base.roomBookings=bs.docs.map(d=>d.data()).sort(sortById);
   base.weekDays=clean(window.REMS_INITIAL_DATA?.weekDays||base.weekDays||[]);
   return base;
 }
@@ -175,13 +178,15 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   setSidebar("syncing","Завантаження…",user.email||"");
   const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=9;
   try{
-    let step=0;const total=ARRAY_COLLECTIONS.length+2;
+    let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
       step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · ${name}`);
       await replaceCollection(name,st[name]||[]);
     }
     step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · schedule`);
     await replaceSchedule(st.schedule||[]);
+    step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · roomBookings`);
+    await replaceRoomBookings(st.roomBookings||[]);
     // Settings are written last: an incomplete bootstrap is not marked as ready.
     step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · settings`);
     await setDoc(settingsRef(),settingsPart(st));
@@ -212,6 +217,11 @@ async function replaceSchedule(items){
   for(const d of snap.docs)await deleteScheduleLesson(d.id);
   for(const it of items)await writeScheduleLesson(clean(it));
 }
+async function replaceRoomBookings(items){
+  const snap=await getDocs(collRef(ROOM_BOOKINGS_COLLECTION));
+  for(const d of snap.docs)await deleteRoomBookingCloud(d.id);
+  for(const it of items)await writeRoomBookingCloud(clean(it));
+}
 async function commitOps(ops){
   for(let i=0;i<ops.length;i+=8){
     const batch=writeBatch(fire);
@@ -237,6 +247,7 @@ async function flushPush(){
       for(const name of ARRAY_COLLECTIONS)await syncCollection(name,remoteState[name]||[],wanted[name]||[]);
     }
     await syncSchedule(remoteState.schedule||[],wanted.schedule||[]);
+    await syncRoomBookings(remoteState.roomBookings||[],wanted.roomBookings||[]);
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
   }catch(e){
     console.error(e);
@@ -261,6 +272,12 @@ async function syncSchedule(oldItems,newItems){
   for(const [id] of old)if(!neu.has(id))await deleteScheduleLesson(id);
 }
 
+async function syncRoomBookings(oldItems,newItems){
+  const old=stateMap(oldItems),neu=stateMap(newItems);
+  for(const [id,item] of neu)if(!old.has(id)||!eq(old.get(id),item))await writeRoomBookingCloud(clean(item));
+  for(const [id] of old)if(!neu.has(id))await deleteRoomBookingCloud(id);
+}
+
 function slotKey(x){return x.pairId?`pair-${x.pairId}`:`time-${x.start||""}-${x.end||""}`;}
 function lockSpecs(x){
   if(!x?.date)return[];
@@ -280,7 +297,7 @@ async function writeScheduleLesson(lesson){
     for(const [id] of all){const r=itemRef("locks",id);lockSnaps.set(id,{ref:r,snap:await tx.get(r)});}
     for(const l of newLocks){
       const ls=lockSnaps.get(l.id).snap;
-      if(ls.exists()&&String(ls.data().ownerLessonId)!==String(lesson.id)){
+      if(ls.exists()&&String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`))!==`schedule:${lesson.id}`){
         const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:`Викладач`;
         throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${lesson.date}, ${lesson.pairId?lesson.pairId+" пара":(lesson.start+"–"+lesson.end)}. Зміна не збережена.`);
       }
@@ -288,10 +305,10 @@ async function writeScheduleLesson(lesson){
     const newIds=new Set(newLocks.map(x=>x.id));
     for(const l of oldLocks){
       if(newIds.has(l.id))continue;
-      const item=lockSnaps.get(l.id);if(item.snap.exists()&&String(item.snap.data().ownerLessonId)===String(lesson.id))tx.delete(item.ref);
+      const item=lockSnaps.get(l.id);if(item.snap.exists()&&String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`))===`schedule:${lesson.id}`)tx.delete(item.ref);
     }
     for(const l of newLocks){
-      tx.set(lockSnaps.get(l.id).ref,{ownerLessonId:String(lesson.id),kind:l.kind,resource:l.res,date:lesson.date,slot:slotKey(lesson),updatedAt:serverTimestamp()});
+      tx.set(lockSnaps.get(l.id).ref,{ownerKey:`schedule:${lesson.id}`,ownerType:"schedule",ownerId:String(lesson.id),ownerLessonId:String(lesson.id),kind:l.kind,resource:l.res,date:lesson.date,slot:slotKey(lesson),updatedAt:serverTimestamp()});
     }
     tx.set(lref,clean(lesson));
   });
@@ -302,9 +319,29 @@ async function deleteScheduleLesson(id){
     const snap=await tx.get(lref);if(!snap.exists())return;
     const locks=lockSpecs(snap.data()),lockSnaps=[];
     for(const l of locks){const ref=itemRef("locks",l.id);lockSnaps.push({ref,snap:await tx.get(ref)});}
-    for(const x of lockSnaps)if(x.snap.exists()&&String(x.snap.data().ownerLessonId)===String(id))tx.delete(x.ref);
+    for(const x of lockSnaps)if(x.snap.exists()&&String(x.snap.data().ownerKey||(`schedule:${x.snap.data().ownerLessonId}`))===`schedule:${id}`)tx.delete(x.ref);
     tx.delete(lref);
   });
+}
+
+async function writeRoomBookingCloud(booking){
+  const bref=itemRef(ROOM_BOOKINGS_COLLECTION,booking.id),owner=`roomBooking:${booking.id}`;
+  await runTransaction(fire,async tx=>{
+    const oldSnap=await tx.get(bref),oldBooking=oldSnap.exists()?oldSnap.data():null;
+    const oldLocks=lockSpecs(oldBooking),newLocks=lockSpecs(booking),all=new Map();
+    [...oldLocks,...newLocks].forEach(x=>all.set(x.id,x));
+    const lockSnaps=new Map();
+    for(const [id] of all){const r=itemRef("locks",id);lockSnaps.set(id,{ref:r,snap:await tx.get(r)});}
+    for(const l of newLocks){const ls=lockSnaps.get(l.id).snap;if(ls.exists()){const existing=String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`));if(existing!==owner){const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:`Викладач`;throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${booking.date}, ${booking.pairId?booking.pairId+" пара":(booking.start+"–"+booking.end)}. Бронювання не збережено.`);}}}
+    const newIds=new Set(newLocks.map(x=>x.id));
+    for(const l of oldLocks){if(newIds.has(l.id))continue;const item=lockSnaps.get(l.id),existing=item.snap.exists()?String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`)):"";if(existing===owner)tx.delete(item.ref);}
+    for(const l of newLocks)tx.set(lockSnaps.get(l.id).ref,{ownerKey:owner,ownerType:"roomBooking",ownerId:String(booking.id),kind:l.kind,resource:l.res,date:booking.date,slot:slotKey(booking),updatedAt:serverTimestamp()});
+    tx.set(bref,clean(booking));
+  });
+}
+async function deleteRoomBookingCloud(id){
+  const bref=itemRef(ROOM_BOOKINGS_COLLECTION,id),owner=`roomBooking:${id}`;
+  await runTransaction(fire,async tx=>{const snap=await tx.get(bref);if(!snap.exists())return;const locks=lockSpecs(snap.data()),lockSnaps=[];for(const l of locks){const ref=itemRef("locks",l.id);lockSnaps.push({ref,snap:await tx.get(ref)});}for(const x of lockSnaps){const existing=x.snap.exists()?String(x.snap.data().ownerKey||(`schedule:${x.snap.data().ownerLessonId}`)):"";if(existing===owner)tx.delete(x.ref);}tx.delete(bref);});
 }
 
 function subscribeRealtime(){
@@ -316,6 +353,7 @@ function subscribeRealtime(){
     unsubs.push(onSnapshot(collRef(name),snap=>{state[name]=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
   }
   unsubs.push(onSnapshot(collRef(SCHEDULE_COLLECTION),snap=>{state.schedule=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
+  unsubs.push(onSnapshot(collRef(ROOM_BOOKINGS_COLLECTION),snap=>{state.roomBookings=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
 }
 function cloudErr(e){console.error(e);setSidebar("error","Немає синхронізації",user?.email||"");toast("Втрачено зв’язок зі спільною базою.","error");}
 async function reloadRemote(){

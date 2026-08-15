@@ -21,7 +21,8 @@ function migrate(old){
   if(!old||typeof old!=="object") return fresh;
   fresh.groups=old.groups||fresh.groups;
   fresh.students=old.students||fresh.students;
-  fresh.rooms=old.rooms||fresh.rooms;
+  fresh.rooms=(old.rooms||fresh.rooms||[]).map((r,i)=>({id:r.id||i+1,name:r.name||"",status:r.status||"active",note:r.note||"",showInGrid:r.showInGrid!==false}));
+  fresh.roomBookings=(old.roomBookings||[]).map((b,i)=>({...b,id:b.id||i+1,kind:b.kind||"Бронювання",title:b.title||"",date:b.date||"",pairId:b.pairId||null,start:b.start||"",end:b.end||"",room:b.room||"",group:b.group||"",teacherId:b.teacherId||null,teacher:b.teacher||"",showInTimetable:b.showInTimetable===true,note:b.note||""}));
   fresh.academicYear=old.academicYear||fresh.academicYear;
   fresh.semester=old.semester||fresh.semester;
   fresh.bellSchedule=old.bellSchedule||fresh.bellSchedule||[];
@@ -103,7 +104,7 @@ function loadData(){
 let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
-  db.schemaVersion=9;
+  db.schemaVersion=10;
   localStorage.setItem(KEY,JSON.stringify(db));
   renderCurrent();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
@@ -117,7 +118,7 @@ window.REMS_MIGRATE_STATE=(state)=>migrate(state);
 window.REMS_CURRENT_PAGE=()=>currentPage;
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
   db=migrate(remote);
-  db.schemaVersion=9;
+  db.schemaVersion=10;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
   renderCurrent();
@@ -145,6 +146,7 @@ const meta={
   groups:["Групи","Курси та шифри груп"],
   students:["Студенти","Редагована база студентів"],
   rooms:["Аудиторії","Перелік приміщень кафедри"],
+  roomGrid:["Зайнятість аудиторій","Вільні аудиторії, заняття та окремі бронювання"],
   teachers:["Викладачі","Профілі, кадрові дані та картки навантаження"],
   curricula:["Навчальні плани","Першоджерело дисциплін, годин і навантаження"],
   disciplines:["Дисципліни / навантаження","Розподіл дисциплін і годин між викладачами"],
@@ -163,11 +165,11 @@ function go(p){
   $("#page-"+p).classList.add("active");
   $("#pageTitle").textContent=meta[p][0];
   $("#pageSubtitle").textContent=meta[p][1];
-  $("#quickAdd").style.display=["settings","users"].includes(p)?"none":"";
+  $("#quickAdd").style.display=["settings","users","roomGrid"].includes(p)?"none":"";
   renderCurrent();
 }
 function renderCurrent(){
-  ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,groups:renderGroups,students:renderStudents,rooms:renderRooms,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,settings:renderSettings}[currentPage])();
+  ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,settings:renderSettings}[currentPage])();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
 }
 function openModal(html,wide=false){$("#modalBody").innerHTML=html;$("#modal").classList.remove("hidden");$("#modal").querySelector(".modal-card").classList.toggle("modal-wide",wide);}
@@ -236,12 +238,75 @@ function editStudent(id){
 function deleteStudent(id){const s=db.students.find(x=>x.id===id);if(confirm(`Видалити ${s.name}?`)){db.students=db.students.filter(x=>x.id!==id);save();}}
 
 /* Rooms */
+function activeRooms(){return db.rooms.filter(r=>r.status!=="archived");}
+function gridRooms(){return activeRooms().filter(r=>r.showInGrid!==false).slice().sort((a,b)=>a.name.localeCompare(b.name,"uk",{numeric:true}));}
 function renderRooms(){
-  $("#page-rooms").innerHTML=`<div class="card section"><div class="section-head"><h2>Аудиторії</h2><button class="primary" onclick="addRoom()">+ Додати аудиторію</button></div><div class="table-wrap"><table><thead><tr><th>Аудиторія</th><th>Статус</th><th></th></tr></thead><tbody>${db.rooms.filter(r=>r.status!=="archived").map(r=>`<tr><td><b>${esc(r.name)}</b></td><td><span class="badge ok">АКТИВНА</span></td><td class="actions"><button onclick="editRoom(${r.id})">Редагувати</button><button onclick="deleteRoom(${r.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div></div>`;
+  const rows=activeRooms().slice().sort((a,b)=>a.name.localeCompare(b.name,"uk",{numeric:true}));
+  $("#page-rooms").innerHTML=`<div class="card section"><div class="section-head"><div><h2>Аудиторії</h2><div class="small">Познач «У сітці кафедри» тільки для тих приміщень, зайнятість яких потрібно контролювати.</div></div><div class="actions"><button class="secondary" onclick="go('roomGrid')">Відкрити зайнятість →</button><button class="primary" onclick="openRoomModal()">+ Додати аудиторію</button></div></div><div class="table-wrap"><table><thead><tr><th>Аудиторія</th><th>У сітці кафедри</th><th>Примітка</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.name)}</b></td><td><label class="room-grid-toggle"><input type="checkbox" ${r.showInGrid!==false?"checked":""} onchange="toggleRoomGrid(${r.id},this.checked)"><span>${r.showInGrid!==false?"ПОКАЗУЄТЬСЯ":"ПРИХОВАНА"}</span></label></td><td>${esc(r.note||"—")}</td><td class="actions"><button onclick="openRoomModal(${r.id})">Редагувати</button><button onclick="deleteRoom(${r.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div></div>`;
 }
-function addRoom(){const n=prompt("Номер або назва аудиторії:");if(!n)return;if(db.rooms.some(r=>r.name.toLowerCase()===n.trim().toLowerCase()))return alert("Така аудиторія вже є.");db.rooms.push({id:uid(db.rooms),name:n.trim(),status:"active",note:""});save();}
-function editRoom(id){const r=db.rooms.find(x=>x.id===id),n=prompt("Аудиторія:",r.name);if(n){r.name=n.trim();save();}}
-function deleteRoom(id){const r=db.rooms.find(x=>x.id===id);if(confirm(`Видалити аудиторію ${r.name}?`)){db.rooms=db.rooms.filter(x=>x.id!==id);save();}}
+function openRoomModal(id=null){
+  const r=id?db.rooms.find(x=>Number(x.id)===Number(id)):{name:"",status:"active",note:"",showInGrid:true};
+  openModal(`<h2>${id?"Редагувати":"Нова"} аудиторія</h2><form id="roomForm" class="form-grid"><label>Номер / назва<input id="roomName" value="${esc(r.name||"")}" required></label><label class="check-label"><span>Сітка кафедри</span><span class="check-inline"><input id="roomGridFlag" type="checkbox" ${r.showInGrid!==false?"checked":""}> Показувати у «Зайнятості аудиторій»</span></label><label class="wide">Примітка<textarea id="roomNote" rows="3">${esc(r.note||"")}</textarea></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
+  $("#roomForm").onsubmit=e=>{e.preventDefault();const name=$("#roomName").value.trim();if(!name)return;const duplicate=db.rooms.some(x=>Number(x.id)!==Number(id)&&x.status!=="archived"&&x.name.toLowerCase()===name.toLowerCase());if(duplicate)return alert("Така аудиторія вже є.");const obj={name,note:$("#roomNote").value.trim(),showInGrid:$("#roomGridFlag").checked,status:"active"};if(id)Object.assign(r,obj);else db.rooms.push({id:uid(db.rooms),...obj});closeModal();save();};
+}
+function addRoom(){openRoomModal();}
+function editRoom(id){openRoomModal(id);}
+function toggleRoomGrid(id,checked){const r=db.rooms.find(x=>Number(x.id)===Number(id));if(!r)return;r.showInGrid=!!checked;save();}
+function deleteRoom(id){const r=db.rooms.find(x=>Number(x.id)===Number(id));if(!r)return;const used=db.schedule.some(x=>x.room===r.name)||db.roomBookings.some(x=>x.room===r.name);if(used&&!confirm(`Аудиторія ${r.name} уже використовується у заняттях або бронюваннях. Видалити її з довідника? Існуючі записи залишаться.`))return;if(!used&&!confirm(`Видалити аудиторію ${r.name}?`))return;db.rooms=db.rooms.filter(x=>Number(x.id)!==Number(id));save();}
+
+/* Room occupancy grid */
+let roomGridState={date:new Date().toISOString().slice(0,10),month:new Date().toISOString().slice(0,7)};
+const ROOM_BOOKING_KINDS=["Репетиція","Майстер-клас","Зустріч","Додаткова пара","Захід","Бронювання","Інше"];
+function roomBookingById(id){return db.roomBookings.find(x=>Number(x.id)===Number(id));}
+function roomEvents(date,room,pairId){
+  const schedule=db.schedule.filter(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)).map(x=>({source:"schedule",data:x}));
+  const bookings=db.roomBookings.filter(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)).map(x=>({source:"booking",data:x}));
+  return [...schedule,...bookings];
+}
+function roomBookingLabel(b){return b.title||b.kind||"Бронювання";}
+function roomEventCard(ev){
+  const x=ev.data;
+  if(ev.source==="schedule"){
+    const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";
+    return `<button class="room-event room-event-lesson" style="--event-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(x.group||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
+  }
+  return `<button class="room-event room-event-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><span class="room-event-badge">${esc((x.kind||"БРОНЮВАННЯ").toUpperCase())}</span><b>${esc(x.group||roomBookingLabel(x))}</b><span>${esc(x.group?roomBookingLabel(x):(x.teacher||""))}</span>${x.teacher&&x.group?`<small>${esc(x.teacher)}</small>`:""}</button>`;
+}
+function roomGridDateLabel(date){const d=new Date(date+"T12:00:00");return d.toLocaleDateString("uk-UA",{weekday:"long",day:"numeric",month:"long",year:"numeric"});}
+function monthDays(month){const [y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate();return Array.from({length:last},(_,i)=>`${y}-${String(m).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`);}
+function roomMonthStrip(){
+  return `<div class="room-month-strip">${monthDays(roomGridState.month).map(d=>{const date=new Date(d+"T12:00:00"),day=date.getDay(),wk=["Нд","Пн","Вт","Ср","Чт","Пт","Сб"][day];return `<button class="room-day-chip ${d===roomGridState.date?"active":""} ${day===0||day===6?"weekend":""}" onclick="selectRoomGridDate('${d}')"><span>${wk}</span><b>${Number(d.slice(8))}</b></button>`;}).join("")}</div>`;
+}
+function renderRoomGrid(){
+  if(!roomGridState.date)roomGridState.date=new Date().toISOString().slice(0,10);roomGridState.month=roomGridState.date.slice(0,7);
+  const rooms=gridRooms(),pairs=bellPairs();
+  $("#page-roomGrid").innerHTML=`<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Заняття підтягуються автоматично з розкладу. Репетиції, зустрічі та інші бронювання додаються прямо тут.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Сьогодні</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
+    <div class="room-grid-toolbar"><label>Місяць<input id="roomGridMonth" type="month" value="${esc(roomGridState.month)}"></label><label>Дата<input id="roomGridDate" type="date" value="${esc(roomGridState.date)}"></label><div class="room-date-title">${esc(roomGridDateLabel(roomGridState.date))}</div><button class="secondary" onclick="go('rooms')">Налаштувати аудиторії</button></div>
+    ${roomMonthStrip()}
+    ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id);return `<div class="rg-cell ${events.length?"occupied":"free"}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${events.length?events.map(roomEventCard).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}
+    <div class="room-grid-legend"><span><i class="legend-dot lesson"></i> заняття з розкладу</span><span><i class="legend-dot booking"></i> окреме бронювання</span><span><i class="legend-dot free"></i> вільна аудиторія</span></div>
+  </div>`;
+  $("#roomGridMonth").onchange=e=>{const m=e.target.value;if(!m)return;roomGridState.month=m;const day=roomGridState.date.slice(8);const max=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();roomGridState.date=`${m}-${String(Math.min(Number(day),max)).padStart(2,"0")}`;renderRoomGrid();};
+  $("#roomGridDate").onchange=e=>{if(e.target.value)selectRoomGridDate(e.target.value);};
+}
+function selectRoomGridDate(date){roomGridState.date=date;roomGridState.month=date.slice(0,7);renderRoomGrid();}
+function shiftRoomGridDate(days){selectRoomGridDate(addDays(roomGridState.date,days));}
+function roomGridToday(){selectRoomGridDate(new Date().toISOString().slice(0,10));}
+function bookingConflicts(item,ignoreId=null){
+  const conflicts=[];
+  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&x.room===item.room)conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
+  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&x.room===item.room)conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
+  return [...new Set(conflicts)];
+}
+function openRoomBookingModal(id=null,preset={}){
+  const b=id?roomBookingById(id):{kind:"Репетиція",title:"",date:preset.date||roomGridState.date||new Date().toISOString().slice(0,10),pairId:preset.pairId||bellPairs()[0]?.id||null,room:preset.room||gridRooms()[0]?.name||activeRooms()[0]?.name||"",group:"",teacherId:null,teacher:"",showInTimetable:false,note:""};
+  if(!b)return;
+  openModal(`<h2>${id?"Редагувати":"Нове"} бронювання аудиторії</h2><div class="notice">Цей запис блокує аудиторію. Він не впливає на навчальне навантаження викладача.</div><form id="roomBookingForm" class="form-grid"><label>Тип<select id="rbKind">${ROOM_BOOKING_KINDS.map(k=>`<option ${k===b.kind?"selected":""}>${esc(k)}</option>`).join("")}</select></label><label>Назва<input id="rbTitle" value="${esc(b.title||"")}" placeholder="Напр. Репетиція показу"></label><label>Дата<input id="rbDate" type="date" value="${esc(b.date)}" required></label><label>Пара<select id="rbPair">${pairOptions(b.pairId)}</select></label><label>Аудиторія<select id="rbRoom">${activeRooms().slice().sort((a,c)=>a.name.localeCompare(c.name,"uk",{numeric:true})).map(r=>`<option ${r.name===b.room?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label><label>Група (необов’язково)<select id="rbGroup"><option value="">— без групи —</option>${groupOptions(b.group||"")}</select></label><label>Викладач / відповідальний (необов’язково)<select id="rbTeacher"><option value="">—</option>${activeTeacherOptions(b.teacherId)}</select></label><label class="check-label"><span>Основний розклад</span><span class="check-inline"><input id="rbShow" type="checkbox" ${b.showInTimetable?"checked":""}> Показувати в календарі обраної групи</span></label><label class="wide">Примітка<textarea id="rbNote" rows="3">${esc(b.note||"")}</textarea></label><div id="rbConflict" class="wide"></div><div class="wide actions"><button class="primary">${id?"Зберегти":"Забронювати"}</button>${id?`<button type="button" class="danger" onclick="deleteRoomBooking(${b.id})">Видалити бронювання</button>`:""}</div></form>`,true);
+  const preview=()=>{const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),item={id:b.id,date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:$("#rbRoom").value,group:$("#rbGroup").value,teacherId:tid,teacher:teacherDisplay(t)};const cs=bookingConflicts(item,id);$("#rbConflict").innerHTML=cs.length?`<div class="conflict"><b>Конфлікт:</b><br>${cs.map(esc).join("<br>")}</div>`:`<div class="ok-box">Час вільний.</div>`;};
+  ["rbDate","rbPair","rbRoom","rbGroup","rbTeacher"].forEach(x=>$("#"+x).onchange=preview);preview();
+  $("#roomBookingForm").onsubmit=e=>{e.preventDefault();const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),obj={kind:$("#rbKind").value,title:$("#rbTitle").value.trim(),date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:$("#rbRoom").value,group:$("#rbGroup").value,teacherId:tid,teacher:teacherDisplay(t),showInTimetable:$("#rbShow").checked,note:$("#rbNote").value.trim()};const cs=bookingConflicts(obj,id);if(cs.length)return alert("Не можна зберегти через конфлікт:\n\n"+cs.join("\n"));if(id)Object.assign(b,obj);else db.roomBookings.push({id:uid(db.roomBookings),...obj});roomGridState.date=obj.date;closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();};
+}
+function deleteRoomBooking(id){const b=roomBookingById(id);if(!b)return;if(confirm(`Видалити бронювання «${roomBookingLabel(b)}»?`)){db.roomBookings=db.roomBookings.filter(x=>Number(x.id)!==Number(id));closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();}}
 
 /* Availability rules */
 function ruleRow(rule={}){
@@ -872,10 +937,11 @@ let timetableState={group:null,week:null};
 function mondayOf(dateStr){const d=new Date((dateStr||new Date().toISOString().slice(0,10))+"T12:00:00"),day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d.toISOString().slice(0,10);}
 function weekdayNameByIndex(i){return ["Пн","Вт","Ср","Чт","Пт","Сб","Нд"][i];}
 function timetableCellLessons(group,date,pairId){return db.schedule.filter(x=>x.group===group&&x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
+function timetableCellBookings(group,date,pairId){return db.roomBookings.filter(x=>x.showInTimetable&&x.group===group&&x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
 function renderTimetable(){
   if(!timetableState.group||!db.groups.some(g=>g.code===timetableState.group))timetableState.group=db.groups[0]?.code||"";if(!timetableState.week)timetableState.week=mondayOf(new Date().toISOString().slice(0,10));
   const dates=Array.from({length:7},(_,i)=>addDays(timetableState.week,i)),end=dates[6];
-  $("#page-timetable").innerHTML=`<div class="card section timetable-shell"><div class="section-head"><div><h2>Розклад групи</h2><div class="small">${formatDate(timetableState.week)} — ${formatDate(end)}</div></div><div class="actions"><button class="secondary" onclick="shiftTimetableWeek(-7)">← Тиждень</button><button class="secondary" onclick="timetableToday()">Сьогодні</button><button class="secondary" onclick="shiftTimetableWeek(7)">Тиждень →</button></div></div><div class="toolbar"><label>Група<select id="timetableGroup">${groupOptions(timetableState.group)}</select></label></div><div class="timetable-wrap"><div class="timetable-grid"><div class="tt-corner">Пара</div>${dates.map((d,i)=>`<div class="tt-day"><b>${weekdayNameByIndex(i)}</b><span>${formatDate(d).slice(0,5)}</span></div>`).join("")}${bellPairs().map(pair=>`<div class="tt-pair"><b>${pair.id}</b><span>пара</span>${pair.start&&pair.end?`<small>${pair.start}<br>${pair.end}</small>`:""}</div>${dates.map(date=>{const lessons=timetableCellLessons(timetableState.group,date,pair.id);return `<div class="tt-cell" onclick="if(event.target===this)openLessonModal(null,{group:'${esc(timetableState.group)}',date:'${date}',pairId:${JSON.stringify(pair.id)}})">${lessons.map(x=>{const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";return `<button class="tt-lesson" style="--lesson-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><b>${esc(x.discipline)}</b><span>${esc(x.type||"")}</span><span>${esc(x.teacher||"—")}</span><strong>${esc(x.room||"—")}</strong></button>`;}).join("")}</div>`;}).join("")}`).join("")}</div></div><div class="small timetable-help">Клік по порожній клітинці — додати заняття одразу на цю дату й пару. Клік по заняттю — редагувати.</div></div>`;
+  $("#page-timetable").innerHTML=`<div class="card section timetable-shell"><div class="section-head"><div><h2>Розклад групи</h2><div class="small">${formatDate(timetableState.week)} — ${formatDate(end)}</div></div><div class="actions"><button class="secondary" onclick="shiftTimetableWeek(-7)">← Тиждень</button><button class="secondary" onclick="timetableToday()">Сьогодні</button><button class="secondary" onclick="shiftTimetableWeek(7)">Тиждень →</button></div></div><div class="toolbar"><label>Група<select id="timetableGroup">${groupOptions(timetableState.group)}</select></label></div><div class="timetable-wrap"><div class="timetable-grid"><div class="tt-corner">Пара</div>${dates.map((d,i)=>`<div class="tt-day"><b>${weekdayNameByIndex(i)}</b><span>${formatDate(d).slice(0,5)}</span></div>`).join("")}${bellPairs().map(pair=>`<div class="tt-pair"><b>${pair.id}</b><span>пара</span>${pair.start&&pair.end?`<small>${pair.start}<br>${pair.end}</small>`:""}</div>${dates.map(date=>{const lessons=timetableCellLessons(timetableState.group,date,pair.id),bookings=timetableCellBookings(timetableState.group,date,pair.id);return `<div class="tt-cell" onclick="if(event.target===this)openLessonModal(null,{group:'${esc(timetableState.group)}',date:'${date}',pairId:${JSON.stringify(pair.id)}})">${lessons.map(x=>{const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";return `<button class="tt-lesson" style="--lesson-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><b>${esc(x.discipline)}</b><span>${esc(x.type||"")}</span><span>${esc(x.teacher||"—")}</span><strong>${esc(x.room||"—")}</strong></button>`;}).join("")}${bookings.map(x=>`<button class="tt-lesson tt-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><b>${esc(roomBookingLabel(x))}</b><span>${esc(x.kind||"")}</span><span>${esc(x.teacher||"")}</span><strong>${esc(x.room||"—")}</strong></button>`).join("")}</div>`;}).join("")}`).join("")}</div></div><div class="small timetable-help">Клік по порожній клітинці — додати заняття одразу на цю дату й пару. Клік по заняттю — редагувати.</div></div>`;
   $("#timetableGroup").onchange=e=>{timetableState.group=e.target.value;renderTimetable();};
 }
 function shiftTimetableWeek(days){timetableState.week=addDays(timetableState.week,days);renderTimetable();}
@@ -894,9 +960,9 @@ function renderSettings(){
   <div id="cloudSettingsMount"></div>
   <div class="card section"><div class="section-head"><div><h2>Розклад дзвінків</h2><div class="small">У складанні розкладу ти вибираєш номер пари. Час використовується автоматично для перевірки конфліктів і доступності викладачів.</div></div><button class="secondary" onclick="addBellPair()">+ Додати пару</button></div><div class="bell-editor"><div class="bell-head"><span>Пара</span><span>Початок</span><span></span><span>Кінець</span><span></span></div>${renderBellRows()}</div><button class="primary" style="margin-top:12px" onclick="saveBellSchedule()">Зберегти дзвінки</button></div>`;
 }
-function saveBellSchedule(){db.bellSchedule=$$("[data-bell-row]").map(r=>({id:Number(r.dataset.id),start:r.querySelector("[data-bstart]").value,end:r.querySelector("[data-bend]").value})).sort((a,b)=>a.id-b.id);db.schedule.forEach(s=>{if(s.pairId){const p=pairById(s.pairId);if(p){s.start=p.start;s.end=p.end;}}});save();alert("Розклад дзвінків збережено. Усі заняття з номерами пар оновлено автоматично.");}
+function saveBellSchedule(){db.bellSchedule=$$("[data-bell-row]").map(r=>({id:Number(r.dataset.id),start:r.querySelector("[data-bstart]").value,end:r.querySelector("[data-bend]").value})).sort((a,b)=>a.id-b.id);db.schedule.forEach(s=>{if(s.pairId){const p=pairById(s.pairId);if(p){s.start=p.start;s.end=p.end;}}});db.roomBookings.forEach(b=>{if(b.pairId){const p=pairById(b.pairId);if(p){b.start=p.start;b.end=p.end;}}});save();alert("Розклад дзвінків збережено. Усі заняття з номерами пар оновлено автоматично.");}
 function addBellPair(){const next=bellPairs().length?Math.max(...bellPairs().map(p=>Number(p.id)||0))+1:1;db.bellSchedule.push({id:next,start:"",end:""});save();}
-function removeBellPair(id){if(db.schedule.some(s=>String(s.pairId)===String(id))&&!confirm("На цій парі вже є заняття. Видалити пару з довідника? Самі заняття не видаляться."))return;db.bellSchedule=db.bellSchedule.filter(p=>String(p.id)!==String(id));save();}
+function removeBellPair(id){if((db.schedule.some(s=>String(s.pairId)===String(id))||db.roomBookings.some(b=>String(b.pairId)===String(id)))&&!confirm("На цій парі вже є заняття. Видалити пару з довідника? Самі заняття не видаляться."))return;db.bellSchedule=db.bellSchedule.filter(p=>String(p.id)!==String(id));save();}
 function savePeriod(){db.academicYear=$("#setYear").value.trim();db.semester=+$("#setSem").value;save();alert("Збережено.");}
 function exportData(){const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`REMS-ROZKLAD-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);}
 $("#importFile").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{db=migrate(JSON.parse(r.result));save();alert("Дані імпортовано.");}catch(err){alert("Не вдалося прочитати файл.");}};r.readAsText(f);e.target.value="";};
