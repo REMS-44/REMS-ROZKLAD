@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>РЕМС-Розклад</title>
+  <meta name="theme-color" content="#6d28d9">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">Р</div>
+      <div><b>РЕМС</b><span>РОЗКЛАД</span></div>
+    </div>
+    <nav id="nav">
+      <button class="nav-btn active" data-page="home">⌂ <span>Головна</span></button>
+      <button class="nav-btn" data-page="schedule">◫ <span>Розклад</span></button>
+      <button class="nav-btn" data-page="groups">◉ <span>Групи</span></button>
+      <button class="nav-btn" data-page="students">♙ <span>Студенти</span></button>
+      <button class="nav-btn" data-page="rooms">▣ <span>Аудиторії</span></button>
+      <button class="nav-btn" data-page="teachers">♟ <span>Викладачі</span></button>
+      <button class="nav-btn" data-page="disciplines">◇ <span>Дисципліни</span></button>
+      <button class="nav-btn" data-page="settings">⚙ <span>Налаштування</span></button>
+    </nav>
+    <div class="sidebar-note">Версія 0.1 · локальне збереження</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Головна</h1>
+        <p id="pageSubtitle">Кафедральний пульт розкладу</p>
+      </div>
+      <button class="primary" id="quickAdd">+ Додати заняття</button>
+    </header>
+
+    <section id="page-home" class="page active"></section>
+    <section id="page-schedule" class="page"></section>
+    <section id="page-groups" class="page"></section>
+    <section id="page-students" class="page"></section>
+    <section id="page-rooms" class="page"></section>
+    <section id="page-teachers" class="page"></section>
+    <section id="page-disciplines" class="page"></section>
+    <section id="page-settings" class="page"></section>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <button class="modal-close" id="modalClose">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<input id="importFile" type="file" accept=".json" hidden>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
