@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 2,
+  "schemaVersion": 4,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -1057,6 +1057,24 @@ window.REMS_INITIAL_DATA = {
     {
       "id": 0,
       "name": "Неділя"
+    }
+  ],
+  "teacherScopes": [
+    "Викладач кафедри",
+    "Зовнішній викладач"
+  ],
+  "availabilityRuleKinds": [
+    {
+      "id": "weekday",
+      "name": "День тижня"
+    },
+    {
+      "id": "date",
+      "name": "Конкретна дата"
+    },
+    {
+      "id": "range",
+      "name": "Період дат"
     }
   ]
 };
