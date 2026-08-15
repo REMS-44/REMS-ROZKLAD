@@ -13,24 +13,29 @@
     <div class="brand"><div class="brand-mark">Р</div><div><b>РЕМС</b><span>РОЗКЛАД</span></div></div>
     <nav>
       <button class="nav-btn active" data-page="home">⌂ <span>Головна</span></button>
+
+      <div class="nav-section-label">ПЛАНУВАННЯ</div>
+      <button class="nav-btn" data-page="curricula">▤ <span>Навчальні плани</span></button>
+      <button class="nav-btn" data-page="disciplines">◇ <span>Навантаження</span></button>
+
+      <div class="nav-section-label">РОЗКЛАД</div>
       <button class="nav-btn" data-page="schedule">✎ <span>Складання розкладу</span></button>
       <button class="nav-btn" data-page="timetable">▦ <span>Розклад</span></button>
-      <button class="nav-btn" data-page="groups">◉ <span>Групи</span></button>
-      <button class="nav-btn" data-page="students">♙ <span>Студенти</span></button>
-      <button class="nav-btn" data-page="rooms">▣ <span>Аудиторії</span></button>
-      <button class="nav-btn" data-page="roomGrid">▥ <span>Зайнятість аудиторій</span></button>
+      <button class="nav-btn" data-page="roomGrid">▥ <span>Аудиторії</span></button>
+
+      <div class="nav-section-label">ЛЮДИ</div>
+      <button class="nav-btn" data-page="groups">◉ <span>Групи і студенти</span></button>
       <button class="nav-btn" data-page="teachers">♟ <span>Викладачі</span></button>
-      <button class="nav-btn" data-page="curricula">▤ <span>Навчальні плани</span></button>
-      <button class="nav-btn" data-page="disciplines">◇ <span>Дисципліни / навантаження</span></button>
-      <button class="nav-btn" data-page="lessonTypes">≡ <span>Види занять</span></button>
-      <button class="nav-btn" id="usersNav" data-page="users" style="display:none">♚ <span>Користувачі</span></button>
-      <button class="nav-btn" data-page="settings">⚙ <span>Налаштування</span></button>
+
+      <div class="nav-bottom">
+        <button class="nav-btn" data-page="settings">⚙ <span>Налаштування</span></button>
+      </div>
     </nav>
     <div id="cloudSidebar" class="cloud-sidebar">
       <div id="cloudStatusDot" class="cloud-dot local"></div>
       <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
     </div>
-    <div class="sidebar-note">Версія 0.9.8 · пам’ять вкладки й актуальний календар</div>
+    <div class="sidebar-note">Версія 0.9.9 · чиста навігація</div>
   </aside>
   <main class="main">
     <header class="topbar">
