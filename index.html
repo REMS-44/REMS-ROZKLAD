@@ -24,7 +24,11 @@
       <button class="nav-btn" data-page="lessonTypes">≡ <span>Види занять</span></button>
       <button class="nav-btn" data-page="settings">⚙ <span>Налаштування</span></button>
     </nav>
-    <div class="sidebar-note">Версія 0.8 · локальне збереження</div>
+    <div id="cloudSidebar" class="cloud-sidebar">
+      <div id="cloudStatusDot" class="cloud-dot local"></div>
+      <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
+    </div>
+    <div class="sidebar-note">Версія 0.9.1 · Firebase підключено</div>
   </aside>
   <main class="main">
     <header class="topbar">
@@ -47,6 +51,8 @@
 <div id="modal" class="modal hidden"><div class="modal-card"><button class="modal-close" id="modalClose">×</button><div id="modalBody"></div></div></div>
 <input id="importFile" type="file" accept=".json" hidden>
 <script src="data.js"></script>
+<script src="firebase-config.js"></script>
 <script src="app.js"></script>
+<script type="module" src="cloud.js"></script>
 </body>
 </html>

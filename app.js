@@ -1,10 +1,15 @@
 
-const KEY="remsScheduleData_v08";
-const OLD_KEYS=["remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
+const KEY="remsScheduleData_v09";
+const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
 function esc(v=""){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
-function uid(arr){return arr.length?Math.max(...arr.map(x=>Number(x.id)||0))+1:1;}
+function uid(arr){
+  // Timestamp-based numeric IDs drastically reduce collisions when several users create records simultaneously.
+  const base=Date.now()*1000+Math.floor(Math.random()*1000);
+  const max=arr.length?Math.max(...arr.map(x=>Number(x.id)||0)):0;
+  return Math.max(base,max+1);
+}
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0;}
 function fmtHours(v){const n=num(v);return Number.isInteger(n)?String(n):n.toFixed(2).replace(/0+$/,"").replace(/\.$/,"");}
 function formatDate(s){if(!s)return"—";const[y,m,d]=s.split("-");return`${d}.${m}.${y}`}
@@ -97,7 +102,26 @@ function loadData(){
 }
 let db=loadData(), currentPage="home";
 normalizeCurricula();
-function save(){db.schemaVersion=8;localStorage.setItem(KEY,JSON.stringify(db));renderCurrent();}
+function save(){
+  db.schemaVersion=9;
+  localStorage.setItem(KEY,JSON.stringify(db));
+  renderCurrent();
+  document.dispatchEvent(new CustomEvent("rems-rendered"));
+  if(window.REMS_CLOUD?.configured){
+    if(window.REMS_CLOUD.canWrite?.()) window.REMS_CLOUD.schedulePush(clone(db));
+    else window.REMS_CLOUD.rejectLocalEdit?.();
+  }
+}
+window.REMS_GET_STATE=()=>clone(db);
+window.REMS_CURRENT_PAGE=()=>currentPage;
+window.REMS_APPLY_REMOTE_STATE=(remote)=>{
+  db=migrate(remote);
+  db.schemaVersion=9;
+  normalizeCurricula();
+  localStorage.setItem(KEY,JSON.stringify(db));
+  renderCurrent();
+  document.dispatchEvent(new CustomEvent("rems-rendered"));
+};
 function groupStudentCount(code){return db.students.filter(s=>s.group===code&&s.status!=="archived").length;}
 function groupCourse(code){return db.groups.find(g=>g.code===code)?.course||"";}
 function lessonTypeByName(name){return db.lessonTypes.find(x=>x.name===name);}
@@ -142,6 +166,7 @@ function go(p){
 }
 function renderCurrent(){
   ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,groups:renderGroups,students:renderStudents,rooms:renderRooms,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,settings:renderSettings}[currentPage])();
+  document.dispatchEvent(new CustomEvent("rems-rendered"));
 }
 function openModal(html,wide=false){$("#modalBody").innerHTML=html;$("#modal").classList.remove("hidden");$("#modal").querySelector(".modal-card").classList.toggle("modal-wide",wide);}
 function closeModal(){$("#modal").classList.add("hidden");$("#modalBody").innerHTML="";}
@@ -857,7 +882,8 @@ function timetableToday(){timetableState.week=mondayOf(new Date().toISOString().
 /* Settings */
 function renderBellRows(){return bellPairs().map(p=>`<div class="bell-row" data-bell-row data-id="${esc(p.id)}"><div class="bell-number">${esc(p.id)} пара</div><input data-bstart type="time" value="${esc(p.start||"")}"><span>—</span><input data-bend type="time" value="${esc(p.end||"")}"><button class="danger small-btn" onclick="removeBellPair(${JSON.stringify(p.id)})">×</button></div>`).join("");}
 function renderSettings(){
-  $("#page-settings").innerHTML=`<div class="settings-grid"><div class="card settings-card"><h3>Навчальний період</h3><label>Навчальний рік<input id="setYear" value="${esc(db.academicYear)}"></label><label style="margin-top:10px">Семестр<select id="setSem"><option ${db.semester===1?"selected":""}>1</option><option ${db.semester===2?"selected":""}>2</option></select></label><button class="primary" style="margin-top:12px" onclick="savePeriod()">Зберегти</button></div><div class="card settings-card"><h3>Резервна копія</h3><p class="small">Експорт усієї бази одним JSON-файлом.</p><button class="primary" onclick="exportData()">Експорт даних</button></div><div class="card settings-card"><h3>Імпорт</h3><p class="small">Відновити дані з резервної копії.</p><button class="secondary" onclick="document.querySelector('#importFile').click()">Імпортувати</button></div><div class="card settings-card"><h3>Скидання</h3><p class="small">Повернути початкові дані версії 0.8.</p><button class="danger" onclick="resetData()">Скинути дані</button></div></div>
+  $("#page-settings").innerHTML=`<div class="settings-grid"><div class="card settings-card"><h3>Навчальний період</h3><label>Навчальний рік<input id="setYear" value="${esc(db.academicYear)}"></label><label style="margin-top:10px">Семестр<select id="setSem"><option ${db.semester===1?"selected":""}>1</option><option ${db.semester===2?"selected":""}>2</option></select></label><button class="primary" style="margin-top:12px" onclick="savePeriod()">Зберегти</button></div><div class="card settings-card"><h3>Резервна копія</h3><p class="small">Експорт усієї бази одним JSON-файлом.</p><button class="primary" onclick="exportData()">Експорт даних</button></div><div class="card settings-card"><h3>Імпорт</h3><p class="small">Відновити дані з резервної копії.</p><button class="secondary" onclick="document.querySelector('#importFile').click()">Імпортувати</button></div><div class="card settings-card"><h3>Скидання</h3><p class="small">Повернути початкові дані версії 0.9.</p><button class="danger" onclick="resetData()">Скинути дані</button></div></div>
+  <div id="cloudSettingsMount"></div>
   <div class="card section"><div class="section-head"><div><h2>Розклад дзвінків</h2><div class="small">У складанні розкладу ти вибираєш номер пари. Час використовується автоматично для перевірки конфліктів і доступності викладачів.</div></div><button class="secondary" onclick="addBellPair()">+ Додати пару</button></div><div class="bell-editor"><div class="bell-head"><span>Пара</span><span>Початок</span><span></span><span>Кінець</span><span></span></div>${renderBellRows()}</div><button class="primary" style="margin-top:12px" onclick="saveBellSchedule()">Зберегти дзвінки</button></div>`;
 }
 function saveBellSchedule(){db.bellSchedule=$$("[data-bell-row]").map(r=>({id:Number(r.dataset.id),start:r.querySelector("[data-bstart]").value,end:r.querySelector("[data-bend]").value})).sort((a,b)=>a.id-b.id);db.schedule.forEach(s=>{if(s.pairId){const p=pairById(s.pairId);if(p){s.start=p.start;s.end=p.end;}}});save();alert("Розклад дзвінків збережено. Усі заняття з номерами пар оновлено автоматично.");}
