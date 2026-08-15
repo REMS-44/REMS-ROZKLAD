@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -1624,6 +1624,43 @@ window.REMS_INITIAL_DATA = {
         "creditSemester5": 6,
         "creditSemester6": 7
       }
+    }
+  ],
+  "bellSchedule": [
+    {
+      "id": 1,
+      "start": "09:00",
+      "end": "10:20"
+    },
+    {
+      "id": 2,
+      "start": "10:40",
+      "end": "12:00"
+    },
+    {
+      "id": 3,
+      "start": "12:30",
+      "end": "13:50"
+    },
+    {
+      "id": 4,
+      "start": "14:10",
+      "end": "15:30"
+    },
+    {
+      "id": 5,
+      "start": "15:40",
+      "end": "17:00"
+    },
+    {
+      "id": 6,
+      "start": "17:10",
+      "end": "18:30"
+    },
+    {
+      "id": 7,
+      "start": "18:40",
+      "end": "20:00"
     }
   ]
 };
