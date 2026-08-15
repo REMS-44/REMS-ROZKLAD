@@ -3,6 +3,24 @@ const KEY="remsScheduleData_v09";
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
+const UI_PAGE_KEY="remsUiPage_v1";
+const UI_TIMETABLE_GROUP_KEY="remsUiTimetableGroup_v1";
+function localTodayISO(){
+  const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function rememberPage(page){
+  try{sessionStorage.setItem(UI_PAGE_KEY,page);}catch(e){}
+}
+function rememberedPage(){
+  try{return sessionStorage.getItem(UI_PAGE_KEY)||"";}catch(e){return"";}
+}
+function rememberTimetableGroup(group){
+  try{if(group)sessionStorage.setItem(UI_TIMETABLE_GROUP_KEY,group);else sessionStorage.removeItem(UI_TIMETABLE_GROUP_KEY);}catch(e){}
+}
+function rememberedTimetableGroup(){
+  try{return sessionStorage.getItem(UI_TIMETABLE_GROUP_KEY)||"";}catch(e){return"";}
+}
 function esc(v=""){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
 function uid(arr){
   // Timestamp-based numeric IDs drastically reduce collisions when several users create records simultaneously.
@@ -29,6 +47,7 @@ function semesterDateBounds(semester){
 }
 function dateInBounds(date,bounds=academicYearBounds()){return !!date&&date>=bounds.start&&date<=bounds.end;}
 function clampDate(date,bounds=academicYearBounds()){if(!date||date<bounds.start)return bounds.start;if(date>bounds.end)return bounds.end;return date;}
+function currentAcademicDate(){return clampDate(localTodayISO());}
 function dateAttrs(bounds=academicYearBounds()){return `min="${bounds.start}" max="${bounds.end}"`;}
 function academicMonthAllowed(month){const b=academicYearBounds();return !!month&&month>=b.minMonth&&month<=b.maxMonth;}
 function clampAcademicMonth(month){const b=academicYearBounds();if(!month||month<b.minMonth)return b.minMonth;if(month>b.maxMonth)return b.maxMonth;return month;}
@@ -173,11 +192,31 @@ const meta={
   users:["Користувачі","Облікові записи та права доступу"],
   settings:["Налаштування","Навчальний рік, семестр і резервні копії"]
 };
-$$(".nav-btn").forEach(b=>b.onclick=()=>go(b.dataset.page));
+$$(".nav-btn").forEach(b=>b.onclick=()=>go(b.dataset.page,{focusCurrentCalendar:true}));
 $("#modalClose").onclick=closeModal;
 $("#modal").onclick=e=>{if(e.target.id==="modal")closeModal()};
-function go(p){
+function focusCalendarOnCurrentDate(page){
+  const today=currentAcademicDate();
+  if(page==="timetable"){
+    timetableState.week=mondayOf(today);
+  }
+  if(page==="roomGrid"){
+    roomGridState.date=today;
+    roomGridState.month=today.slice(0,7);
+  }
+}
+function go(p,options={}){
+  if(!meta[p]||!$("#page-"+p))p="home";
+  const enteringDifferentPage=p!==currentPage;
+  if(options.focusCurrentCalendar===true||(enteringDifferentPage&&["timetable","roomGrid"].includes(p))){
+    focusCalendarOnCurrentDate(p);
+  }
   currentPage=p;
+  rememberPage(p);
+  try{
+    const wanted="#"+p;
+    if(location.hash!==wanted)history.replaceState(null,"",location.pathname+location.search+wanted);
+  }catch(e){}
   $$(".nav-btn").forEach(x=>x.classList.toggle("active",x.dataset.page===p));
   $$(".page").forEach(x=>x.classList.remove("active"));
   $("#page-"+p).classList.add("active");
@@ -193,7 +232,7 @@ function openModal(html,wide=false){$("#modalBody").innerHTML=html;$("#modal").c
 function closeModal(){$("#modal").classList.add("hidden");$("#modalBody").innerHTML="";}
 
 function renderHome(){
-  const today=new Date().toISOString().slice(0,10);
+  const today=localTodayISO();
   const todays=db.schedule.filter(x=>x.date===today).sort((a,b)=>a.start.localeCompare(b.start));
   $("#page-home").innerHTML=`
     <div class="grid-kpi">
@@ -295,9 +334,9 @@ function roomMonthStrip(){
   return `<div class="room-month-strip">${monthDays(roomGridState.month).map(d=>{const date=new Date(d+"T12:00:00"),day=date.getDay(),wk=["Нд","Пн","Вт","Ср","Чт","Пт","Сб"][day];return `<button class="room-day-chip ${d===roomGridState.date?"active":""} ${day===0||day===6?"weekend":""}" onclick="selectRoomGridDate('${d}')"><span>${wk}</span><b>${Number(d.slice(8))}</b></button>`;}).join("")}</div>`;
 }
 function renderRoomGrid(){
-  roomGridState.date=clampDate(roomGridState.date||new Date().toISOString().slice(0,10));roomGridState.month=clampAcademicMonth((roomGridState.month||roomGridState.date.slice(0,7)));if(roomGridState.date.slice(0,7)!==roomGridState.month)roomGridState.date=clampDate(`${roomGridState.month}-01`);
+  roomGridState.date=clampDate(roomGridState.date||currentAcademicDate());roomGridState.month=clampAcademicMonth((roomGridState.month||roomGridState.date.slice(0,7)));if(roomGridState.date.slice(0,7)!==roomGridState.month)roomGridState.date=clampDate(`${roomGridState.month}-01`);
   const rooms=gridRooms(),pairs=bellPairs();
-  $("#page-roomGrid").innerHTML=`<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Заняття підтягуються автоматично з розкладу. Репетиції, зустрічі та інші бронювання додаються прямо тут.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Сьогодні</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
+  $("#page-roomGrid").innerHTML=`<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Заняття підтягуються автоматично з розкладу. Репетиції, зустрічі та інші бронювання додаються прямо тут.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
     <div class="room-grid-toolbar"><label>Місяць<input id="roomGridMonth" type="month" min="${academicYearBounds().minMonth}" max="${academicYearBounds().maxMonth}" value="${esc(roomGridState.month)}"></label><label>Дата<input id="roomGridDate" type="date" ${dateAttrs()} value="${esc(roomGridState.date)}"></label><div class="room-date-title">${esc(roomGridDateLabel(roomGridState.date))}</div><button class="secondary" onclick="go('rooms')">Налаштувати аудиторії</button></div>
     ${roomMonthStrip()}
     ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id);return `<div class="rg-cell ${events.length?"occupied":"free"}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${events.length?events.map(roomEventCard).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}
@@ -305,10 +344,11 @@ function renderRoomGrid(){
   </div>`;
   $("#roomGridMonth").onchange=e=>{const m=clampAcademicMonth(e.target.value);roomGridState.month=m;const day=roomGridState.date.slice(8);const max=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();roomGridState.date=clampDate(`${m}-${String(Math.min(Number(day),max)).padStart(2,"0")}`);renderRoomGrid();};
   $("#roomGridDate").onchange=e=>{if(e.target.value)selectRoomGridDate(e.target.value);};
+  requestAnimationFrame(()=>document.querySelector(".room-day-chip.active")?.scrollIntoView({behavior:"auto",block:"nearest",inline:"center"}));
 }
 function selectRoomGridDate(date){roomGridState.date=clampDate(date);roomGridState.month=roomGridState.date.slice(0,7);renderRoomGrid();}
 function shiftRoomGridDate(days){const next=addDays(roomGridState.date,days);if(dateInBounds(next))selectRoomGridDate(next);}
-function roomGridToday(){selectRoomGridDate(clampDate(new Date().toISOString().slice(0,10)));}
+function roomGridToday(){selectRoomGridDate(currentAcademicDate());}
 function bookingConflicts(item,ignoreId=null){
   const conflicts=[];
   db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&x.room===item.room)conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
@@ -316,7 +356,7 @@ function bookingConflicts(item,ignoreId=null){
   return [...new Set(conflicts)];
 }
 function openRoomBookingModal(id=null,preset={}){
-  const b=id?roomBookingById(id):{kind:"Репетиція",title:"",date:clampDate(preset.date||roomGridState.date||new Date().toISOString().slice(0,10)),pairId:preset.pairId||bellPairs()[0]?.id||null,room:preset.room||gridRooms()[0]?.name||activeRooms()[0]?.name||"",group:"",teacherId:null,teacher:"",showInTimetable:false,note:""};
+  const b=id?roomBookingById(id):{kind:"Репетиція",title:"",date:clampDate(preset.date||roomGridState.date||localTodayISO()),pairId:preset.pairId||bellPairs()[0]?.id||null,room:preset.room||gridRooms()[0]?.name||activeRooms()[0]?.name||"",group:"",teacherId:null,teacher:"",showInTimetable:false,note:""};
   if(!b)return;
   openModal(`<h2>${id?"Редагувати":"Нове"} бронювання аудиторії</h2><div class="notice">Цей запис блокує аудиторію. Він не впливає на навчальне навантаження викладача.</div><form id="roomBookingForm" class="form-grid"><label>Тип<select id="rbKind">${ROOM_BOOKING_KINDS.map(k=>`<option ${k===b.kind?"selected":""}>${esc(k)}</option>`).join("")}</select></label><label>Назва<input id="rbTitle" value="${esc(b.title||"")}" placeholder="Напр. Репетиція показу"></label><label>Дата<input id="rbDate" type="date" ${dateAttrs()} value="${esc(clampDate(b.date))}" required></label><label>Пара<select id="rbPair">${pairOptions(b.pairId)}</select></label><label>Аудиторія<select id="rbRoom">${activeRooms().slice().sort((a,c)=>a.name.localeCompare(c.name,"uk",{numeric:true})).map(r=>`<option ${r.name===b.room?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label><label>Група (необов’язково)<select id="rbGroup"><option value="">— без групи —</option>${groupOptions(b.group||"")}</select></label><label>Викладач / відповідальний (необов’язково)<select id="rbTeacher"><option value="">—</option>${activeTeacherOptions(b.teacherId)}</select></label><label class="check-label"><span>Основний розклад</span><span class="check-inline"><input id="rbShow" type="checkbox" ${b.showInTimetable?"checked":""}> Показувати в календарі обраної групи</span></label><label class="wide">Примітка<textarea id="rbNote" rows="3">${esc(b.note||"")}</textarea></label><div id="rbConflict" class="wide"></div><div class="wide actions"><button class="primary">${id?"Зберегти":"Забронювати"}</button>${id?`<button type="button" class="danger" onclick="deleteRoomBooking(${b.id})">Видалити бронювання</button>`:""}</div></form>`,true);
   const preview=()=>{const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),item={id:b.id,date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:$("#rbRoom").value,group:$("#rbGroup").value,teacherId:tid,teacher:teacherDisplay(t)};const cs=bookingConflicts(item,id);$("#rbConflict").innerHTML=cs.length?`<div class="conflict"><b>Конфлікт:</b><br>${cs.map(esc).join("<br>")}</div>`:`<div class="ok-box">Час вільний.</div>`;};
@@ -905,7 +945,7 @@ function lessonItemFromValues({date,pairId,start,end,group,disciplineId,discipli
 }
 function openLessonModal(id=null,preset={}){
   currentEditingLessonId=id;const existing=id?db.schedule.find(s=>s.id===id):null;
-  const today=clampDate(new Date().toISOString().slice(0,10)),firstPair=bellPairs()[0];
+  const today=clampDate(localTodayISO()),firstPair=bellPairs()[0];
   const x=existing||{date:clampDate(preset.date||today),pairId:preset.pairId||firstPair?.id||null,start:firstPair?.start||"",end:firstPair?.end||"",group:preset.group||db.groups[0]?.code||"",disciplineId:preset.disciplineId||null,discipline:"",type:preset.type||"",workloadHours:2,coverage:"Вся група",students:"",teacherId:preset.teacherId||null,teacher:"",room:"",note:""};
   const matchedPair=x.pairId||pairIdForTimes(x.start,x.end),pairSelected=matchedPair||"__custom__";
   openModal(`<h2>${id?"Редагувати заняття":"Додати заняття"}</h2><form id="lf" class="form-grid">
@@ -952,23 +992,23 @@ function openBulkScheduleModal(){
 function deleteLesson(id){if(confirm("Видалити заняття? Години автоматично повернуться у залишок навантаження.")){db.schedule=db.schedule.filter(x=>x.id!==id);save();}}
 
 /* Group timetable calendar */
-let timetableState={group:null,week:null};
-function mondayOf(dateStr){const d=new Date((dateStr||clampDate(new Date().toISOString().slice(0,10)))+"T12:00:00"),day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d.toISOString().slice(0,10);}
+let timetableState={group:rememberedTimetableGroup()||null,week:null};
+function mondayOf(dateStr){const d=new Date((dateStr||currentAcademicDate())+"T12:00:00"),day=d.getDay()||7;d.setDate(d.getDate()-day+1);return d.toISOString().slice(0,10);}
 function weekdayNameForDate(date){return new Date(date+"T12:00:00").toLocaleDateString("uk-UA",{weekday:"short"}).replace(".","");}
 function academicWeekDates(week){return Array.from({length:7},(_,i)=>addDays(week,i)).filter(dateInBounds);}
 function timetableCellBookings(group,date,pairId){return db.roomBookings.filter(x=>x.showInTimetable&&x.group===group&&x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
 function timetableCellLessons(group,date,pairId){return db.schedule.filter(x=>x.group===group&&x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
 function renderTimetable(){
   if(!timetableState.group||!db.groups.some(g=>g.code===timetableState.group))timetableState.group=db.groups[0]?.code||"";
-  if(!timetableState.week){timetableState.week=mondayOf(clampDate(new Date().toISOString().slice(0,10)));}
+  if(!timetableState.week){timetableState.week=mondayOf(currentAcademicDate());}
   let dates=academicWeekDates(timetableState.week);
   if(!dates.length){const b=academicYearBounds();timetableState.week=mondayOf(clampDate(timetableState.week,b));dates=academicWeekDates(timetableState.week);}
   const first=dates[0]||academicYearBounds().start,end=dates.at(-1)||academicYearBounds().end,minWidth=88+Math.max(1,dates.length)*150;
-  $("#page-timetable").innerHTML=`<div class="card section timetable-shell"><div class="section-head"><div><h2>Розклад групи</h2><div class="small">${formatDate(first)} — ${formatDate(end)} · навчальний рік ${esc(db.academicYear)}</div></div><div class="actions"><button class="secondary" onclick="shiftTimetableWeek(-7)">← Тиждень</button><button class="secondary" onclick="timetableToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftTimetableWeek(7)">Тиждень →</button></div></div><div class="toolbar"><label>Група<select id="timetableGroup">${groupOptions(timetableState.group)}</select></label><span class="small">Календар доступний лише з ${formatDate(academicYearBounds().start)} до ${formatDate(academicYearBounds().end)}.</span></div><div class="timetable-wrap"><div class="timetable-grid" style="grid-template-columns:88px repeat(${dates.length},minmax(150px,1fr));min-width:${minWidth}px"><div class="tt-corner">Пара</div>${dates.map(d=>`<div class="tt-day"><b>${esc(weekdayNameForDate(d))}</b><span>${formatDate(d).slice(0,5)}</span></div>`).join("")}${bellPairs().map(pair=>`<div class="tt-pair"><b>${pair.id}</b><span>пара</span>${pair.start&&pair.end?`<small>${pair.start}<br>${pair.end}</small>`:""}</div>${dates.map(date=>{const lessons=timetableCellLessons(timetableState.group,date,pair.id),bookings=timetableCellBookings(timetableState.group,date,pair.id);return `<div class="tt-cell" onclick="if(event.target===this)openLessonModal(null,{group:'${esc(timetableState.group)}',date:'${date}',pairId:${JSON.stringify(pair.id)}})">${lessons.map(x=>{const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";return `<button class="tt-lesson" style="--lesson-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><b>${esc(x.discipline)}</b><span>${esc(x.type||"")}</span><span>${esc(x.teacher||"—")}</span><strong>${esc(x.room||"—")}</strong></button>`;}).join("")}${bookings.map(x=>`<button class="tt-lesson tt-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><b>${esc(roomBookingLabel(x))}</b><span>${esc(x.kind||"")}</span><span>${esc(x.teacher||"")}</span><strong>${esc(x.room||"—")}</strong></button>`).join("")}</div>`;}).join("")}`).join("")}</div></div><div class="small timetable-help">Клік по порожній клітинці — додати заняття одразу на цю дату й пару. Липень і серпень у навчальному календарі не відображаються.</div></div>`;
-  $("#timetableGroup").onchange=e=>{timetableState.group=e.target.value;renderTimetable();};
+  $("#page-timetable").innerHTML=`<div class="card section timetable-shell"><div class="section-head"><div><h2>Розклад групи</h2><div class="small">${formatDate(first)} — ${formatDate(end)} · навчальний рік ${esc(db.academicYear)}</div></div><div class="actions"><button class="secondary" onclick="shiftTimetableWeek(-7)">← Тиждень</button><button class="secondary" onclick="timetableToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftTimetableWeek(7)">Тиждень →</button></div></div><div class="toolbar"><label>Група<select id="timetableGroup">${groupOptions(timetableState.group)}</select></label><span class="small">Календар доступний лише з ${formatDate(academicYearBounds().start)} до ${formatDate(academicYearBounds().end)}.</span></div><div class="timetable-wrap"><div class="timetable-grid" style="grid-template-columns:88px repeat(${dates.length},minmax(150px,1fr));min-width:${minWidth}px"><div class="tt-corner">Пара</div>${dates.map(d=>`<div class="tt-day ${d===currentAcademicDate()?"current-academic-day":""}"><b>${esc(weekdayNameForDate(d))}</b><span>${formatDate(d).slice(0,5)}</span></div>`).join("")}${bellPairs().map(pair=>`<div class="tt-pair"><b>${pair.id}</b><span>пара</span>${pair.start&&pair.end?`<small>${pair.start}<br>${pair.end}</small>`:""}</div>${dates.map(date=>{const lessons=timetableCellLessons(timetableState.group,date,pair.id),bookings=timetableCellBookings(timetableState.group,date,pair.id);return `<div class="tt-cell ${date===currentAcademicDate()?"current-academic-column":""}" onclick="if(event.target===this)openLessonModal(null,{group:'${esc(timetableState.group)}',date:'${date}',pairId:${JSON.stringify(pair.id)}})">${lessons.map(x=>{const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";return `<button class="tt-lesson" style="--lesson-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><b>${esc(x.discipline)}</b><span>${esc(x.type||"")}</span><span>${esc(x.teacher||"—")}</span><strong>${esc(x.room||"—")}</strong></button>`;}).join("")}${bookings.map(x=>`<button class="tt-lesson tt-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><b>${esc(roomBookingLabel(x))}</b><span>${esc(x.kind||"")}</span><span>${esc(x.teacher||"")}</span><strong>${esc(x.room||"—")}</strong></button>`).join("")}</div>`;}).join("")}`).join("")}</div></div><div class="small timetable-help">Клік по порожній клітинці — додати заняття одразу на цю дату й пару. Липень і серпень у навчальному календарі не відображаються.</div></div>`;
+  $("#timetableGroup").onchange=e=>{timetableState.group=e.target.value;rememberTimetableGroup(timetableState.group);renderTimetable();};
 }
 function shiftTimetableWeek(days){const next=addDays(timetableState.week,days);if(academicWeekDates(next).length){timetableState.week=next;renderTimetable();}}
-function timetableToday(){timetableState.week=mondayOf(clampDate(new Date().toISOString().slice(0,10)));renderTimetable();}
+function timetableToday(){timetableState.week=mondayOf(currentAcademicDate());renderTimetable();}
 
 /* Settings */
 function renderBellRows(){return bellPairs().map(p=>`<div class="bell-row" data-bell-row data-id="${esc(p.id)}"><div class="bell-number">${esc(p.id)} пара</div><input data-bstart type="time" value="${esc(p.start||"")}"><span>—</span><input data-bend type="time" value="${esc(p.end||"")}"><button class="danger small-btn" onclick="removeBellPair(${JSON.stringify(p.id)})">×</button></div>`).join("");}
@@ -987,8 +1027,20 @@ function saveBellSchedule(){db.bellSchedule=$$("[data-bell-row]").map(r=>({id:Nu
 function addBellPair(){const next=bellPairs().length?Math.max(...bellPairs().map(p=>Number(p.id)||0))+1:1;db.bellSchedule.push({id:next,start:"",end:""});save();}
 function removeBellPair(id){if((db.schedule.some(s=>String(s.pairId)===String(id))||db.roomBookings.some(b=>String(b.pairId)===String(id)))&&!confirm("На цій парі вже є заняття. Видалити пару з довідника? Самі заняття не видаляться."))return;db.bellSchedule=db.bellSchedule.filter(p=>String(p.id)!==String(id));save();}
 function savePeriod(){db.academicYear=$("#setYear").value.trim();db.semester=+$("#setSem").value;save();alert("Збережено.");}
-function exportData(){const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`REMS-ROZKLAD-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);}
+function exportData(){const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`REMS-ROZKLAD-backup-${localTodayISO()}.json`;a.click();URL.revokeObjectURL(a.href);}
 $("#importFile").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{db=migrate(JSON.parse(r.result));save();alert("Дані імпортовано.");}catch(err){alert("Не вдалося прочитати файл.");}};r.readAsText(f);e.target.value="";};
 function resetData(){if(confirm("Повернути початкові дані?")){db=clone(window.REMS_INITIAL_DATA);save();go("home");}}
 
-go("home");
+const startPage=(()=>{
+  const hash=(location.hash||"").replace(/^#/,"");
+  if(meta[hash]&&$("#page-"+hash))return hash;
+  const saved=rememberedPage();
+  if(meta[saved]&&$("#page-"+saved))return saved;
+  return "home";
+})();
+go(startPage,{focusCurrentCalendar:["timetable","roomGrid"].includes(startPage)});
+
+window.addEventListener("hashchange",()=>{
+  const p=(location.hash||"").replace(/^#/,"");
+  if(meta[p]&&p!==currentPage)go(p,{focusCurrentCalendar:["timetable","roomGrid"].includes(p)});
+});
