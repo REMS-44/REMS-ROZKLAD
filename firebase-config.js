@@ -2,7 +2,7 @@
 // Firebase web configuration is public client-side configuration.
 // Never place service-account keys, private keys or passwords in this file.
 window.REMS_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAV1kYVYT06BuG0itRdxQAz09fNYx4ru8g",
+  apiKey: "AIzaSyAV1kYVYTO6BuG0itRdxQAz09fNYx4ru8g",
   authDomain: "rems-rozklad-2026-2027.firebaseapp.com",
   projectId: "rems-rozklad-2026-2027",
   storageBucket: "rems-rozklad-2026-2027.firebasestorage.app",
