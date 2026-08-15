@@ -1096,19 +1096,79 @@ function deleteLesson(id){if(confirm("Видалити заняття? Годи�
 
 /* Group timetable calendar */
 let timetableState={group:rememberedTimetableGroup()||null,week:null};
+
 function mondayOf(dateStr){
   const d=new Date((dateStr||currentAcademicDate())+"T12:00:00"),day=d.getDay()||7;
   d.setDate(d.getDate()-day+1);
   return d.toISOString().slice(0,10);
 }
-function weekdayNameForDate(date){return new Date(date+"T12:00:00").toLocaleDateString("uk-UA",{weekday:"short"}).replace(".","");}
-function academicWeekDates(week){return Array.from({length:7},(_,i)=>addDays(week,i)).filter(dateInBounds);}
-function timetableCellBookings(group,date,pairId){return db.roomBookings.filter(x=>x.showInTimetable&&x.group===group&&x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
-function timetableCellLessons(group,date,pairId){return db.schedule.filter(x=>x.group===group&&x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
+function weekdayNameForDate(date){
+  return new Date(date+"T12:00:00").toLocaleDateString("uk-UA",{weekday:"short"}).replace(".","");
+}
+function academicWeekDates(week){
+  return Array.from({length:7},(_,i)=>addDays(week,i)).filter(dateInBounds);
+}
+function normGroup(v){
+  return String(v||"").trim().replace(/\s+/g," ").toLowerCase();
+}
+function scheduleLessonsForGroup(group){
+  const key=normGroup(group);
+  return db.schedule.filter(x=>normGroup(x.group)===key&&dateInBounds(x.date));
+}
+function timetableBookingsForGroup(group){
+  const key=normGroup(group);
+  return db.roomBookings.filter(x=>x.showInTimetable&&normGroup(x.group)===key&&dateInBounds(x.date));
+}
+function lessonSlotId(x){
+  if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return `pair:${String(x.pairId)}`;
+  const derived=pairIdForTimes(x?.start||"",x?.end||"");
+  if(derived!==null&&derived!==undefined&&String(derived)!=="")return `pair:${String(derived)}`;
+  if(x?.start||x?.end)return `time:${x.start||""}-${x.end||""}`;
+  return "unslotted";
+}
+function timetablePairRows(group,dates){
+  const rows=[];
+  const seen=new Set();
+
+  // Current bell schedule first.
+  bellPairs().forEach(p=>{
+    const key=`pair:${String(p.id)}`;
+    rows.push({key,id:p.id,label:`${p.id} пара`,start:p.start||"",end:p.end||"",sort:Number(p.id)||999});
+    seen.add(key);
+  });
+
+  // Add any legacy/unknown slots actually used by lessons/bookings this week.
+  const dateSet=new Set(dates);
+  const events=[
+    ...scheduleLessonsForGroup(group).filter(x=>dateSet.has(x.date)),
+    ...timetableBookingsForGroup(group).filter(x=>dateSet.has(x.date))
+  ];
+  events.forEach(x=>{
+    const key=lessonSlotId(x);
+    if(seen.has(key))return;
+    seen.add(key);
+    if(key.startsWith("pair:")){
+      const id=key.slice(5);
+      rows.push({key,id,label:`${id} пара`,start:x.start||"",end:x.end||"",sort:Number(id)||900});
+    }else if(key.startsWith("time:")){
+      rows.push({key,id:null,label:"За часом",start:x.start||"",end:x.end||"",sort:950});
+    }else{
+      rows.push({key,id:null,label:"Без номера пари",start:"",end:"",sort:999});
+    }
+  });
+
+  return rows.sort((a,b)=>a.sort-b.sort||String(a.label).localeCompare(String(b.label),"uk"));
+}
+function timetableCellLessons(group,date,slotKey){
+  return scheduleLessonsForGroup(group).filter(x=>x.date===date&&lessonSlotId(x)===slotKey);
+}
+function timetableCellBookings(group,date,slotKey){
+  return timetableBookingsForGroup(group).filter(x=>x.date===date&&lessonSlotId(x)===slotKey);
+}
 function timetableDatesForGroup(group){
   const dates=[
-    ...db.schedule.filter(x=>x.group===group&&dateInBounds(x.date)).map(x=>x.date),
-    ...db.roomBookings.filter(x=>x.showInTimetable&&x.group===group&&dateInBounds(x.date)).map(x=>x.date)
+    ...scheduleLessonsForGroup(group).map(x=>x.date),
+    ...timetableBookingsForGroup(group).map(x=>x.date)
   ].filter(Boolean);
   return [...new Set(dates)].sort();
 }
@@ -1119,31 +1179,67 @@ function nearestTimetableDate(group,from=currentAcademicDate()){
 }
 function bestTimetableGroup(){
   const remembered=rememberedTimetableGroup();
-  if(remembered&&db.groups.some(g=>g.code===remembered))return remembered;
+  if(remembered&&db.groups.some(g=>normGroup(g.code)===normGroup(remembered)))return remembered;
   const from=currentAcademicDate();
   const candidates=db.groups.map(g=>{
     const dates=timetableDatesForGroup(g.code);
     const future=dates.find(d=>d>=from),chosen=future||dates.at(-1)||null;
-    return {code:g.code,date:chosen,hasFuture:!!future};
+    return {code:g.code,date:chosen,hasFuture:!!future,count:dates.length};
   }).filter(x=>x.date);
   candidates.sort((a,b)=>{
     if(a.hasFuture!==b.hasFuture)return a.hasFuture?-1:1;
-    return a.date.localeCompare(b.date);
+    if(a.date!==b.date)return a.date.localeCompare(b.date);
+    return b.count-a.count;
   });
   return candidates[0]?.code||db.groups[0]?.code||"";
 }
-function timetableWeekEventCount(group,dates){
+function timetableWeekStats(group,dates){
   const set=new Set(dates);
-  return db.schedule.filter(x=>x.group===group&&set.has(x.date)).length+
-    db.roomBookings.filter(x=>x.showInTimetable&&x.group===group&&set.has(x.date)).length;
+  const lessons=scheduleLessonsForGroup(group);
+  const bookings=timetableBookingsForGroup(group);
+  return {
+    totalLessons:lessons.length,
+    totalBookings:bookings.length,
+    weekLessons:lessons.filter(x=>set.has(x.date)).length,
+    weekBookings:bookings.filter(x=>set.has(x.date)).length
+  };
 }
 function jumpTimetableToDate(date){
   if(!date)return;
   timetableState.week=mondayOf(clampDate(date));
   renderTimetable();
 }
+function upcomingTimetableRows(group,limit=12){
+  const today=currentAcademicDate();
+  const rows=[
+    ...scheduleLessonsForGroup(group).map(x=>({kind:"lesson",date:x.date,pairId:x.pairId,start:x.start,end:x.end,data:x})),
+    ...timetableBookingsForGroup(group).map(x=>({kind:"booking",date:x.date,pairId:x.pairId,start:x.start,end:x.end,data:x}))
+  ].sort((a,b)=>{
+    const ad=a.date+(String(a.pairId??"99").padStart(3,"0"))+(a.start||"");
+    const bd=b.date+(String(b.pairId??"99").padStart(3,"0"))+(b.start||"");
+    return ad.localeCompare(bd);
+  });
+  const future=rows.filter(x=>x.date>=today);
+  const source=future.length?future:rows.slice().reverse();
+  return source.slice(0,limit);
+}
+function timetableUpcomingHtml(group){
+  const rows=upcomingTimetableRows(group);
+  if(!rows.length)return `<div class="empty">Для цієї групи ще немає виставлених занять.</div>`;
+  return `<div class="ready-schedule-list">${rows.map(r=>{
+    const x=r.data;
+    const title=r.kind==="lesson"?(x.discipline||"Заняття"):(x.title||roomBookingLabel(x));
+    const meta=r.kind==="lesson"?[x.type,x.teacher,x.room&&`ауд. ${x.room}`]:[x.kind,x.teacher,x.room&&`ауд. ${x.room}`];
+    return `<button class="ready-schedule-row" onclick="jumpTimetableToDate('${esc(r.date)}')">
+      <span class="ready-date"><b>${formatDate(r.date).slice(0,5)}</b><small>${esc(weekdayNameForDate(r.date))}</small></span>
+      <span class="ready-pair"><b>${x.pairId?`${esc(x.pairId)} пара`:(x.start||x.end?`${esc(x.start||"")}–${esc(x.end||"")}`:"—")}</b></span>
+      <span class="ready-main"><b>${esc(title)}</b><small>${meta.filter(Boolean).map(esc).join(" · ")}</small></span>
+      <span class="ready-arrow">→</span>
+    </button>`;
+  }).join("")}</div>`;
+}
 function renderTimetable(){
-  if(!timetableState.group||!db.groups.some(g=>g.code===timetableState.group)){
+  if(!timetableState.group||!db.groups.some(g=>normGroup(g.code)===normGroup(timetableState.group))){
     timetableState.group=bestTimetableGroup();
     rememberTimetableGroup(timetableState.group);
   }
@@ -1151,57 +1247,89 @@ function renderTimetable(){
 
   let dates=academicWeekDates(timetableState.week);
   if(!dates.length){
-    const b=academicYearBounds();
-    timetableState.week=mondayOf(clampDate(timetableState.week,b));
+    timetableState.week=mondayOf(currentAcademicDate());
     dates=academicWeekDates(timetableState.week);
   }
 
   const first=dates[0]||academicYearBounds().start;
-  const end=dates.at(-1)||academicYearBounds().end;
-  const minWidth=88+Math.max(1,dates.length)*150;
-  const eventCount=timetableWeekEventCount(timetableState.group,dates);
+  const last=dates.at(-1)||academicYearBounds().end;
+  const stats=timetableWeekStats(timetableState.group,dates);
+  const weekCount=stats.weekLessons+stats.weekBookings;
   const nearest=nearestTimetableDate(timetableState.group,currentAcademicDate());
   const nearestOutside=nearest&&!dates.includes(nearest);
-  const groupHasAny=timetableDatesForGroup(timetableState.group).length>0;
-
-  const emptyNotice=!eventCount
-    ? `<div class="timetable-empty-notice">
-        <div><b>${groupHasAny?"На цьому тижні занять немає.":"Для цієї групи розклад ще не заповнений."}</b>
-        <span>${nearestOutside?`Найближча дата з розкладом: ${formatDate(nearest)}.`:""}</span></div>
-        ${nearestOutside?`<button class="secondary" onclick="jumpTimetableToDate('${nearest}')">Показати найближче заняття →</button>`:""}
-      </div>`
-    : "";
+  const pairRows=timetablePairRows(timetableState.group,dates);
+  const minWidth=88+Math.max(1,dates.length)*150;
 
   $("#page-timetable").innerHTML=`
     <div class="card section timetable-shell">
       <div class="section-head">
-        <div><h2>Розклад групи</h2><div class="small">${formatDate(first)} — ${formatDate(end)} · навчальний рік ${esc(db.academicYear)}</div></div>
-        <div class="actions"><button class="secondary" onclick="shiftTimetableWeek(-7)">← Тиждень</button><button class="secondary" onclick="timetableToday()">Поточний тиждень</button><button class="secondary" onclick="shiftTimetableWeek(7)">Тиждень →</button></div>
+        <div>
+          <h2>Розклад групи</h2>
+          <div class="small">${formatDate(first)} — ${formatDate(last)} · навчальний рік ${esc(db.academicYear)}</div>
+        </div>
+        <div class="actions">
+          <button class="secondary" onclick="shiftTimetableWeek(-7)">← Тиждень</button>
+          <button class="secondary" onclick="timetableToday()">Поточний тиждень</button>
+          <button class="secondary" onclick="shiftTimetableWeek(7)">Тиждень →</button>
+        </div>
       </div>
+
       <div class="toolbar timetable-toolbar">
         <label>Група<select id="timetableGroup">${groupOptions(timetableState.group)}</select></label>
         <label>Перейти до дати<input id="timetableDateJump" type="date" ${dateAttrs()} value="${esc(currentAcademicDate())}"></label>
-        <div class="timetable-week-status"><b>${eventCount}</b><span>подій цього тижня</span></div>
+        <div class="ready-count"><b>${stats.totalLessons}</b><span>занять групи в базі</span></div>
+        <div class="timetable-week-status"><b>${weekCount}</b><span>подій цього тижня</span></div>
       </div>
-      ${emptyNotice}
+
+      ${!weekCount?`<div class="timetable-empty-notice">
+        <div>
+          <b>${stats.totalLessons||stats.totalBookings?"На цьому тижні занять немає.":"Для цієї групи розклад ще не заповнений."}</b>
+          <span>${nearestOutside?`Найближча дата з розкладом: ${formatDate(nearest)}.`:""}</span>
+        </div>
+        ${nearestOutside?`<button class="secondary" onclick="jumpTimetableToDate('${nearest}')">Показати найближче заняття →</button>`:""}
+      </div>`:""}
+
       <div class="timetable-wrap">
         <div class="timetable-grid" style="grid-template-columns:88px repeat(${dates.length},minmax(150px,1fr));min-width:${minWidth}px">
           <div class="tt-corner">Пара</div>
-          ${dates.map(d=>`<div class="tt-day ${d===currentAcademicDate()?"current-academic-day":""}"><b>${esc(weekdayNameForDate(d))}</b><span>${formatDate(d).slice(0,5)}</span></div>`).join("")}
-          ${bellPairs().map(pair=>`
-            <div class="tt-pair"><b>${pair.id}</b><span>пара</span>${pair.start&&pair.end?`<small>${pair.start}<br>${pair.end}</small>`:""}</div>
+          ${dates.map(d=>`<div class="tt-day ${d===currentAcademicDate()?"current-academic-day":""}">
+            <b>${esc(weekdayNameForDate(d))}</b><span>${formatDate(d).slice(0,5)}</span>
+          </div>`).join("")}
+
+          ${pairRows.map(pair=>`
+            <div class="tt-pair"><b>${esc(pair.label)}</b>${pair.start||pair.end?`<small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small>`:""}</div>
             ${dates.map(date=>{
-              const lessons=timetableCellLessons(timetableState.group,date,pair.id);
-              const bookings=timetableCellBookings(timetableState.group,date,pair.id);
-              return `<div class="tt-cell ${date===currentAcademicDate()?"current-academic-column":""}" onclick="if(event.target===this)openLessonModal(null,{group:'${esc(timetableState.group)}',date:'${date}',pairId:${JSON.stringify(pair.id)}})">
-                ${lessons.map(x=>{const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";return `<button class="tt-lesson" style="--lesson-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><b>${esc(x.discipline)}</b><span>${esc(x.type||"")}</span><span>${esc(x.teacher||"—")}</span><strong>${esc(x.room||"—")}</strong></button>`;}).join("")}
-                ${bookings.map(x=>`<button class="tt-lesson tt-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><b>${esc(roomBookingLabel(x))}</b><span>${esc(x.kind||"")}</span><span>${esc(x.teacher||"")}</span><strong>${esc(x.room||"—")}</strong></button>`).join("")}
+              const lessons=timetableCellLessons(timetableState.group,date,pair.key);
+              const bookings=timetableCellBookings(timetableState.group,date,pair.key);
+              const canCreate=pair.id!==null&&pair.id!==undefined;
+              return `<div class="tt-cell ${date===currentAcademicDate()?"current-academic-column":""}" ${canCreate?`onclick="if(event.target===this)openLessonModal(null,{group:'${esc(timetableState.group)}',date:'${date}',pairId:${JSON.stringify(pair.id)}})"`:""}>
+                ${lessons.map(x=>{
+                  const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";
+                  return `<button class="tt-lesson" style="--lesson-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})">
+                    <b>${esc(x.discipline||"Заняття")}</b>
+                    <span>${esc(x.type||"")}</span>
+                    <span>${esc(x.teacher||"—")}</span>
+                    <strong>${esc(x.room||"—")}</strong>
+                  </button>`;
+                }).join("")}
+                ${bookings.map(x=>`<button class="tt-lesson tt-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})">
+                  <b>${esc(roomBookingLabel(x))}</b><span>${esc(x.kind||"")}</span><span>${esc(x.teacher||"")}</span><strong>${esc(x.room||"—")}</strong>
+                </button>`).join("")}
               </div>`;
             }).join("")}
           `).join("")}
         </div>
       </div>
-      <div class="small timetable-help">Клік по порожній клітинці — додати заняття саме на цю дату й пару. Липень і серпень не відображаються.</div>
+
+      <div class="small timetable-help">Календар тепер показує також старі записи з нестандартним або відсутнім номером пари — вони більше не губляться.</div>
+    </div>
+
+    <div class="card section">
+      <div class="section-head">
+        <div><h2>Найближчі заняття групи</h2><div class="small">Цей список читається безпосередньо з усіх записів готового розкладу.</div></div>
+        <span class="badge">${stats.totalLessons} ЗАНЯТЬ</span>
+      </div>
+      ${timetableUpcomingHtml(timetableState.group)}
     </div>`;
 
   $("#timetableGroup").onchange=e=>{
@@ -1212,9 +1340,17 @@ function renderTimetable(){
   };
   $("#timetableDateJump").onchange=e=>{if(e.target.value)jumpTimetableToDate(e.target.value);};
 }
-function shiftTimetableWeek(days){const next=addDays(timetableState.week,days);if(academicWeekDates(next).length){timetableState.week=next;renderTimetable();}}
-function timetableToday(){timetableState.week=mondayOf(currentAcademicDate());renderTimetable();}
-
+function shiftTimetableWeek(days){
+  const next=addDays(timetableState.week,days);
+  if(academicWeekDates(next).length){
+    timetableState.week=next;
+    renderTimetable();
+  }
+}
+function timetableToday(){
+  timetableState.week=mondayOf(currentAcademicDate());
+  renderTimetable();
+}
 
 /* Individual teacher schedule */
 let teacherScheduleFeed={teacherId:null,schedule:[],roomBookings:[],academicYear:"",bellSchedule:[]};

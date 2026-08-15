@@ -182,3 +182,19 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
   body.teacher-portal-mode .sidebar nav{display:flex}
   body.teacher-portal-mode #teacherScheduleNav{display:flex!important}
 }
+
+/* v1.0.1 · ready timetable reliability */
+.ready-count{display:flex;flex-direction:column;min-width:120px;padding:8px 11px;background:#eef8f2;border:1px solid #d5eadc;border-radius:11px}
+.ready-count b{font-size:18px;color:#17643b}
+.ready-count span{font-size:10px;color:var(--muted)}
+.ready-schedule-list{display:flex;flex-direction:column;gap:7px}
+.ready-schedule-row{width:100%;display:grid;grid-template-columns:78px 88px minmax(0,1fr) 24px;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);background:#fff;border-radius:12px;text-align:left}
+.ready-schedule-row:hover{background:#faf8ff;border-color:#d9ccef}
+.ready-date,.ready-pair,.ready-main{display:flex;flex-direction:column;gap:2px}
+.ready-date b,.ready-pair b,.ready-main b{color:var(--ink)}
+.ready-date small,.ready-main small{color:var(--muted);font-size:10px}
+.ready-arrow{font-size:18px;color:var(--purple2);text-align:right}
+@media(max-width:700px){
+  .ready-schedule-row{grid-template-columns:62px 70px minmax(0,1fr)}
+  .ready-arrow{display:none}
+}
