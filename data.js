@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 10,
+  "schemaVersion": 11,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -868,56 +868,64 @@ window.REMS_INITIAL_DATA = {
       "name": "230",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 1
     },
     {
       "id": 2,
       "name": "321",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 2
     },
     {
       "id": 3,
       "name": "322",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 3
     },
     {
       "id": 4,
       "name": "322а",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 4
     },
     {
       "id": 5,
       "name": "324",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 5
     },
     {
       "id": 6,
       "name": "324а",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 6
     },
     {
       "id": 7,
       "name": "325",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 7
     },
     {
       "id": 8,
       "name": "325а",
       "status": "active",
       "note": "",
-      "showInGrid": true
+      "showInGrid": true,
+      "gridOrder": 8
     }
   ],
   "teachers": [],

@@ -12,9 +12,17 @@ service cloud.firestore {
     function roleIs(r) { return enabled() && profile().role == r; }
     function admin() { return roleIs('admin'); }
     function dispatcher() { return roleIs('dispatcher'); }
+    function teacher() { return roleIs('teacher'); }
+    function fullReader() {
+      return enabled() && (profile().role == 'admin' || profile().role == 'dispatcher' || profile().role == 'viewer');
+    }
+    function ownTeacherRecord() {
+      return teacher()
+        && profile().teacherId != null
+        && resource.data.teacherId == profile().teacherId;
+    }
 
     match /system/bootstrap {
-      // Needed only so the very first authenticated account can bootstrap the system.
       allow read: if signedIn();
       allow create: if signedIn()
                     && !exists(/databases/$(database)/documents/system/bootstrap)
@@ -23,12 +31,8 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      // A user can read their own access profile; admins can manage the directory.
       allow get: if signedIn() && (request.auth.uid == uid || admin());
       allow list: if admin();
-
-      // After bootstrap, only an existing admin can provision another user's profile.
-      // Creating an Authentication account alone therefore does NOT grant database access.
       allow create: if signedIn() && (
         (
           !exists(/databases/$(database)/documents/system/bootstrap)
@@ -37,25 +41,36 @@ service cloud.firestore {
         )
         || admin()
       );
-
       allow update, delete: if admin();
     }
 
-    // All enabled provisioned users can read the common workspace.
-    match /workspaces/{workspaceId}/{document=**} {
+    // Teachers need only the common academic period / bell schedule.
+    match /workspaces/{workspaceId}/settings/{docId} {
       allow read: if enabled();
       allow write: if admin();
     }
 
-    // Dispatcher can change timetable records and conflict locks, but not curricula/workload.
+    // A teacher can read only schedule documents assigned to their linked teacherId.
+    // The client query must include where("teacherId", "==", profile.teacherId).
     match /workspaces/{workspaceId}/schedule/{lessonId} {
+      allow read: if fullReader() || ownTeacherRecord();
       allow write: if admin() || dispatcher();
     }
+
     match /workspaces/{workspaceId}/roomBookings/{bookingId} {
+      allow read: if fullReader() || ownTeacherRecord();
       allow write: if admin() || dispatcher();
     }
+
     match /workspaces/{workspaceId}/locks/{lockId} {
+      allow read: if fullReader();
       allow write: if admin() || dispatcher();
+    }
+
+    // Other departmental collections are not readable by the teacher role.
+    match /workspaces/{workspaceId}/{collectionName}/{docId} {
+      allow read: if fullReader();
+      allow write: if admin();
     }
   }
 }

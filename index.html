@@ -12,6 +12,7 @@
   <aside class="sidebar">
     <div class="brand"><div class="brand-mark">Р</div><div><b>РЕМС</b><span>РОЗКЛАД</span></div></div>
     <nav>
+      <button class="nav-btn teacher-only-nav" id="teacherScheduleNav" data-page="mySchedule" style="display:none">▦ <span>Мій розклад</span></button>
       <button class="nav-btn active" data-page="home">⌂ <span>Головна</span></button>
 
       <div class="nav-section-label">ПЛАНУВАННЯ</div>
@@ -35,7 +36,7 @@
       <div id="cloudStatusDot" class="cloud-dot local"></div>
       <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
     </div>
-    <div class="sidebar-note">Версія 0.9.9 · чиста навігація</div>
+    <div class="sidebar-note">Версія 1.0 · аудиторії + розклад викладача</div>
   </aside>
   <main class="main">
     <header class="topbar">
@@ -44,6 +45,7 @@
     <section id="page-home" class="page active"></section>
     <section id="page-schedule" class="page"></section>
     <section id="page-timetable" class="page"></section>
+    <section id="page-mySchedule" class="page"></section>
     <section id="page-groups" class="page"></section>
     <section id="page-students" class="page"></section>
     <section id="page-rooms" class="page"></section>

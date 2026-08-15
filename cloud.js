@@ -2,7 +2,7 @@ import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, deleteUser } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 import {
   getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc,
-  onSnapshot, writeBatch, runTransaction, serverTimestamp
+  onSnapshot, writeBatch, runTransaction, serverTimestamp, query, where
 } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
 
 const ARRAY_COLLECTIONS=["groups","students","rooms","teachers","curricula","disciplines","lessonTypes"];
@@ -60,6 +60,8 @@ window.REMS_CLOUD={
   uploadLocal:()=>uploadWholeState(window.REMS_GET_STATE?.()),
   role:()=>profile?.role||null,
   email:()=>user?.email||null,
+  teacherId:()=>profile?.teacherId??null,
+  profile:()=>profile?clean(profile):null,
   renderUsersPage,
   listUsers:listUserProfiles,
   createUser:createManagedUser,
@@ -100,8 +102,11 @@ function showAccessBlocked(message){
   o.querySelector("#blockedSignOut").onclick=()=>signOut(auth);
 }
 function updateAdminUi(){
-  const nav=document.querySelector("#usersNav");
-  if(nav)nav.style.display=profile?.role==="admin"?"":"none";
+  const teacherMode=profile?.role==="teacher";
+  document.body.classList.toggle("teacher-portal-mode",teacherMode);
+  const teacherNav=document.querySelector("#teacherScheduleNav");
+  if(teacherNav)teacherNav.style.display=teacherMode?"":"none";
+  window.REMS_APPLY_ROLE_ACCESS?.();
   if(window.REMS_CURRENT_PAGE?.()==="users"&&profile?.role!=="admin"){
     const mount=document.querySelector("#page-users");
     if(mount)mount.innerHTML=`<div class="card section"><div class="empty">Керування користувачами доступне лише адміністратору.</div></div>`;
@@ -176,7 +181,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=9;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=11;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
@@ -230,7 +235,7 @@ async function commitOps(ops){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:9,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
+function settingsPart(st){return clean({schemaVersion:11,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;
@@ -344,6 +349,21 @@ async function deleteRoomBookingCloud(id){
   await runTransaction(fire,async tx=>{const snap=await tx.get(bref);if(!snap.exists())return;const locks=lockSpecs(snap.data()),lockSnaps=[];for(const l of locks){const ref=itemRef("locks",l.id);lockSnaps.push({ref,snap:await tx.get(ref)});}for(const x of lockSnaps){const existing=x.snap.exists()?String(x.snap.data().ownerKey||(`schedule:${x.snap.data().ownerLessonId}`)):"";if(existing===owner)tx.delete(x.ref);}tx.delete(bref);});
 }
 
+function subscribeTeacherPortal(){
+  unsubs.forEach(f=>f());unsubs=[];
+  const teacherId=profile?.teacherId??null;
+  const feed={teacherId,schedule:[],roomBookings:[],academicYear:"",bellSchedule:[]};
+  const apply=()=>window.REMS_SET_TEACHER_FEED?.(clean(feed));
+  unsubs.push(onSnapshot(settingsRef(),snap=>{
+    if(snap.exists()){const s=snap.data();feed.academicYear=s.academicYear||"";feed.bellSchedule=s.bellSchedule||[];}
+    apply();
+  },cloudErr));
+  if(!teacherId){apply();return;}
+  const scheduleQuery=query(collRef(SCHEDULE_COLLECTION),where("teacherId","==",Number(teacherId)));
+  const bookingsQuery=query(collRef(ROOM_BOOKINGS_COLLECTION),where("teacherId","==",Number(teacherId)));
+  unsubs.push(onSnapshot(scheduleQuery,snap=>{feed.schedule=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
+  unsubs.push(onSnapshot(bookingsQuery,snap=>{feed.roomBookings=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
+}
 function subscribeRealtime(){
   unsubs.forEach(f=>f());unsubs=[];
   const state=remoteState||clean(window.REMS_INITIAL_DATA||{});
@@ -370,7 +390,7 @@ function roleHelp(r){
   return ({
     admin:"Повний доступ до всіх даних і керування користувачами.",
     dispatcher:"Може складати та редагувати розклад; інші дані — перегляд.",
-    teacher:"Поки що режим перегляду спільної бази.",
+    teacher:"Бачить тільки власний індивідуальний розклад.",
     viewer:"Тільки перегляд, без редагування."
   })[r]||"";
 }
@@ -393,7 +413,7 @@ async function listUserProfiles(){
   const snap=await getDocs(collection(fire,"users"));
   return snap.docs.map(d=>({uid:d.id,...d.data()})).sort((a,b)=>(a.displayName||a.email||"").localeCompare(b.displayName||b.email||"","uk"));
 }
-async function createManagedUser({email,displayName,role="viewer",sendReset=true}){
+async function createManagedUser({email,displayName,role="viewer",teacherId=null,sendReset=true}){
   if(profile?.role!=="admin")throw new Error("Доступ лише адміністратору.");
   email=String(email||"").trim().toLowerCase();displayName=String(displayName||"").trim();
   if(!email)throw new Error("Вкажіть email.");
@@ -405,7 +425,7 @@ async function createManagedUser({email,displayName,role="viewer",sendReset=true
     cred=await createUserWithEmailAndPassword(secondaryAuth,email,tempPassword);
     if(displayName)await updateProfile(cred.user,{displayName});
     await setDoc(doc(fire,"users",cred.user.uid),{
-      email,displayName,role,enabled:true,
+      email,displayName,role,teacherId:role==="teacher"&&teacherId?Number(teacherId):null,enabled:true,
       createdAt:new Date().toISOString(),createdBy:user.uid
     });
     profileWritten=true;
@@ -443,29 +463,42 @@ function humanUserError(e){
   if(c.includes("permission-denied"))return"Firestore не дозволив операцію. Перевірте, чи опубліковані правила v0.9.5.";
   return e?.message||c||"Невідома помилка.";
 }
+function managedTeacherOptions(selected=""){
+  const teachers=(window.REMS_GET_STATE?.()?.teachers||[]).filter(t=>t.scope!=="external"&&t.status!=="archived").slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"","uk"));
+  return `<option value="">— не прив’язано —</option>`+teachers.map(t=>`<option value="${escapeHtml(t.id)}" ${String(t.id)===String(selected)?"selected":""}>${escapeHtml(t.name||t.shortName||"Викладач")}</option>`).join("");
+}
+function managedTeacherName(id){
+  if(!id)return"—";
+  const t=(window.REMS_GET_STATE?.()?.teachers||[]).find(x=>String(x.id)===String(id));
+  return t?.name||t?.shortName||"Не знайдено";
+}
 function openCreateUserModal(){
   if(profile?.role!=="admin")return;
   const html=`<h2>Новий користувач</h2>
-    <div class="notice">Акаунт буде створено у Firebase Authentication, а права доступу — у РЕМС-Розкладі.</div>
+    <div class="notice">Для ролі «Викладач» обов’язково вибери, до якого викладача прив’язати акаунт. Він бачитиме тільки свій розклад.</div>
     <form id="cloudCreateUserForm" class="form-grid">
       <label class="wide">ПІБ<input id="cuName" placeholder="Прізвище Ім’я По батькові" required></label>
       <label class="wide">Email<input id="cuEmail" type="email" placeholder="name@example.com" required></label>
       <label>Роль<select id="cuRole">${userRoleOptions("viewer")}</select></label>
-      <label class="check-label"><span>Після створення</span><span class="check-inline"><input id="cuReset" type="checkbox" checked> Надіслати лист для встановлення власного пароля</span></label>
+      <label id="cuTeacherWrap" style="display:none">Прив’язати до викладача<select id="cuTeacher">${managedTeacherOptions()}</select></label>
+      <label class="wide check-label"><span>Після створення</span><span class="check-inline"><input id="cuReset" type="checkbox" checked> Надіслати лист для встановлення власного пароля</span></label>
       <div class="wide small" id="cuRoleHelp">${roleHelp("viewer")}</div>
       <div class="wide"><button class="primary" id="cuSubmit">Створити користувача</button></div>
     </form>`;
   window.openModal?.(html);
-  const roleEl=document.querySelector("#cuRole");
-  roleEl.onchange=()=>document.querySelector("#cuRoleHelp").textContent=roleHelp(roleEl.value);
+  const roleEl=document.querySelector("#cuRole"),teacherWrap=document.querySelector("#cuTeacherWrap"),teacherEl=document.querySelector("#cuTeacher");
+  const refreshRole=()=>{document.querySelector("#cuRoleHelp").textContent=roleHelp(roleEl.value);teacherWrap.style.display=roleEl.value==="teacher"?"":"none";};
+  roleEl.onchange=refreshRole;refreshRole();
   document.querySelector("#cloudCreateUserForm").onsubmit=async e=>{
     e.preventDefault();
+    if(roleEl.value==="teacher"&&!teacherEl.value)return alert("Для ролі «Викладач» обери конкретного викладача.");
     const btn=document.querySelector("#cuSubmit");btn.disabled=true;btn.textContent="Створення…";
     try{
       const result=await createManagedUser({
         displayName:document.querySelector("#cuName").value,
         email:document.querySelector("#cuEmail").value,
         role:roleEl.value,
+        teacherId:roleEl.value==="teacher"?teacherEl.value:null,
         sendReset:document.querySelector("#cuReset").checked
       });
       window.closeModal?.();
@@ -489,19 +522,19 @@ async function renderUsersPage(mount=document.querySelector("#page-users")){
   try{
     const rows=await listUserProfiles();
     mount.innerHTML=`<div class="card section">
-      <div class="section-head"><div><h2>Користувачі системи</h2><div class="small">${rows.length} облікових записів · кожна людина працює під власним логіном</div></div><button class="primary" id="addSystemUser">+ Додати користувача</button></div>
+      <div class="section-head"><div><h2>Користувачі системи</h2><div class="small">${rows.length} облікових записів · викладач прив’язується до конкретного профілю викладача</div></div><button class="primary" id="addSystemUser">+ Додати користувача</button></div>
       <div class="user-role-guide">
-        <span><b>Адміністратор</b> — усе</span><span><b>Диспетчер</b> — розклад</span><span><b>Викладач</b> — перегляд</span><span><b>Перегляд</b> — без редагування</span>
+        <span><b>Адміністратор</b> — усе</span><span><b>Диспетчер</b> — розклад</span><span><b>Викладач</b> — тільки свій розклад</span><span><b>Перегляд</b> — без редагування</span>
       </div>
-      <div class="table-wrap"><table class="users-table"><thead><tr><th>Користувач</th><th>Email</th><th>Роль</th><th>Статус</th><th>Створено</th><th></th></tr></thead><tbody>
+      <div class="table-wrap"><table class="users-table"><thead><tr><th>Користувач</th><th>Email</th><th>Роль</th><th>Прив’язка до викладача</th><th>Статус</th><th></th></tr></thead><tbody>
       ${rows.map(x=>{
         const self=String(x.uid)===String(user.uid);
         return `<tr data-user-row="${escapeHtml(x.uid)}">
           <td><b>${escapeHtml(x.displayName||"Без імені")}</b>${self?` <span class="badge ok">ВИ</span>`:""}</td>
           <td>${escapeHtml(x.email||"—")}</td>
           <td><select data-user-role="${escapeHtml(x.uid)}" ${self?"disabled":""}>${userRoleOptions(x.role||"viewer")}</select><div class="small">${escapeHtml(roleHelp(x.role||"viewer"))}</div></td>
+          <td><select data-teacher-link="${escapeHtml(x.uid)}">${managedTeacherOptions(x.teacherId||"")}</select>${x.role==="teacher"&&!x.teacherId?`<div class="small bad-text">Потрібно вибрати викладача</div>`:""}</td>
           <td><span class="badge ${x.enabled===false?"bad":"ok"}">${x.enabled===false?"ЗАБЛОКОВАНО":"АКТИВНИЙ"}</span></td>
-          <td>${escapeHtml(fmtUserDate(x.createdAt))}</td>
           <td class="actions">
             <button data-action="rename" data-uid="${escapeHtml(x.uid)}">ПІБ</button>
             <button data-action="reset" data-email="${escapeHtml(x.email||"")}">Пароль</button>
@@ -510,13 +543,24 @@ async function renderUsersPage(mount=document.querySelector("#page-users")){
         </tr>`;
       }).join("")}
       </tbody></table></div>
-      <div class="notice">«Заблокувати» миттєво забирає доступ до спільної бази. Сам Firebase-акаунт при цьому не видаляється.</div>
+      <div class="notice">Для ролі «Викладач» Firestore віддає тільки записи розкладу, де збігається прив’язаний викладач.</div>
     </div>`;
     mount.querySelector("#addSystemUser").onclick=openCreateUserModal;
     mount.querySelectorAll("[data-user-role]").forEach(sel=>sel.onchange=async()=>{
-      const old=rows.find(x=>x.uid===sel.dataset.userRole)?.role||"viewer";
-      try{await updateManagedUser(sel.dataset.userRole,{role:sel.value});toast("Роль змінено.","ok");renderUsersPage(mount);}
-      catch(e){alert(humanUserError(e));sel.value=old;}
+      const row=rows.find(x=>x.uid===sel.dataset.userRole),old=row?.role||"viewer";
+      const teacherSelect=mount.querySelector(`[data-teacher-link="${CSS.escape(sel.dataset.userRole)}"]`);
+      if(sel.value==="teacher"&&!teacherSelect?.value){alert("Спочатку обери викладача у колонці «Прив’язка до викладача».");sel.value=old;return;}
+      try{
+        await updateManagedUser(sel.dataset.userRole,{role:sel.value,teacherId:sel.value==="teacher"?Number(teacherSelect.value):null});
+        toast("Роль змінено.","ok");renderUsersPage(mount);
+      }catch(e){alert(humanUserError(e));sel.value=old;}
+    });
+    mount.querySelectorAll("[data-teacher-link]").forEach(sel=>sel.onchange=async()=>{
+      const row=rows.find(x=>x.uid===sel.dataset.teacherLink);
+      try{
+        await updateManagedUser(sel.dataset.teacherLink,{teacherId:sel.value?Number(sel.value):null});
+        toast("Прив’язку до викладача оновлено.","ok");renderUsersPage(mount);
+      }catch(e){alert(humanUserError(e));sel.value=row?.teacherId||"";}
     });
     mount.querySelectorAll("[data-action]").forEach(btn=>btn.onclick=async()=>{
       const action=btn.dataset.action;
@@ -552,7 +596,7 @@ function subscribeOwnProfile(){
       showAccessBlocked("Ваш профіль доступу видалено. Зверніться до адміністратора.");
       return;
     }
-    const next=snap.data(),wasRole=profile?.role;
+    const next=snap.data(),wasRole=profile?.role,wasTeacherId=profile?.teacherId;
     profile=next;updateAdminUi();
     if(profile.enabled===false){
       unsubs.forEach(f=>f());unsubs=[];
@@ -564,7 +608,10 @@ function subscribeOwnProfile(){
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
     renderCloudSettings();
     if(window.REMS_CURRENT_PAGE?.()==="users")renderUsersPage();
-    if(wasRole&&wasRole!==profile.role)toast(`Вашу роль змінено: ${roleLabel(profile.role)}.`,"ok",6500);
+    if(wasRole&&(wasRole!==profile.role||String(wasTeacherId||"")!==String(profile.teacherId||""))){
+      toast("Права доступу оновлено. Перезавантажую…","ok",2500);
+      setTimeout(()=>location.reload(),500);
+    }
   },e=>console.error("Profile listener",e));
 }
 
@@ -606,6 +653,12 @@ async function initialize(){
         if(profile.enabled===false){showAccessBlocked("Адміністратор заблокував доступ цього облікового запису.");setSidebar("offline","Доступ заблоковано",u.email||"");return;}
         updateAdminUi();subscribeOwnProfile();
         setSidebar("syncing","Завантаження…",`${u.email} · ${roleLabel(profile.role)}`);
+        if(profile.role==="teacher"){
+          subscribeTeacherPortal();
+          setSidebar("online","Онлайн",`${u.email} · ${roleLabel(profile.role)}`);
+          renderCloudSettings();
+          return;
+        }
         const r=await loadRemoteState();
         if(!r){
           if(profile.role!=="admin"){
