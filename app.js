@@ -1,6 +1,6 @@
 
-const KEY="remsScheduleData_v04";
-const OLD_KEYS=["remsScheduleData_v02","remsScheduleData_v01"];
+const KEY="remsScheduleData_v051";
+const OLD_KEYS=["remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
 function esc(v=""){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
@@ -91,7 +91,7 @@ function loadData(){
   return clone(window.REMS_INITIAL_DATA);
 }
 let db=loadData(), currentPage="home";
-function save(){db.schemaVersion=4;localStorage.setItem(KEY,JSON.stringify(db));renderCurrent();}
+function save(){db.schemaVersion=5;localStorage.setItem(KEY,JSON.stringify(db));renderCurrent();}
 function groupStudentCount(code){return db.students.filter(s=>s.group===code&&s.status!=="archived").length;}
 function groupCourse(code){return db.groups.find(g=>g.code===code)?.course||"";}
 function lessonTypeByName(name){return db.lessonTypes.find(x=>x.name===name);}
@@ -114,7 +114,8 @@ const meta={
   students:["Студенти","Редагована база студентів"],
   rooms:["Аудиторії","Перелік приміщень кафедри"],
   teachers:["Викладачі","Профілі, кадрові дані та картки навантаження"],
-  disciplines:["Дисципліни","Групи, викладачі, години та контроль"],
+  curricula:["Навчальні плани","Першоджерело дисциплін, годин і навантаження"],
+  disciplines:["Дисципліни / навантаження","Розподіл дисциплін і годин між викладачами"],
   lessonTypes:["Види занять","Правила підрахунку годин"],
   settings:["Налаштування","Навчальний рік, семестр і резервні копії"]
 };
