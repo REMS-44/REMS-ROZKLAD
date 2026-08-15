@@ -53,6 +53,7 @@ function migrate(old){
     controlForm:d.controlForm||"Немає",color:d.color||"#8b5cf6",
     hours:d.hours||{},note:d.note||"",status:d.status||"active"
   }));
+  fresh.curricula=old.curricula||fresh.curricula||[];
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     let teacherId=s.teacherId||null;
     if(!teacherId && s.teacher){
@@ -132,7 +133,7 @@ function go(p){
   renderCurrent();
 }
 function renderCurrent(){
-  ({home:renderHome,schedule:renderSchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,teachers:renderTeachers,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,settings:renderSettings}[currentPage])();
+  ({home:renderHome,schedule:renderSchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,settings:renderSettings}[currentPage])();
 }
 function openModal(html,wide=false){$("#modalBody").innerHTML=html;$("#modal").classList.remove("hidden");$("#modal").querySelector(".modal-card").classList.toggle("modal-wide",wide);}
 function closeModal(){$("#modal").classList.add("hidden");$("#modalBody").innerHTML="";}
@@ -468,6 +469,142 @@ function openLessonTypeModal(id=null){
 function deleteLessonType(id){const x=db.lessonTypes.find(v=>v.id===id);if(confirm(`Видалити вид «${x.name}»?`)){db.lessonTypes=db.lessonTypes.filter(v=>v.id!==id);save();}}
 
 /* Disciplines + teacher load distribution */
+
+function curriculumById(id){return (db.curricula||[]).find(c=>Number(c.id)===Number(id));}
+function curriculumComponent(c,componentId){return c?.components?.find(x=>Number(x.id)===Number(componentId));}
+function scopeLabel(scope){return scope==="external"?"Не кафедральне":scope==="department"?"Кафедральне":"Інше";}
+function curriculumTotalsFromRows(c){
+  const rows=(c.components||[]).flatMap(x=>x.rows||[]);
+  const sum=k=>rows.reduce((a,r)=>a+num(r[k]),0);
+  return {
+    credits:sum("credits"),totalHours:sum("totalHours"),auditoriumHours:sum("auditoriumHours"),
+    auditoriumPlanHours:sum("auditoriumPlanHours"),lecture:sum("lecture"),seminar:sum("seminar"),
+    practical:sum("practical"),laboratory:sum("laboratory"),individual:sum("individual"),
+    selfStudy:sum("selfStudy"),practice:sum("practice")
+  };
+}
+function renderCurricula(){
+  const plans=db.curricula||[];
+  $("#page-curricula").innerHTML=`<div class="card section">
+    <div class="section-head"><h2>Робочі навчальні плани</h2><span class="small">Звідси мають народжуватися дисципліни, навантаження і вже потім розклад.</span></div>
+    ${plans.length?`<div class="curriculum-grid">${plans.map(c=>{
+      const t=curriculumTotalsFromRows(c);
+      return `<div class="curriculum-card">
+        <div class="curriculum-title"><div><span class="badge ok">${c.course} курс</span><h3>${esc(c.program)}</h3><div class="small">${esc(c.academicYear)} · ${esc(c.studyForm)} форма</div></div><button class="primary" onclick="openCurriculum(${c.id})">Відкрити план</button></div>
+        <div class="curriculum-kpis">
+          <div><b>${t.credits}</b><span>кредитів</span></div>
+          <div><b>${t.totalHours}</b><span>загальних годин</span></div>
+          <div><b>${t.auditoriumHours}</b><span>аудиторних за видами</span></div>
+          <div><b>${t.selfStudy}</b><span>самостійних</span></div>
+        </div>
+        <div class="small" style="margin-top:12px">Групи: ${esc((c.applicableGroups||[]).join(", "))} · 5 семестр — ${c.semesterWeeks?.["5"]||"—"} тижнів · 6 семестр — ${c.semesterWeeks?.["6"]||"—"} тижнів</div>
+      </div>`;
+    }).join("")}</div>`:`<div class="empty">Планів ще немає.</div>`}
+  </div>`;
+}
+function openCurriculum(id){
+  const c=curriculumById(id);if(!c)return;
+  const totals=curriculumTotalsFromRows(c);
+  const sectionOrder=["Обов’язкові","Вибіркові"];
+  let body="";
+  sectionOrder.forEach(section=>{
+    const comps=(c.components||[]).filter(x=>x.section===section);
+    if(!comps.length)return;
+    body+=`<h3 class="curriculum-section-title">${section==="Обов’язкові"?"Обов’язкові освітні компоненти":"Вибіркові освітні компоненти"}</h3>`;
+    const cats=[...new Set(comps.map(x=>x.category))];
+    cats.forEach(cat=>{
+      body+=`<h4 class="curriculum-category">${esc(cat)}</h4>`;
+      body+=`<div class="table-wrap"><table class="curriculum-table"><thead><tr>
+        <th>Дисципліна</th><th>Сем.</th><th>Контроль</th><th>Кред.</th><th>Всього</th>
+        <th>Аудит.</th><th>Лек.</th><th>Сем.</th><th>Практ.</th><th>Лаб.</th><th>Інд.</th>
+        <th>Самост.</th><th>Практика</th><th>Тижд.</th><th>Статус</th><th></th>
+      </tr></thead><tbody>`;
+      comps.filter(x=>x.category===cat).forEach(comp=>{
+        (comp.rows||[]).forEach((r,idx)=>{
+          body+=`<tr>
+            <td>${idx===0?`<b>${esc(comp.name)}</b>`:"↳ продовження"}${r.note?`<div class="small">${esc(r.note)}</div>`:""}</td>
+            <td>${r.semester}</td><td>${esc(r.control||"—")}</td><td>${fmtHours(r.credits)}</td><td>${fmtHours(r.totalHours)}</td>
+            <td>${fmtHours(r.auditoriumHours)}${r.auditoriumPlanHours!==r.auditoriumHours?` <span class="badge warn">план ${fmtHours(r.auditoriumPlanHours)}</span>`:""}</td>
+            <td>${fmtHours(r.lecture)}</td><td>${fmtHours(r.seminar)}</td><td>${fmtHours(r.practical)}</td><td>${fmtHours(r.laboratory)}</td><td>${fmtHours(r.individual)}</td>
+            <td>${fmtHours(r.selfStudy)}</td><td>${fmtHours(r.practice)}</td><td>${r.weekly||"—"}</td>
+            <td><span class="badge ${comp.scope==="department"?"ok":"warn"}">${scopeLabel(comp.scope)}</span></td>
+            <td class="actions">${comp.scope==="department"?`<button onclick="createLoadFromPlan(${c.id},${comp.id},${r.semester})">У навантаження</button>`:""}</td>
+          </tr>`;
+        });
+      });
+      body+=`</tbody></table></div>`;
+    });
+  });
+  openModal(`<div class="curriculum-detail">
+    <div class="workload-title"><div><h2>Робочий план · ${c.course} курс</h2><h3>${esc(c.program)}</h3><div class="small">${esc(c.specialty)} · ${esc(c.degree)} · ${esc(c.academicYear)}</div></div><span class="badge ok">${esc(c.studyForm)} форма</span></div>
+    <div class="grid-kpi workload-kpi" style="margin-top:16px">
+      ${kpi("Кредити",fmtHours(totals.credits))}
+      ${kpi("Усього годин",fmtHours(totals.totalHours))}
+      ${kpi("Аудиторні",fmtHours(totals.auditoriumHours))}
+      ${kpi("Самостійні",fmtHours(totals.selfStudy))}
+    </div>
+    <div class="plan-summary">
+      <span>Лекції: <b>${fmtHours(totals.lecture)}</b></span>
+      <span>Семінари: <b>${fmtHours(totals.seminar)}</b></span>
+      <span>Практичні: <b>${fmtHours(totals.practical)}</b></span>
+      <span>Лабораторні: <b>${fmtHours(totals.laboratory)}</b></span>
+      <span>Індивідуальні: <b>${fmtHours(totals.individual)}</b></span>
+      <span>Практика: <b>${fmtHours(totals.practice)}</b></span>
+    </div>
+    <div class="notice">Для 3 курсу план застосовано до груп: <b>${esc((c.applicableGroups||[]).join(", "))}</b>. Загальноосвітні компоненти збережені в плані, але за замовчуванням не входять до кафедрального розподілу навантаження.</div>
+    ${body}
+  </div>`,true);
+}
+function planRowToHours(r){
+  const byName={};
+  db.lessonTypes.forEach(lt=>{
+    if(lt.name==="Лекція")byName[lt.id]=num(r.lecture);
+    else if(lt.name==="Семінар")byName[lt.id]=num(r.seminar);
+    else if(lt.name==="Практичне")byName[lt.id]=num(r.practical);
+    else if(lt.name==="Лабораторне")byName[lt.id]=num(r.laboratory);
+    else if(lt.name==="Індивідуальне")byName[lt.id]=num(r.individual);
+    else byName[lt.id]=0;
+  });
+  return byName;
+}
+function createLoadFromPlan(curriculumId,componentId,semester){
+  const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);
+  const r=comp?.rows?.find(x=>Number(x.semester)===Number(semester));if(!c||!comp||!r)return;
+  const availableGroups=(c.applicableGroups||[]).filter(g=>db.groups.some(x=>x.code===g));
+  openModal(`<h2>Створити дисципліну з робочого плану</h2>
+    <div class="notice"><b>${esc(comp.name)}</b> · ${semester} семестр · ${esc(r.control)}</div>
+    <form id="planLoadForm" class="form-grid">
+      <label class="wide">Для яких груп<select id="plGroups" multiple size="${Math.max(2,availableGroups.length)}">${availableGroups.map(g=>`<option value="${esc(g)}" selected>${esc(g)} · ${groupStudentCount(g)} студентів</option>`).join("")}</select><span class="small">Ctrl/⌘ + клік — вибір окремих груп.</span></label>
+      <div class="wide"><b>З плану буде перенесено</b><div class="plan-summary" style="margin-top:8px">
+        <span>Лекції ${fmtHours(r.lecture)}</span><span>Семінари ${fmtHours(r.seminar)}</span><span>Практичні ${fmtHours(r.practical)}</span><span>Лабораторні ${fmtHours(r.laboratory)}</span><span>Індивідуальні ${fmtHours(r.individual)}</span>
+      </div></div>
+      <div class="wide"><button class="primary">Створити в «Дисципліни / навантаження»</button></div>
+    </form>`);
+  $("#planLoadForm").onsubmit=e=>{
+    e.preventDefault();
+    const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);
+    if(!groups.length)return alert("Оберіть хоча б одну групу.");
+    const created=[],skipped=[];
+    groups.forEach(group=>{
+      const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.semester)===Number(semester)&&d.group===group);
+      if(exists){skipped.push(group);return;}
+      db.disciplines.push({
+        id:uid(db.disciplines),name:comp.name,course:c.course,group,semester:Number(semester),academicYear:c.academicYear,
+        teacherIds:[],teacherLoads:{},controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",
+        status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,
+        planMeta:{
+          credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,
+          selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly
+        }
+      });
+      created.push(group);
+    });
+    save();closeModal();
+    alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);
+    go("disciplines");
+  };
+}
+
 function renderDisciplines(){
   const rows=db.disciplines.filter(d=>d.status!=="archived").sort((a,b)=>(a.course||99)-(b.course||99)||a.name.localeCompare(b.name));
   $("#page-disciplines").innerHTML=`<div class="card section"><div class="section-head"><h2>Дисципліни кафедри</h2><button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button></div><div class="notice">Загальноосвітні / зовнішні дисципліни сюди додавати не обов’язково — їх можна ввести безпосередньо в розкладі.</div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Дисципліна</th><th>Група</th><th>Семестр</th><th>Викладачі</th><th>Контроль</th><th>Години</th><th></th></tr></thead><tbody>${rows.map(d=>`<tr><td><span class="color-dot" style="background:${esc(d.color||"#8b5cf6")}"></span><b>${esc(d.name)}</b><div class="small">${esc(d.academicYear||"")}</div></td><td>${esc(d.group||"—")}</td><td>${d.semester||"—"}</td><td>${esc(teacherNames(d.teacherIds)||"—")}</td><td>${esc(d.controlForm||"—")}</td><td><b>${fmtHours(totalDisciplineHours(d))}</b></td><td class="actions"><button onclick="openDisciplineModal(${d.id})">Редагувати</button><button onclick="deleteDiscipline(${d.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Дисциплін ще немає.</div>`}</div>`;

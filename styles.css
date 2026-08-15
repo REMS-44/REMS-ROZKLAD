@@ -66,3 +66,17 @@ tr:last-child td{border-bottom:0}.badge{display:inline-flex;align-items:center;b
 .negative{color:var(--red);font-weight:800}
 @media(max-width:1100px){.teacher-grid{grid-template-columns:1fr}.availability-row{grid-template-columns:repeat(4,1fr)}.availability-row .danger{grid-column:auto}}
 @media(max-width:700px){.teacher-meta,.load-strip{grid-template-columns:1fr}.availability-row{grid-template-columns:1fr 1fr}.availability-row [data-kind]{grid-column:1/-1}}
+
+.curriculum-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.curriculum-card{border:1px solid var(--line);border-radius:16px;padding:18px;background:linear-gradient(180deg,#fff,#faf8ff)}
+.curriculum-title{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.curriculum-title h3{margin:8px 0 3px;font-size:18px}
+.curriculum-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:15px}
+.curriculum-kpis div{background:var(--lav);border-radius:11px;padding:10px;display:flex;flex-direction:column}
+.curriculum-kpis b{font-size:18px;color:var(--purple2)}.curriculum-kpis span{font-size:10px;color:var(--muted)}
+.curriculum-section-title{margin:26px 0 10px;padding:10px 12px;border-radius:12px;background:var(--purple2);color:white}
+.curriculum-category{margin:16px 0 8px;color:var(--purple2)}
+.curriculum-table{min-width:1400px}
+.plan-summary{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
+.plan-summary span{padding:7px 10px;border-radius:999px;background:#f4f0fb;font-size:12px;color:var(--purple2)}
+@media(max-width:900px){.curriculum-grid{grid-template-columns:1fr}.curriculum-kpis{grid-template-columns:repeat(2,1fr)}}

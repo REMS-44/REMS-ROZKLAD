@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -1075,6 +1075,555 @@ window.REMS_INITIAL_DATA = {
     {
       "id": "range",
       "name": "Період дат"
+    }
+  ],
+  "curricula": [
+    {
+      "id": 1,
+      "academicYear": "2026/2027",
+      "course": 3,
+      "specialty": "026 Сценічне мистецтво",
+      "program": "Режисура естради і шоу",
+      "degree": "Бакалавр сценічного мистецтва",
+      "studyForm": "Денна",
+      "semesterWeeks": {
+        "5": 10,
+        "6": 12
+      },
+      "applicableGroups": [
+        "РЕМС-44",
+        "РЕМС-34"
+      ],
+      "components": [
+        {
+          "id": 1,
+          "section": "Обов’язкові",
+          "category": "Загальна підготовка",
+          "name": "Політологія (в т.ч. Геополітика і глобалізація)",
+          "scope": "external",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Іспит",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 30,
+              "auditoriumPlanHours": 30,
+              "auditoriumPercent": 33,
+              "lecture": 24,
+              "seminar": 6,
+              "practical": 0,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 60,
+              "practice": 0,
+              "weekly": 3
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "section": "Обов’язкові",
+          "category": "Загальна підготовка",
+          "name": "Основи трудового права та підприємницької діяльності",
+          "scope": "external",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 40,
+              "auditoriumPlanHours": 48,
+              "auditoriumPercent": 44,
+              "lecture": 28,
+              "seminar": 4,
+              "practical": 8,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 50,
+              "practice": 0,
+              "weekly": 4,
+              "note": "У робочому плані загальний обсяг за видами аудиторних занять — 40 год., плановий аудиторний обсяг — 48 год."
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "section": "Обов’язкові",
+          "category": "Професійна та практична підготовка",
+          "name": "Виробнича практика",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 14,
+              "totalHours": 420,
+              "auditoriumHours": 0,
+              "auditoriumPlanHours": 0,
+              "auditoriumPercent": 0,
+              "lecture": 0,
+              "seminar": 0,
+              "practical": 0,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 0,
+              "practice": 420,
+              "weekly": 0
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "section": "Обов’язкові",
+          "category": "Професійна та практична підготовка",
+          "name": "Аудіовізуальні технології у сценічному мистецтві",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Іспит",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 20,
+              "auditoriumPlanHours": 20,
+              "auditoriumPercent": 33,
+              "lecture": 10,
+              "seminar": 0,
+              "practical": 10,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 40,
+              "practice": 0,
+              "weekly": 2
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "section": "Обов’язкові",
+          "category": "Професійна та практична підготовка",
+          "name": "Режисура естради і шоу",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Іспит",
+              "credits": 4,
+              "totalHours": 120,
+              "auditoriumHours": 60,
+              "auditoriumPlanHours": 60,
+              "auditoriumPercent": 50,
+              "lecture": 10,
+              "seminar": 0,
+              "practical": 22,
+              "laboratory": 24,
+              "individual": 4,
+              "selfStudy": 60,
+              "practice": 0,
+              "weekly": 6
+            },
+            {
+              "semester": 6,
+              "control": "Іспит",
+              "credits": 6,
+              "totalHours": 180,
+              "auditoriumHours": 84,
+              "auditoriumPlanHours": 84,
+              "auditoriumPercent": 47,
+              "lecture": 14,
+              "seminar": 0,
+              "practical": 36,
+              "laboratory": 30,
+              "individual": 4,
+              "selfStudy": 96,
+              "practice": 0,
+              "weekly": 7
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "section": "Обов’язкові",
+          "category": "Професійна та практична підготовка",
+          "name": "Сценографія",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Іспит",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 30,
+              "auditoriumPlanHours": 30,
+              "auditoriumPercent": 33,
+              "lecture": 16,
+              "seminar": 4,
+              "practical": 10,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 60,
+              "practice": 0,
+              "weekly": 3
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "section": "Обов’язкові",
+          "category": "Професійна та практична підготовка",
+          "name": "Візуалізація у сценічному мистецтві",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Залік",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 20,
+              "auditoriumPlanHours": 20,
+              "auditoriumPercent": 33,
+              "lecture": 6,
+              "seminar": 0,
+              "practical": 14,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 40,
+              "practice": 0,
+              "weekly": 2
+            },
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 24,
+              "auditoriumPlanHours": 24,
+              "auditoriumPercent": 40,
+              "lecture": 12,
+              "seminar": 0,
+              "practical": 12,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 36,
+              "practice": 0,
+              "weekly": 2
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "section": "Обов’язкові",
+          "category": "Професійна та практична підготовка",
+          "name": "Режисура фольклорно-етнографічних свят України",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Іспит",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 36,
+              "auditoriumPlanHours": 36,
+              "auditoriumPercent": 40,
+              "lecture": 10,
+              "seminar": 0,
+              "practical": 26,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 54,
+              "practice": 0,
+              "weekly": 3
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Імпровізація та інтерактив у розважальних програмах",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Залік",
+              "credits": 4,
+              "totalHours": 120,
+              "auditoriumHours": 40,
+              "auditoriumPlanHours": 40,
+              "auditoriumPercent": 33,
+              "lecture": 10,
+              "seminar": 0,
+              "practical": 30,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 80,
+              "practice": 0,
+              "weekly": 4
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Візуальні ефекти і комп’ютерна графіка",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Залік",
+              "credits": 4,
+              "totalHours": 120,
+              "auditoriumHours": 40,
+              "auditoriumPlanHours": 40,
+              "auditoriumPercent": 33,
+              "lecture": 12,
+              "seminar": 0,
+              "practical": 14,
+              "laboratory": 14,
+              "individual": 0,
+              "selfStudy": 80,
+              "practice": 0,
+              "weekly": 4
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Моделювання стилю",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Залік",
+              "credits": 4,
+              "totalHours": 120,
+              "auditoriumHours": 40,
+              "auditoriumPlanHours": 40,
+              "auditoriumPercent": 33,
+              "lecture": 6,
+              "seminar": 0,
+              "practical": 34,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 80,
+              "practice": 0,
+              "weekly": 4
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Драматургія шоу",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Залік",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 20,
+              "auditoriumPlanHours": 20,
+              "auditoriumPercent": 33,
+              "lecture": 4,
+              "seminar": 0,
+              "practical": 14,
+              "laboratory": 0,
+              "individual": 2,
+              "selfStudy": 40,
+              "practice": 0,
+              "weekly": 2
+            },
+            {
+              "semester": 6,
+              "control": "Іспит",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 24,
+              "auditoriumPlanHours": 24,
+              "auditoriumPercent": 40,
+              "lecture": 4,
+              "seminar": 0,
+              "practical": 18,
+              "laboratory": 0,
+              "individual": 2,
+              "selfStudy": 36,
+              "practice": 0,
+              "weekly": 2
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Технічний продакшн шоу",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 5,
+              "control": "Залік",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 30,
+              "auditoriumPlanHours": 30,
+              "auditoriumPercent": 50,
+              "lecture": 0,
+              "seminar": 0,
+              "practical": 0,
+              "laboratory": 30,
+              "individual": 0,
+              "selfStudy": 30,
+              "practice": 0,
+              "weekly": 3
+            },
+            {
+              "semester": 6,
+              "control": "Іспит",
+              "credits": 2,
+              "totalHours": 60,
+              "auditoriumHours": 24,
+              "auditoriumPlanHours": 24,
+              "auditoriumPercent": 40,
+              "lecture": 0,
+              "seminar": 0,
+              "practical": 0,
+              "laboratory": 24,
+              "individual": 0,
+              "selfStudy": 36,
+              "practice": 0,
+              "weekly": 2
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Редагування медіатекстів",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 4,
+              "totalHours": 120,
+              "auditoriumHours": 48,
+              "auditoriumPlanHours": 48,
+              "auditoriumPercent": 40,
+              "lecture": 6,
+              "seminar": 0,
+              "practical": 42,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 72,
+              "practice": 0,
+              "weekly": 4
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Івент-технології",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 36,
+              "auditoriumPlanHours": 36,
+              "auditoriumPercent": 40,
+              "lecture": 8,
+              "seminar": 0,
+              "practical": 28,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 54,
+              "practice": 0,
+              "weekly": 3
+            }
+          ]
+        },
+        {
+          "id": 16,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Реклама та PR",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 36,
+              "auditoriumPlanHours": 36,
+              "auditoriumPercent": 40,
+              "lecture": 16,
+              "seminar": 0,
+              "practical": 20,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 54,
+              "practice": 0,
+              "weekly": 3
+            }
+          ]
+        },
+        {
+          "id": 17,
+          "section": "Вибіркові",
+          "category": "Вибіркові освітні компоненти",
+          "name": "Екранне мовлення",
+          "scope": "department",
+          "rows": [
+            {
+              "semester": 6,
+              "control": "Залік",
+              "credits": 3,
+              "totalHours": 90,
+              "auditoriumHours": 36,
+              "auditoriumPlanHours": 36,
+              "auditoriumPercent": 40,
+              "lecture": 6,
+              "seminar": 0,
+              "practical": 30,
+              "laboratory": 0,
+              "individual": 0,
+              "selfStudy": 54,
+              "practice": 0,
+              "weekly": 3
+            }
+          ]
+        }
+      ],
+      "totals": {
+        "credits": 75,
+        "totalHours": 2250,
+        "auditoriumHours": 718,
+        "auditoriumPlanHours": 726,
+        "lecture": 202,
+        "seminar": 14,
+        "practical": 368,
+        "laboratory": 122,
+        "individual": 12,
+        "selfStudy": 1112,
+        "practice": 420,
+        "examSemester5": 4,
+        "examSemester6": 4,
+        "creditSemester5": 6,
+        "creditSemester6": 7
+      }
     }
   ]
 };
