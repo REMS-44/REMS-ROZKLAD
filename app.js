@@ -11,9 +11,13 @@ function migrate(old){
   if(!old||typeof old!=="object") return fresh;
   fresh.groups=old.groups||fresh.groups; fresh.students=old.students||fresh.students; fresh.rooms=old.rooms||fresh.rooms;
   fresh.schedule=old.schedule||[]; fresh.teachers=(old.teachers||[]).map((t,i)=>({
-    id:t.id||i+1,name:t.name||"",shortName:t.shortName||"",position:t.position||"",academicTitle:t.academicTitle||"",
-    degree:t.degree||"",employmentType:t.employmentType||"",rate:t.rate||"",phone:t.phone||"",email:t.email||"",
-    unavailable:t.unavailable||"",preferred:t.preferred||"",maxPerDay:t.maxPerDay||"",maxConsecutive:t.maxConsecutive||"",
+    id:t.id||i+1,name:t.name||"",shortName:t.shortName||"",position:t.position||"",positionCustom:t.positionCustom||"",
+    academicTitle:t.academicTitle||"",academicTitleCustom:t.academicTitleCustom||"",
+    degree:t.degree||"",degreeCustom:t.degreeCustom||"",honoraryTitle:t.honoraryTitle||"",honoraryTitleCustom:t.honoraryTitleCustom||"",
+    employmentType:t.employmentType||"",rate:t.rate||"",phone:t.phone||"",email:t.email||"",
+    unavailable:t.unavailable||"",preferred:t.preferred||"",
+    unavailableSlots:t.unavailableSlots||[],preferredSlots:t.preferredSlots||[],
+    maxPerDay:t.maxPerDay||"",maxConsecutive:t.maxConsecutive||"",
     note:t.note||"",photo:t.photo||"",status:t.status||"active"
   }));
   fresh.disciplines=(old.disciplines||[]).map((d,i)=>({
@@ -81,23 +85,91 @@ function addRoom(){const n=prompt("Номер або назва аудиторі
 function editRoom(id){const r=db.rooms.find(x=>x.id===id),n=prompt("Аудиторія:",r.name);if(n){r.name=n.trim();save()}}
 function deleteRoom(id){const r=db.rooms.find(x=>x.id===id);if(confirm(`Видалити аудиторію ${r.name}?`)){db.rooms=db.rooms.filter(x=>x.id!==id);save()}}
 
+
+function selectWithOther(id, options, value="", customValue=""){
+  const has = options.includes(value);
+  const selected = has ? value : (value ? "__other__" : "");
+  return `<select id="${id}"><option value="">—</option>${options.map(v=>`<option value="${esc(v)}" ${v===selected?"selected":""}>${esc(v)}</option>`).join("")}<option value="__other__" ${selected==="__other__"?"selected":""}>Інше…</option></select>
+  <input id="${id}Custom" value="${esc(customValue || (!has?value:""))}" placeholder="Введіть свій варіант" style="margin-top:6px;display:${selected==="__other__"?"block":"none"}">`;
+}
+function bindOther(id){
+  const s=$("#"+id), c=$("#"+id+"Custom"); if(!s||!c)return;
+  s.onchange=()=>c.style.display=s.value==="__other__"?"block":"none";
+}
+function selectedOrCustom(id){
+  const s=$("#"+id); if(!s)return "";
+  return s.value==="__other__"?$("#"+id+"Custom").value.trim():s.value;
+}
+function slotRows(slots=[], prefix="u"){
+  return (slots||[]).map((sl,i)=>`<div class="slot-row" data-slot-row>
+    <select data-day>${db.weekDays.map(d=>`<option value="${d.id}" ${Number(sl.day)===Number(d.id)?"selected":""}>${esc(d.name)}</option>`).join("")}</select>
+    <input data-start type="time" value="${esc(sl.start||"09:00")}">
+    <input data-end type="time" value="${esc(sl.end||"18:00")}">
+    <button type="button" class="danger slot-remove">×</button>
+  </div>`).join("");
+}
+function addSlotRow(containerId){
+  const c=$("#"+containerId); if(!c)return;
+  const div=document.createElement("div"); div.className="slot-row"; div.setAttribute("data-slot-row","");
+  div.innerHTML=`<select data-day>${db.weekDays.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select><input data-start type="time" value="09:00"><input data-end type="time" value="18:00"><button type="button" class="danger slot-remove">×</button>`;
+  c.appendChild(div); bindSlotRemovers();
+}
+function bindSlotRemovers(){ $$(".slot-remove").forEach(b=>b.onclick=()=>b.closest("[data-slot-row]").remove()); }
+function readSlots(containerId){
+  return [...document.querySelectorAll(`#${containerId} [data-slot-row]`)].map(r=>({
+    day:+r.querySelector("[data-day]").value,
+    start:r.querySelector("[data-start]").value,
+    end:r.querySelector("[data-end]").value
+  })).filter(x=>x.start&&x.end&&x.end>x.start);
+}
+function weekdayId(dateStr){ return new Date(dateStr+"T12:00:00").getDay(); }
+function teacherByScheduleName(name){ return db.teachers.find(t=>(t.shortName||t.name)===name); }
+function teacherAvailabilityWarnings(item, ignoreId=null){
+  const warnings=[];
+  const t=teacherByScheduleName(item.teacher); if(!t||!item.date||!item.start||!item.end)return warnings;
+  const dow=weekdayId(item.date);
+  const bad=(t.unavailableSlots||[]).filter(s=>Number(s.day)===Number(dow)&&timeOverlap(item.start,item.end,s.start,s.end));
+  bad.forEach(s=>warnings.push(`Викладач недоступний цього дня з ${s.start} до ${s.end}.`));
+  const dayLessons=db.schedule.filter(x=>x.id!==ignoreId&&x.teacher===item.teacher&&x.date===item.date);
+  if(t.maxPerDay && dayLessons.length+1>Number(t.maxPerDay)) warnings.push(`Перевищено максимум занять викладача на день: ${t.maxPerDay}.`);
+  return warnings;
+}
+
 function renderTeachers(){
  const rows=db.teachers.filter(t=>t.status!=="archived").sort((a,b)=>a.name.localeCompare(b.name));
- $("#page-teachers").innerHTML=`<div class="card section"><div class="section-head"><h2>Викладачі</h2><button class="primary" onclick="openTeacherModal()">+ Додати викладача</button></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>ПІБ</th><th>Посада</th><th>Звання</th><th>Ступінь</th><th>Зайнятість</th><th></th></tr></thead><tbody>${rows.map(t=>`<tr><td><b>${esc(t.name)}</b><div class="small">${esc(t.shortName||"")}</div></td><td>${esc(t.position||"—")}</td><td>${esc(t.academicTitle||"—")}</td><td>${esc(t.degree||"—")}</td><td>${esc(t.employmentType||"—")}${t.rate?` · ${esc(t.rate)}`:""}</td><td class="actions"><button onclick="openTeacherModal(${t.id})">Редагувати</button><button onclick="deleteTeacher(${t.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Викладачів ще немає.</div>`}</div>`;
+ $("#page-teachers").innerHTML=`<div class="card section"><div class="section-head"><h2>Викладачі</h2><button class="primary" onclick="openTeacherModal()">+ Додати викладача</button></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>ПІБ</th><th>Посада</th><th>Вчене звання</th><th>Науковий ступінь</th><th>Почесне звання</th><th></th></tr></thead><tbody>${rows.map(t=>`<tr><td><b>${esc(t.name)}</b><div class="small">${esc(t.shortName||"")}</div></td><td>${esc(t.position||"—")}</td><td>${esc(t.academicTitle||"—")}</td><td>${esc(t.degree||"—")}</td><td>${esc(t.honoraryTitle||"—")}</td><td class="actions"><button onclick="openTeacherModal(${t.id})">Редагувати</button><button onclick="deleteTeacher(${t.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Викладачів ще немає.</div>`}</div>`;
 }
 function openTeacherModal(id=null){
- const t=id?db.teachers.find(x=>x.id===id):{name:"",shortName:"",position:"",academicTitle:"",degree:"",employmentType:"Штатний",rate:"",phone:"",email:"",unavailable:"",preferred:"",maxPerDay:"",maxConsecutive:"",note:"",photo:"",status:"active"};
+ const t=id?db.teachers.find(x=>x.id===id):{name:"",shortName:"",position:"",positionCustom:"",academicTitle:"",academicTitleCustom:"",degree:"",degreeCustom:"",honoraryTitle:"",honoraryTitleCustom:"",employmentType:"Штатний",rate:"",phone:"",email:"",unavailableSlots:[],preferredSlots:[],maxPerDay:"",maxConsecutive:"",note:"",photo:"",status:"active"};
  openModal(`<h2>${id?"Редагувати":"Новий"} викладач</h2><form id="tf" class="form-grid">
- <label class="wide">ПІБ<input id="tn" value="${esc(t.name)}" required></label><label>Коротке ім’я для розкладу<input id="ts" value="${esc(t.shortName)}" placeholder="Фішер В.М."></label>
- <label>Посада<input id="tp" value="${esc(t.position)}"></label><label>Вчене звання<input id="ta" value="${esc(t.academicTitle)}"></label>
- <label>Науковий ступінь<input id="td" value="${esc(t.degree)}"></label><label>Тип зайнятості<select id="te">${db.employmentTypes.map(v=>`<option ${v===t.employmentType?"selected":""}>${v}</option>`).join("")}</select></label>
- <label>Ставка / частка ставки<input id="tr" value="${esc(t.rate)}" placeholder="1.0 / 0.5 / погодинно"></label><label>Телефон<input id="tph" value="${esc(t.phone)}"></label>
- <label>E-mail<input id="tem" type="email" value="${esc(t.email)}"></label><label>Фото — посилання (необов’язково)<input id="tphoto" value="${esc(t.photo)}"></label>
- <label class="wide">Недоступні дні / години<textarea id="tu" rows="2" placeholder="Напр.: понеділок до 12:00">${esc(t.unavailable)}</textarea></label>
- <label class="wide">Бажані дні / години<textarea id="tpr" rows="2">${esc(t.preferred)}</textarea></label>
- <label>Максимум занять на день<input id="tmax" type="number" min="0" value="${esc(t.maxPerDay)}"></label><label>Максимум занять підряд<input id="tcon" type="number" min="0" value="${esc(t.maxConsecutive)}"></label>
- <label class="wide">Примітка<textarea id="tnote" rows="3">${esc(t.note)}</textarea></label><div class="wide"><button class="primary">${id?"Зберегти":"Додати"}</button></div></form>`);
- $("#tf").onsubmit=e=>{e.preventDefault();const obj={name:$("#tn").value.trim(),shortName:$("#ts").value.trim(),position:$("#tp").value.trim(),academicTitle:$("#ta").value.trim(),degree:$("#td").value.trim(),employmentType:$("#te").value,rate:$("#tr").value.trim(),phone:$("#tph").value.trim(),email:$("#tem").value.trim(),photo:$("#tphoto").value.trim(),unavailable:$("#tu").value.trim(),preferred:$("#tpr").value.trim(),maxPerDay:$("#tmax").value,maxConsecutive:$("#tcon").value,note:$("#tnote").value.trim(),status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save()}
+ <label class="wide">ПІБ<input id="tn" value="${esc(t.name)}" required></label>
+ <label>Коротке ім’я для розкладу<input id="ts" value="${esc(t.shortName)}" placeholder="Фішер В.М."></label>
+ <label>Посада${selectWithOther("tp",db.teacherPositions,t.position,t.positionCustom)}</label>
+ <label>Вчене звання${selectWithOther("ta",db.academicTitles,t.academicTitle,t.academicTitleCustom)}</label>
+ <label>Науковий ступінь${selectWithOther("td",db.academicDegrees,t.degree,t.degreeCustom)}</label>
+ <label>Почесне звання${selectWithOther("th",db.honoraryTitles,t.honoraryTitle,t.honoraryTitleCustom)}</label>
+ <label>Тип зайнятості<select id="te">${db.employmentTypes.map(v=>`<option ${v===t.employmentType?"selected":""}>${v}</option>`).join("")}</select></label>
+ <label>Ставка / частка ставки<input id="tr" value="${esc(t.rate)}" placeholder="1.0 / 0.5 / погодинно"></label>
+ <label>Телефон<input id="tph" value="${esc(t.phone)}"></label><label>E-mail<input id="tem" type="email" value="${esc(t.email)}"></label>
+ <label class="wide">Фото — посилання (необов’язково)<input id="tphoto" value="${esc(t.photo)}"></label>
+ <div class="wide"><b>Недоступні дні та години</b><div class="small">Ці обмеження система перевірятиме під час створення розкладу.</div><div id="unavailableSlots" class="slot-list">${slotRows(t.unavailableSlots,"u")}</div><button type="button" class="secondary" onclick="addSlotRow('unavailableSlots')">+ Додати недоступний час</button></div>
+ <div class="wide"><b>Бажані дні та години</b><div class="small">Пізніше можна використовувати при автоматичному підборі розкладу.</div><div id="preferredSlots" class="slot-list">${slotRows(t.preferredSlots,"p")}</div><button type="button" class="secondary" onclick="addSlotRow('preferredSlots')">+ Додати бажаний час</button></div>
+ <label>Максимум занять на день<input id="tmax" type="number" min="0" value="${esc(t.maxPerDay)}"></label>
+ <label>Максимум занять підряд<input id="tcon" type="number" min="0" value="${esc(t.maxConsecutive)}"></label>
+ <label class="wide">Примітка<textarea id="tnote" rows="3">${esc(t.note)}</textarea></label>
+ <div class="wide"><button class="primary">${id?"Зберегти":"Додати"}</button></div></form>`);
+ ["tp","ta","td","th"].forEach(bindOther); bindSlotRemovers();
+ $("#tf").onsubmit=e=>{e.preventDefault();
+   const obj={name:$("#tn").value.trim(),shortName:$("#ts").value.trim(),
+   position:selectedOrCustom("tp"),positionCustom:$("#tp").value==="__other__"?$("#tpCustom").value.trim():"",
+   academicTitle:selectedOrCustom("ta"),academicTitleCustom:$("#ta").value==="__other__"?$("#taCustom").value.trim():"",
+   degree:selectedOrCustom("td"),degreeCustom:$("#td").value==="__other__"?$("#tdCustom").value.trim():"",
+   honoraryTitle:selectedOrCustom("th"),honoraryTitleCustom:$("#th").value==="__other__"?$("#thCustom").value.trim():"",
+   employmentType:$("#te").value,rate:$("#tr").value.trim(),phone:$("#tph").value.trim(),email:$("#tem").value.trim(),photo:$("#tphoto").value.trim(),
+   unavailableSlots:readSlots("unavailableSlots"),preferredSlots:readSlots("preferredSlots"),
+   maxPerDay:$("#tmax").value,maxConsecutive:$("#tcon").value,note:$("#tnote").value.trim(),status:"active"};
+   if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save()
+ }
 }
 function deleteTeacher(id){const t=db.teachers.find(x=>x.id===id);if(confirm(`Видалити ${t.name}?`)){db.teachers=db.teachers.filter(x=>x.id!==id);db.disciplines.forEach(d=>d.teacherIds=(d.teacherIds||[]).filter(x=>x!==id));save()}}
 
@@ -156,9 +228,13 @@ function openLessonModal(id=null){
  const x=id?db.schedule.find(s=>s.id===id):{date:"",start:"09:00",end:"10:20",group:db.groups[0]?.code||"",discipline:"",type:db.lessonTypes[0]?.name||"",coverage:"Вся група",students:"",teacher:"",room:"",note:""};
  const disc=db.disciplines.filter(d=>!d.group||d.group===x.group),teacherOpts=`<option value="">—</option>`+db.teachers.map(t=>`<option ${(t.shortName||t.name)===x.teacher?"selected":""}>${esc(t.shortName||t.name)}</option>`).join("");
  openModal(`<h2>${id?"Редагувати":"Нове"} заняття</h2><form id="lf" class="form-grid"><label>Дата<input id="ld" type="date" value="${esc(x.date)}" required></label><label>Група<select id="lg">${groupOptions(x.group)}</select></label><label>Початок<input id="ls" type="time" value="${esc(x.start)}" required></label><label>Кінець<input id="le" type="time" value="${esc(x.end)}" required></label><label>Дисципліна<select id="ldi"><option value="">—</option>${disc.map(d=>`<option ${d.name===x.discipline?"selected":""}>${esc(d.name)}</option>`).join("")}</select></label><label>Вид заняття<select id="lt">${db.lessonTypes.map(v=>`<option ${v.name===x.type?"selected":""}>${esc(v.name)}</option>`).join("")}</select></label><label>Охоплення<select id="lc">${db.coverageTypes.map(v=>`<option ${v===x.coverage?"selected":""}>${v}</option>`).join("")}</select></label><label>Аудиторія<select id="lr"><option value="">—</option>${db.rooms.map(r=>`<option ${r.name===x.room?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label><label class="wide">Студент(и) / підгрупа<input id="lst" value="${esc(x.students||"")}"></label><label>Викладач<select id="ltea">${teacherOpts}</select></label><label>Примітка<input id="ln" value="${esc(x.note||"")}"></label><div id="conflictBox" class="wide"></div><div class="wide"><button class="primary">${id?"Зберегти":"Додати"}</button></div></form>`);
- const check=()=>{const item=readLesson(),cs=item.date&&item.start&&item.end?conflictsFor(item,id):[];$("#conflictBox").innerHTML=cs.length?`<div class="conflicts"><b>Є конфлікт:</b>${cs.map(c=>`<div class="conflict">${esc(c.group)} · ${esc(c.start)}–${esc(c.end)} · ауд. ${esc(c.room||"—")}${c.teacher?` · ${esc(c.teacher)}`:""}</div>`).join("")}</div>`:`<div class="notice">Перевіряємо групу, аудиторію і викладача на перетини.</div>`};
+ const check=()=>{const item=readLesson(),cs=item.date&&item.start&&item.end?conflictsFor(item,id):[],aws=teacherAvailabilityWarnings(item,id);let html="";
+ if(cs.length)html+=`<div class="conflicts"><b>Є конфлікт у розкладі:</b>${cs.map(c=>`<div class="conflict">${esc(c.group)} · ${esc(c.start)}–${esc(c.end)} · ауд. ${esc(c.room||"—")}${c.teacher?` · ${esc(c.teacher)}`:""}</div>`).join("")}</div>`;
+ if(aws.length)html+=`<div class="conflicts"><b>Обмеження викладача:</b>${aws.map(w=>`<div class="conflict">${esc(w)}</div>`).join("")}</div>`;
+ if(!html)html=`<div class="notice">Усе вільно: перевірено групу, аудиторію, викладача та його недоступний час.</div>`;
+ $("#conflictBox").innerHTML=html};
  ["ld","ls","le","lg","lr","ltea"].forEach(k=>$("#"+k).onchange=check);check();
- $("#lf").onsubmit=e=>{e.preventDefault();const item=readLesson();if(item.end<=item.start)return alert("Час завершення має бути пізніше.");const cs=conflictsFor(item,id);if(cs.length&&!confirm("Є конфлікт. Все одно зберегти?"))return;if(id)Object.assign(db.schedule.find(s=>s.id===id),item);else db.schedule.push({id:uid(db.schedule),...item});closeModal();save();go("schedule")}
+ $("#lf").onsubmit=e=>{e.preventDefault();const item=readLesson();if(item.end<=item.start)return alert("Час завершення має бути пізніше.");const cs=conflictsFor(item,id),aws=teacherAvailabilityWarnings(item,id);if((cs.length||aws.length)&&!confirm("Є конфлікт або обмеження викладача. Все одно зберегти?"))return;if(id)Object.assign(db.schedule.find(s=>s.id===id),item);else db.schedule.push({id:uid(db.schedule),...item});closeModal();save();go("schedule")}
 }
 function readLesson(){return{date:$("#ld").value,start:$("#ls").value,end:$("#le").value,group:$("#lg").value,discipline:$("#ldi").value,type:$("#lt").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacher:$("#ltea").value,room:$("#lr").value,note:$("#ln").value.trim()}}
 function deleteLesson(id){if(confirm("Видалити заняття?")){db.schedule=db.schedule.filter(x=>x.id!==id);save()}}
