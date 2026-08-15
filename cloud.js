@@ -1,5 +1,5 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, deleteUser } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 import {
   getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc,
   onSnapshot, writeBatch, runTransaction, serverTimestamp
@@ -40,7 +40,7 @@ function configFromStorage(){
 const config={...(window.REMS_FIREBASE_CONFIG||{}),...(configFromStorage()||{})};
 const configured=Boolean(config.apiKey&&config.projectId&&config.appId);
 let app=null,auth=null,fire=null,user=null,profile=null,remoteState=null;
-let unsubs=[],pushTimer=null,pendingPush=null,pushing=false,rejecting=false;
+let unsubs=[],profileUnsub=null,pushTimer=null,pendingPush=null,pushing=false,rejecting=false;
 
 window.REMS_CLOUD={
   configured,
@@ -58,7 +58,12 @@ window.REMS_CLOUD={
   clearConfigOverride,
   uploadLocal:()=>uploadWholeState(window.REMS_GET_STATE?.()),
   role:()=>profile?.role||null,
-  email:()=>user?.email||null
+  email:()=>user?.email||null,
+  renderUsersPage,
+  listUsers:listUserProfiles,
+  createUser:createManagedUser,
+  updateUser:updateManagedUser,
+  sendPasswordReset:sendManagedPasswordReset
 };
 
 function roleLabel(r){return ({admin:"Адміністратор",dispatcher:"Диспетчер",teacher:"Викладач",viewer:"Перегляд"})[r]||r||"—";}
@@ -86,6 +91,21 @@ function showLogin(){
   };
 }
 function hideLogin(){document.querySelector("#cloudAuthOverlay")?.classList.add("hidden");}
+function showAccessBlocked(message){
+  let o=document.querySelector("#cloudAuthOverlay");
+  if(!o){o=document.createElement("div");o.id="cloudAuthOverlay";o.className="cloud-auth-overlay";document.body.appendChild(o);}
+  o.innerHTML=`<div class="cloud-auth-card"><div class="brand-mark cloud-auth-logo">Р</div><h2>Доступ обмежено</h2><p>${escapeHtml(message||"Цей обліковий запис не має доступу до РЕМС-Розкладу.")}</p><button class="primary" id="blockedSignOut">Вийти</button></div>`;
+  o.classList.remove("hidden");
+  o.querySelector("#blockedSignOut").onclick=()=>signOut(auth);
+}
+function updateAdminUi(){
+  const nav=document.querySelector("#usersNav");
+  if(nav)nav.style.display=profile?.role==="admin"?"":"none";
+  if(window.REMS_CURRENT_PAGE?.()==="users"&&profile?.role!=="admin"){
+    const mount=document.querySelector("#page-users");
+    if(mount)mount.innerHTML=`<div class="card section"><div class="empty">Керування користувачами доступне лише адміністратору.</div></div>`;
+  }
+}
 function humanAuthError(e){
   const c=e?.code||"";
   if(c.includes("invalid-credential"))return "Неправильний email або пароль.";
@@ -123,9 +143,9 @@ async function ensureProfile(u){
     toast("Перший користувач став адміністратором системи.","ok",7000);
     return p;
   }
-  const p={email:u.email||"",displayName:u.displayName||"",role:"viewer",enabled:true,createdAt:new Date().toISOString()};
-  await setDoc(uref,p);
-  return p;
+  const err=new Error("Цей обліковий запис ще не доданий адміністратором РЕМС-Розкладу.");
+  err.code="REMS_ACCESS_NOT_PROVISIONED";
+  throw err;
 }
 
 function collRef(name){return collection(fire,"workspaces",WORKSPACE,name);}
@@ -307,6 +327,210 @@ function rejectLocalEdit(){
   setTimeout(async()=>{await reloadRemote();rejecting=false;},100);
 }
 
+
+function roleHelp(r){
+  return ({
+    admin:"Повний доступ до всіх даних і керування користувачами.",
+    dispatcher:"Може складати та редагувати розклад; інші дані — перегляд.",
+    teacher:"Поки що режим перегляду спільної бази.",
+    viewer:"Тільки перегляд, без редагування."
+  })[r]||"";
+}
+function userRoleOptions(selected){
+  return ["admin","dispatcher","teacher","viewer"].map(r=>`<option value="${r}" ${r===selected?"selected":""}>${roleLabel(r)}</option>`).join("");
+}
+function fmtUserDate(v){
+  if(!v)return"—";
+  const d=new Date(v);return Number.isNaN(d.getTime())?String(v):d.toLocaleDateString("uk-UA");
+}
+function secureTempPassword(){
+  const chars="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const bytes=new Uint32Array(16);crypto.getRandomValues(bytes);
+  let out="Aa7!";
+  for(let i=0;i<12;i++)out+=chars[bytes[i]%chars.length];
+  return out;
+}
+async function listUserProfiles(){
+  if(!user||profile?.role!=="admin")throw new Error("Доступ лише адміністратору.");
+  const snap=await getDocs(collection(fire,"users"));
+  return snap.docs.map(d=>({uid:d.id,...d.data()})).sort((a,b)=>(a.displayName||a.email||"").localeCompare(b.displayName||b.email||"","uk"));
+}
+async function createManagedUser({email,displayName,role="viewer",sendReset=true}){
+  if(profile?.role!=="admin")throw new Error("Доступ лише адміністратору.");
+  email=String(email||"").trim().toLowerCase();displayName=String(displayName||"").trim();
+  if(!email)throw new Error("Вкажіть email.");
+  const secondaryName=`rems-user-create-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const secondaryApp=initializeApp(config,secondaryName),secondaryAuth=getAuth(secondaryApp);
+  let cred=null,profileWritten=false,resetSent=false,resetError=null;
+  try{
+    const tempPassword=secureTempPassword();
+    cred=await createUserWithEmailAndPassword(secondaryAuth,email,tempPassword);
+    if(displayName)await updateProfile(cred.user,{displayName});
+    await setDoc(doc(fire,"users",cred.user.uid),{
+      email,displayName,role,enabled:true,
+      createdAt:new Date().toISOString(),createdBy:user.uid
+    });
+    profileWritten=true;
+    if(sendReset){
+      try{auth.useDeviceLanguage?.();await sendPasswordResetEmail(auth,email);resetSent=true;}
+      catch(e){resetError=e;}
+    }
+    await signOut(secondaryAuth);
+    return {uid:cred.user.uid,email,resetSent,resetError};
+  }catch(e){
+    if(cred?.user&&!profileWritten){try{await deleteUser(cred.user);}catch(_){}}
+    throw e;
+  }finally{
+    try{await deleteApp(secondaryApp);}catch(_){}
+  }
+}
+async function updateManagedUser(uid,patch){
+  if(profile?.role!=="admin")throw new Error("Доступ лише адміністратору.");
+  if(String(uid)===String(user.uid)&&(patch.role&&patch.role!=="admin"||patch.enabled===false)){
+    throw new Error("Не можна заблокувати або забрати роль адміністратора у власного активного акаунта.");
+  }
+  await setDoc(doc(fire,"users",uid),{...clean(patch),updatedAt:new Date().toISOString(),updatedBy:user.uid},{merge:true});
+}
+async function sendManagedPasswordReset(email){
+  if(profile?.role!=="admin")throw new Error("Доступ лише адміністратору.");
+  auth.useDeviceLanguage?.();
+  await sendPasswordResetEmail(auth,email);
+}
+function humanUserError(e){
+  const c=e?.code||"";
+  if(c.includes("email-already-in-use"))return"Користувач із такою поштою вже існує у Firebase Authentication.";
+  if(c.includes("invalid-email"))return"Некоректна електронна адреса.";
+  if(c.includes("weak-password"))return"Firebase не прийняв тимчасовий пароль.";
+  if(c.includes("too-many-requests"))return"Забагато операцій. Спробуйте трохи пізніше.";
+  if(c.includes("permission-denied"))return"Firestore не дозволив операцію. Перевірте, чи опубліковані правила v0.9.5.";
+  return e?.message||c||"Невідома помилка.";
+}
+function openCreateUserModal(){
+  if(profile?.role!=="admin")return;
+  const html=`<h2>Новий користувач</h2>
+    <div class="notice">Акаунт буде створено у Firebase Authentication, а права доступу — у РЕМС-Розкладі.</div>
+    <form id="cloudCreateUserForm" class="form-grid">
+      <label class="wide">ПІБ<input id="cuName" placeholder="Прізвище Ім’я По батькові" required></label>
+      <label class="wide">Email<input id="cuEmail" type="email" placeholder="name@example.com" required></label>
+      <label>Роль<select id="cuRole">${userRoleOptions("viewer")}</select></label>
+      <label class="check-label"><span>Після створення</span><span class="check-inline"><input id="cuReset" type="checkbox" checked> Надіслати лист для встановлення власного пароля</span></label>
+      <div class="wide small" id="cuRoleHelp">${roleHelp("viewer")}</div>
+      <div class="wide"><button class="primary" id="cuSubmit">Створити користувача</button></div>
+    </form>`;
+  window.openModal?.(html);
+  const roleEl=document.querySelector("#cuRole");
+  roleEl.onchange=()=>document.querySelector("#cuRoleHelp").textContent=roleHelp(roleEl.value);
+  document.querySelector("#cloudCreateUserForm").onsubmit=async e=>{
+    e.preventDefault();
+    const btn=document.querySelector("#cuSubmit");btn.disabled=true;btn.textContent="Створення…";
+    try{
+      const result=await createManagedUser({
+        displayName:document.querySelector("#cuName").value,
+        email:document.querySelector("#cuEmail").value,
+        role:roleEl.value,
+        sendReset:document.querySelector("#cuReset").checked
+      });
+      window.closeModal?.();
+      if(result.resetSent)toast(`Користувача створено. На ${result.email} надіслано лист для встановлення пароля.`,"ok",8000);
+      else toast(`Користувача створено, але лист для пароля не надіслано. Скористайтеся кнопкою «Пароль».`,"error",9000);
+      renderUsersPage(document.querySelector("#page-users"));
+    }catch(err){
+      alert("Не вдалося створити користувача: "+humanUserError(err));
+      btn.disabled=false;btn.textContent="Створити користувача";
+    }
+  };
+}
+async function renderUsersPage(mount=document.querySelector("#page-users")){
+  if(!mount)return;
+  updateAdminUi();
+  if(!configured){mount.innerHTML=`<div class="card section"><div class="empty">Firebase не підключено.</div></div>`;return;}
+  if(!user){mount.innerHTML=`<div class="card section"><div class="empty">Спочатку увійдіть у систему.</div></div>`;return;}
+  if(profile?.role!=="admin"){mount.innerHTML=`<div class="card section"><div class="empty">Керування користувачами доступне лише адміністратору.</div></div>`;return;}
+  mount.innerHTML=`<div class="card section"><div class="section-head"><div><h2>Користувачі системи</h2><div class="small">Кожна людина входить під власною поштою та має окрему роль.</div></div><button class="primary" id="addSystemUser">+ Додати користувача</button></div><div class="empty">Завантаження…</div></div>`;
+  mount.querySelector("#addSystemUser").onclick=openCreateUserModal;
+  try{
+    const rows=await listUserProfiles();
+    mount.innerHTML=`<div class="card section">
+      <div class="section-head"><div><h2>Користувачі системи</h2><div class="small">${rows.length} облікових записів · кожна людина працює під власним логіном</div></div><button class="primary" id="addSystemUser">+ Додати користувача</button></div>
+      <div class="user-role-guide">
+        <span><b>Адміністратор</b> — усе</span><span><b>Диспетчер</b> — розклад</span><span><b>Викладач</b> — перегляд</span><span><b>Перегляд</b> — без редагування</span>
+      </div>
+      <div class="table-wrap"><table class="users-table"><thead><tr><th>Користувач</th><th>Email</th><th>Роль</th><th>Статус</th><th>Створено</th><th></th></tr></thead><tbody>
+      ${rows.map(x=>{
+        const self=String(x.uid)===String(user.uid);
+        return `<tr data-user-row="${escapeHtml(x.uid)}">
+          <td><b>${escapeHtml(x.displayName||"Без імені")}</b>${self?` <span class="badge ok">ВИ</span>`:""}</td>
+          <td>${escapeHtml(x.email||"—")}</td>
+          <td><select data-user-role="${escapeHtml(x.uid)}" ${self?"disabled":""}>${userRoleOptions(x.role||"viewer")}</select><div class="small">${escapeHtml(roleHelp(x.role||"viewer"))}</div></td>
+          <td><span class="badge ${x.enabled===false?"bad":"ok"}">${x.enabled===false?"ЗАБЛОКОВАНО":"АКТИВНИЙ"}</span></td>
+          <td>${escapeHtml(fmtUserDate(x.createdAt))}</td>
+          <td class="actions">
+            <button data-action="rename" data-uid="${escapeHtml(x.uid)}">ПІБ</button>
+            <button data-action="reset" data-email="${escapeHtml(x.email||"")}">Пароль</button>
+            ${self?"":`<button data-action="toggle" data-uid="${escapeHtml(x.uid)}" data-enabled="${x.enabled===false?"0":"1"}">${x.enabled===false?"Увімкнути":"Заблокувати"}</button>`}
+          </td>
+        </tr>`;
+      }).join("")}
+      </tbody></table></div>
+      <div class="notice">«Заблокувати» миттєво забирає доступ до спільної бази. Сам Firebase-акаунт при цьому не видаляється.</div>
+    </div>`;
+    mount.querySelector("#addSystemUser").onclick=openCreateUserModal;
+    mount.querySelectorAll("[data-user-role]").forEach(sel=>sel.onchange=async()=>{
+      const old=rows.find(x=>x.uid===sel.dataset.userRole)?.role||"viewer";
+      try{await updateManagedUser(sel.dataset.userRole,{role:sel.value});toast("Роль змінено.","ok");renderUsersPage(mount);}
+      catch(e){alert(humanUserError(e));sel.value=old;}
+    });
+    mount.querySelectorAll("[data-action]").forEach(btn=>btn.onclick=async()=>{
+      const action=btn.dataset.action;
+      try{
+        if(action==="rename"){
+          const row=rows.find(x=>String(x.uid)===String(btn.dataset.uid));
+          const name=prompt("ПІБ користувача:",row?.displayName||"");if(name===null)return;
+          await updateManagedUser(btn.dataset.uid,{displayName:name.trim()});toast("ПІБ оновлено.","ok");renderUsersPage(mount);
+        }
+        if(action==="reset"){
+          if(!btn.dataset.email)return alert("У користувача немає email.");
+          if(!confirm(`Надіслати на ${btn.dataset.email} лист для зміни пароля?`))return;
+          await sendManagedPasswordReset(btn.dataset.email);toast("Лист для зміни пароля надіслано.","ok",7000);
+        }
+        if(action==="toggle"){
+          const enable=btn.dataset.enabled==="0";
+          if(!confirm(enable?"Повернути користувачу доступ?":"Заблокувати доступ цього користувача до спільної бази?"))return;
+          await updateManagedUser(btn.dataset.uid,{enabled:enable});toast(enable?"Доступ увімкнено.":"Доступ заблоковано.","ok");renderUsersPage(mount);
+        }
+      }catch(e){alert(humanUserError(e));}
+    });
+  }catch(e){
+    mount.innerHTML=`<div class="card section"><div class="empty">Не вдалося завантажити користувачів: ${escapeHtml(humanUserError(e))}</div></div>`;
+  }
+}
+function subscribeOwnProfile(){
+  if(profileUnsub){profileUnsub();profileUnsub=null;}
+  if(!user)return;
+  profileUnsub=onSnapshot(doc(fire,"users",user.uid),snap=>{
+    if(!snap.exists()){
+      unsubs.forEach(f=>f());unsubs=[];
+      profile=null;updateAdminUi();setSidebar("error","Немає доступу",user.email||"");
+      showAccessBlocked("Ваш профіль доступу видалено. Зверніться до адміністратора.");
+      return;
+    }
+    const next=snap.data(),wasRole=profile?.role;
+    profile=next;updateAdminUi();
+    if(profile.enabled===false){
+      unsubs.forEach(f=>f());unsubs=[];
+      setSidebar("offline","Доступ заблоковано",user.email||"");
+      showAccessBlocked("Адміністратор заблокував доступ цього облікового запису.");
+      return;
+    }
+    if(!document.querySelector("#cloudAuthOverlay")?.classList.contains("hidden"))hideLogin();
+    setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
+    renderCloudSettings();
+    if(window.REMS_CURRENT_PAGE?.()==="users")renderUsersPage();
+    if(wasRole&&wasRole!==profile.role)toast(`Вашу роль змінено: ${roleLabel(profile.role)}.`,"ok",6500);
+  },e=>console.error("Profile listener",e));
+}
+
+
 function renderCloudSettings(){
   const mount=document.querySelector("#cloudSettingsMount");if(!mount)return;
   if(!configured){
@@ -314,8 +538,9 @@ function renderCloudSettings(){
     mount.querySelector("#firebaseConfigSave").onclick=()=>saveConfigOverride(mount.querySelector("#firebaseConfigPaste").value);
     return;
   }
-  mount.innerHTML=`<div class="card section cloud-settings"><div class="section-head"><div><h2>Спільна онлайн-база</h2><div class="small">Cloud Firestore · робочий простір ${WORKSPACE}</div></div><span class="badge ok">ОНЛАЙН</span></div><div class="cloud-account"><div><b>${escapeHtml(user?.email||"—")}</b><span>${roleLabel(profile?.role)}</span></div><div class="actions">${profile?.role==="admin"?`<button class="secondary" id="cloudUploadLocal">Відновити хмару з найповнішої локальної копії</button>`:""}<button class="secondary" id="cloudSignOut">Вийти</button></div></div><p class="small">Усі зміни автоматично синхронізуються. Перед примусовим перенесенням локальної копії в хмару зробіть експорт резервної копії.</p></div>`;
+  mount.innerHTML=`<div class="card section cloud-settings"><div class="section-head"><div><h2>Спільна онлайн-база</h2><div class="small">Cloud Firestore · робочий простір ${WORKSPACE}</div></div><span class="badge ok">ОНЛАЙН</span></div><div class="cloud-account"><div><b>${escapeHtml(user?.email||"—")}</b><span>${roleLabel(profile?.role)}</span></div><div class="actions">${profile?.role==="admin"?`<button class="secondary" id="cloudManageUsers">Користувачі</button><button class="secondary" id="cloudUploadLocal">Відновити хмару з найповнішої локальної копії</button>`:""}<button class="secondary" id="cloudSignOut">Вийти</button></div></div><p class="small">Усі зміни автоматично синхронізуються. Перед примусовим перенесенням локальної копії в хмару зробіть експорт резервної копії.</p></div>`;
   mount.querySelector("#cloudSignOut").onclick=()=>signOut(auth);
+  const manage=mount.querySelector("#cloudManageUsers");if(manage)manage.onclick=()=>window.go?.("users");
   const up=mount.querySelector("#cloudUploadLocal");if(up)up.onclick=async()=>{
     const best=bestLocalRecoveryState();
     if(!best)return alert("Не знайдено локальної копії для відновлення.");
@@ -335,12 +560,13 @@ async function initialize(){
     app=initializeApp(config);auth=getAuth(app);fire=getFirestore(app);
     setSidebar("syncing","Підключення…","Firebase");
     onAuthStateChanged(auth,async u=>{
-      unsubs.forEach(f=>f());unsubs=[];user=u;profile=null;remoteState=null;
+      unsubs.forEach(f=>f());unsubs=[];if(profileUnsub){profileUnsub();profileUnsub=null;}user=u;profile=null;remoteState=null;updateAdminUi();
       if(!u){setSidebar("offline","Потрібен вхід","Спільна база");showLogin();renderCloudSettings();return;}
       hideLogin();
       try{
         profile=await ensureProfile(u);
-        if(profile.enabled===false){toast("Цей обліковий запис вимкнено адміністратором.","error",9000);await signOut(auth);return;}
+        if(profile.enabled===false){showAccessBlocked("Адміністратор заблокував доступ цього облікового запису.");setSidebar("offline","Доступ заблоковано",u.email||"");return;}
+        updateAdminUi();subscribeOwnProfile();
         setSidebar("syncing","Завантаження…",`${u.email} · ${roleLabel(profile.role)}`);
         const r=await loadRemoteState();
         if(!r){
@@ -354,7 +580,7 @@ async function initialize(){
           toast("Спільну базу підключено.","ok",3500);
         }
         renderCloudSettings();
-      }catch(e){console.error(e);setSidebar("error","Помилка Firebase",u.email||"");toast("Не вдалося відкрити спільну базу. Перевірте Firestore і правила доступу.","error",9000);}
+      }catch(e){console.error(e);if(e?.code==="REMS_ACCESS_NOT_PROVISIONED"){setSidebar("offline","Немає доступу",u.email||"");showAccessBlocked(e.message);return;}setSidebar("error","Помилка Firebase",u.email||"");toast("Не вдалося відкрити спільну базу. Перевірте Firestore і правила доступу.","error",9000);}
     });
   }catch(e){console.error(e);setSidebar("error","Помилка конфігурації","Firebase");toast("Firebase не вдалося ініціалізувати.","error",8000);}
 }

@@ -14,6 +14,7 @@ service cloud.firestore {
     function dispatcher() { return roleIs('dispatcher'); }
 
     match /system/bootstrap {
+      // Needed only so the very first authenticated account can bootstrap the system.
       allow read: if signedIn();
       allow create: if signedIn()
                     && !exists(/databases/$(database)/documents/system/bootstrap)
@@ -22,28 +23,31 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
+      // A user can read their own access profile; admins can manage the directory.
       allow get: if signedIn() && (request.auth.uid == uid || admin());
       allow list: if admin();
-      allow create: if signedIn() && request.auth.uid == uid && (
-        (!exists(/databases/$(database)/documents/system/bootstrap)
-          && request.resource.data.role == 'admin')
-        || request.resource.data.role == 'viewer'
+
+      // After bootstrap, only an existing admin can provision another user's profile.
+      // Creating an Authentication account alone therefore does NOT grant database access.
+      allow create: if signedIn() && (
+        (
+          !exists(/databases/$(database)/documents/system/bootstrap)
+          && request.auth.uid == uid
+          && request.resource.data.role == 'admin'
+        )
+        || admin()
       );
-      allow update: if admin() || (
-        signedIn() && request.auth.uid == uid
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.enabled == resource.data.enabled
-      );
-      allow delete: if admin();
+
+      allow update, delete: if admin();
     }
 
-    // All enabled users can read the common workspace.
+    // All enabled provisioned users can read the common workspace.
     match /workspaces/{workspaceId}/{document=**} {
       allow read: if enabled();
       allow write: if admin();
     }
 
-    // Dispatcher can change the timetable and the conflict locks, but not curricula/workload.
+    // Dispatcher can change timetable records and conflict locks, but not curricula/workload.
     match /workspaces/{workspaceId}/schedule/{lessonId} {
       allow write: if admin() || dispatcher();
     }

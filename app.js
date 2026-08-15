@@ -149,6 +149,7 @@ const meta={
   curricula:["Навчальні плани","Першоджерело дисциплін, годин і навантаження"],
   disciplines:["Дисципліни / навантаження","Розподіл дисциплін і годин між викладачами"],
   lessonTypes:["Види занять","Правила підрахунку годин"],
+  users:["Користувачі","Облікові записи та права доступу"],
   settings:["Налаштування","Навчальний рік, семестр і резервні копії"]
 };
 $$(".nav-btn").forEach(b=>b.onclick=()=>go(b.dataset.page));
@@ -162,11 +163,11 @@ function go(p){
   $("#page-"+p).classList.add("active");
   $("#pageTitle").textContent=meta[p][0];
   $("#pageSubtitle").textContent=meta[p][1];
-  $("#quickAdd").style.display=p==="settings"?"none":"";
+  $("#quickAdd").style.display=["settings","users"].includes(p)?"none":"";
   renderCurrent();
 }
 function renderCurrent(){
-  ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,groups:renderGroups,students:renderStudents,rooms:renderRooms,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,settings:renderSettings}[currentPage])();
+  ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,groups:renderGroups,students:renderStudents,rooms:renderRooms,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,settings:renderSettings}[currentPage])();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
 }
 function openModal(html,wide=false){$("#modalBody").innerHTML=html;$("#modal").classList.remove("hidden");$("#modal").querySelector(".modal-card").classList.toggle("modal-wide",wide);}
@@ -882,6 +883,12 @@ function timetableToday(){timetableState.week=mondayOf(new Date().toISOString().
 
 /* Settings */
 function renderBellRows(){return bellPairs().map(p=>`<div class="bell-row" data-bell-row data-id="${esc(p.id)}"><div class="bell-number">${esc(p.id)} пара</div><input data-bstart type="time" value="${esc(p.start||"")}"><span>—</span><input data-bend type="time" value="${esc(p.end||"")}"><button class="danger small-btn" onclick="removeBellPair(${JSON.stringify(p.id)})">×</button></div>`).join("");}
+function renderUsers(){
+  const mount=$("#page-users");
+  if(window.REMS_CLOUD?.renderUsersPage) window.REMS_CLOUD.renderUsersPage(mount);
+  else mount.innerHTML=`<div class="card section"><div class="empty">Підключення модуля користувачів…</div></div>`;
+}
+
 function renderSettings(){
   $("#page-settings").innerHTML=`<div class="settings-grid"><div class="card settings-card"><h3>Навчальний період</h3><label>Навчальний рік<input id="setYear" value="${esc(db.academicYear)}"></label><label style="margin-top:10px">Семестр<select id="setSem"><option ${db.semester===1?"selected":""}>1</option><option ${db.semester===2?"selected":""}>2</option></select></label><button class="primary" style="margin-top:12px" onclick="savePeriod()">Зберегти</button></div><div class="card settings-card"><h3>Резервна копія</h3><p class="small">Експорт усієї бази одним JSON-файлом.</p><button class="primary" onclick="exportData()">Експорт даних</button></div><div class="card settings-card"><h3>Імпорт</h3><p class="small">Відновити дані з резервної копії.</p><button class="secondary" onclick="document.querySelector('#importFile').click()">Імпортувати</button></div><div class="card settings-card"><h3>Скидання</h3><p class="small">Повернути початкові дані версії 0.9.</p><button class="danger" onclick="resetData()">Скинути дані</button></div></div>
   <div id="cloudSettingsMount"></div>
