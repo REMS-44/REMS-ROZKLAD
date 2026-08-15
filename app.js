@@ -113,6 +113,7 @@ function save(){
   }
 }
 window.REMS_GET_STATE=()=>clone(db);
+window.REMS_MIGRATE_STATE=(state)=>migrate(state);
 window.REMS_CURRENT_PAGE=()=>currentPage;
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
   db=migrate(remote);

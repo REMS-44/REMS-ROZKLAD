@@ -7,6 +7,27 @@ import {
 
 const ARRAY_COLLECTIONS=["groups","students","rooms","teachers","curricula","disciplines","lessonTypes"];
 const SCHEDULE_COLLECTION="schedule";
+const LOCAL_DATA_KEYS=["remsScheduleData_v09","remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
+
+function recoveryScore(st){
+  if(!st||typeof st!=="object")return -1;
+  const n=k=>Array.isArray(st[k])?st[k].length:0;
+  return n("students")*4+n("teachers")*4+n("disciplines")*3+n("schedule")*3+n("rooms")*2+n("groups")*2+n("curricula")*2+n("lessonTypes");
+}
+function recoverySummary(st){
+  if(!st)return "локальної копії не знайдено";
+  const n=k=>Array.isArray(st[k])?st[k].length:0;
+  return `${n("students")} студентів · ${n("teachers")} викладачів · ${n("rooms")} аудиторій · ${n("disciplines")} дисциплін · ${n("schedule")} занять`;
+}
+function bestLocalRecoveryState(){
+  const candidates=[];
+  try{const cur=window.REMS_GET_STATE?.();if(cur)candidates.push({source:"поточний браузер",state:cur});}catch(_){}
+  for(const key of LOCAL_DATA_KEYS){
+    try{const raw=localStorage.getItem(key);if(!raw)continue;let st=JSON.parse(raw);st=window.REMS_MIGRATE_STATE?.(st)||st;candidates.push({source:key,state:st});}catch(_){}
+  }
+  candidates.sort((a,b)=>recoveryScore(b.state)-recoveryScore(a.state));
+  return candidates[0]||null;
+}
 const WORKSPACE=window.REMS_FIREBASE_WORKSPACE_ID||"main";
 const CONFIG_OVERRIDE_KEY="REMS_FIREBASE_CONFIG_OVERRIDE";
 const clean=x=>JSON.parse(JSON.stringify(x));
@@ -128,19 +149,37 @@ async function loadRemoteState(){
 }
 function sortById(a,b){const an=Number(a.id),bn=Number(b.id);if(Number.isFinite(an)&&Number.isFinite(bn))return an-bn;return String(a.id).localeCompare(String(b.id));}
 
-async function uploadWholeState(state){
+async function uploadWholeState(state,sourceLabel="поточний браузер") {
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
+  unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(state);st.schemaVersion=9;
-  await setDoc(settingsRef(),settingsPart(st));
-  for(const name of ARRAY_COLLECTIONS)await replaceCollection(name,st[name]||[]);
-  await replaceSchedule(st.schedule||[]);
-  remoteState=st;
-  subscribeRealtime();
-  window.REMS_APPLY_REMOTE_STATE?.(st);
-  setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
-  toast("Поточні дані перенесено у спільну базу.","ok",6000);
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=9;
+  try{
+    let step=0;const total=ARRAY_COLLECTIONS.length+2;
+    for(const name of ARRAY_COLLECTIONS){
+      step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · ${name}`);
+      await replaceCollection(name,st[name]||[]);
+    }
+    step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · schedule`);
+    await replaceSchedule(st.schedule||[]);
+    // Settings are written last: an incomplete bootstrap is not marked as ready.
+    step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · settings`);
+    await setDoc(settingsRef(),settingsPart(st));
+    remoteState=st;
+    window.REMS_APPLY_REMOTE_STATE?.(st);
+    subscribeRealtime();
+    setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
+    toast(`Хмару відновлено з локальної копії: ${recoverySummary(st)}.`,`ok`,8000);
+    renderCloudSettings();
+  }catch(e){
+    console.error("Cloud upload failed",e);
+    setSidebar("error","Помилка завантаження",user?.email||"");
+    toast(`Хмару не перезаписано повністю. Помилка: ${e?.code||e?.message||e}`,"error",12000);
+    subscribeRealtime();
+    throw e;
+  }
 }
+
 async function replaceCollection(name,items){
   const snap=await getDocs(collRef(name));
   const ops=[];
@@ -154,9 +193,9 @@ async function replaceSchedule(items){
   for(const it of items)await writeScheduleLesson(clean(it));
 }
 async function commitOps(ops){
-  for(let i=0;i<ops.length;i+=400){
+  for(let i=0;i<ops.length;i+=8){
     const batch=writeBatch(fire);
-    for(const op of ops.slice(i,i+400))op.type==="delete"?batch.delete(op.ref):batch.set(op.ref,op.data);
+    for(const op of ops.slice(i,i+8))op.type==="delete"?batch.delete(op.ref):batch.set(op.ref,op.data);
     await batch.commit();
   }
 }
@@ -275,9 +314,17 @@ function renderCloudSettings(){
     mount.querySelector("#firebaseConfigSave").onclick=()=>saveConfigOverride(mount.querySelector("#firebaseConfigPaste").value);
     return;
   }
-  mount.innerHTML=`<div class="card section cloud-settings"><div class="section-head"><div><h2>Спільна онлайн-база</h2><div class="small">Cloud Firestore · робочий простір ${WORKSPACE}</div></div><span class="badge ok">ОНЛАЙН</span></div><div class="cloud-account"><div><b>${escapeHtml(user?.email||"—")}</b><span>${roleLabel(profile?.role)}</span></div><div class="actions">${profile?.role==="admin"?`<button class="secondary" id="cloudUploadLocal">Перезаписати хмару даними цього браузера</button>`:""}<button class="secondary" id="cloudSignOut">Вийти</button></div></div><p class="small">Усі зміни автоматично синхронізуються. Перед примусовим перенесенням локальної копії в хмару зробіть експорт резервної копії.</p></div>`;
+  mount.innerHTML=`<div class="card section cloud-settings"><div class="section-head"><div><h2>Спільна онлайн-база</h2><div class="small">Cloud Firestore · робочий простір ${WORKSPACE}</div></div><span class="badge ok">ОНЛАЙН</span></div><div class="cloud-account"><div><b>${escapeHtml(user?.email||"—")}</b><span>${roleLabel(profile?.role)}</span></div><div class="actions">${profile?.role==="admin"?`<button class="secondary" id="cloudUploadLocal">Відновити хмару з найповнішої локальної копії</button>`:""}<button class="secondary" id="cloudSignOut">Вийти</button></div></div><p class="small">Усі зміни автоматично синхронізуються. Перед примусовим перенесенням локальної копії в хмару зробіть експорт резервної копії.</p></div>`;
   mount.querySelector("#cloudSignOut").onclick=()=>signOut(auth);
-  const up=mount.querySelector("#cloudUploadLocal");if(up)up.onclick=()=>{if(confirm("Це замінить спільні дані поточним станом цього браузера. Продовжити?"))uploadWholeState(window.REMS_GET_STATE?.());};
+  const up=mount.querySelector("#cloudUploadLocal");if(up)up.onclick=async()=>{
+    const best=bestLocalRecoveryState();
+    if(!best)return alert("Не знайдено локальної копії для відновлення.");
+    const msg=`Знайдено найповнішу локальну копію (${best.source}):\n${recoverySummary(best.state)}.\n\nВона повністю замінить дані у хмарі. Продовжити?`;
+    if(!confirm(msg))return;
+    up.disabled=true;up.textContent="Завантаження…";
+    try{await uploadWholeState(best.state,best.source);}catch(_){}
+    finally{renderCloudSettings();}
+  };
 }
 function escapeHtml(v=""){return String(v).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
 document.addEventListener("rems-rendered",renderCloudSettings);
