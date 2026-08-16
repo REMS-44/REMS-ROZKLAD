@@ -2488,6 +2488,11 @@ function teacherEventsForDate(source,date){
     return String(ax.start||"99:99").localeCompare(String(bx.start||"99:99"));
   });
 }
+function teacherSchedulePairs(source){
+  return (source?.bellSchedule||db.bellSchedule||[])
+    .slice()
+    .sort((a,b)=>Number(a.id)-Number(b.id));
+}
 function teacherEventSlotId(ev,source){
   const x=ev.data;
   if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return String(x.pairId);
