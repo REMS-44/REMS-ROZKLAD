@@ -1415,24 +1415,45 @@ function timetableToday(){
   renderTimetable();
 }
 
-/* Individual teacher schedule */
+/* Individual teacher schedule — monthly view */
 let teacherScheduleFeed={teacherId:null,schedule:[],roomBookings:[],academicYear:"",bellSchedule:[]};
-let teacherScheduleState={teacherId:null,week:null};
-window.REMS_SET_TEACHER_FEED=(feed)=>{
-  teacherScheduleFeed={teacherId:feed?.teacherId??null,schedule:feed?.schedule||[],roomBookings:feed?.roomBookings||[],academicYear:feed?.academicYear||db.academicYear,bellSchedule:feed?.bellSchedule||[]};
-  if(window.REMS_CLOUD?.role?.()==="teacher")teacherScheduleState.teacherId=teacherScheduleFeed.teacherId;
-  if(window.REMS_CLOUD?.role?.()==="teacher"&&teacherScheduleFeed.teacherId){
-    const src=teacherScheduleSource();
-    const currentDates=teacherScheduleState.week?teacherScheduleWeekDates(teacherScheduleState.week):[];
-    const hasCurrent=[...(src.schedule||[]),...(src.roomBookings||[])].some(x=>currentDates.includes(x.date));
-    if(!teacherScheduleState.week||!hasCurrent)focusTeacherRelevant(src);
+let teacherScheduleState={teacherId:null,month:null};
+
+function academicMonthTabs(){
+  const b=academicYearBounds();
+  const names=["","Січень","Лютий","Березень","Квітень","Травень","Червень","Липень","Серпень","Вересень","Жовтень","Листопад","Грудень"];
+  return [
+    ...[9,10,11,12].map(m=>({value:`${b.startYear}-${String(m).padStart(2,"0")}`,label:names[m]})),
+    ...[1,2,3,4,5,6].map(m=>({value:`${b.endYear}-${String(m).padStart(2,"0")}`,label:names[m]}))
+  ];
+}
+function teacherCurrentMonth(){
+  return clampAcademicMonth(currentAcademicDate().slice(0,7));
+}
+function teacherMonthAllowed(month){
+  return academicMonthTabs().some(x=>x.value===month);
+}
+function teacherMonthDays(month){
+  const [y,m]=month.split("-").map(Number);
+  const first=new Date(y,m-1,1,12,0,0);
+  const last=new Date(y,m,0,12,0,0);
+  const firstDow=(first.getDay()+6)%7; // Monday = 0
+  const lastDow=(last.getDay()+6)%7;
+  const startDate=new Date(first); startDate.setDate(first.getDate()-firstDow);
+  const endDate=new Date(last); endDate.setDate(last.getDate()+(6-lastDow));
+  const days=[];
+  const d=new Date(startDate);
+  while(d<=endDate){
+    const yy=d.getFullYear(),mm=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0");
+    days.push(`${yy}-${mm}-${dd}`);
+    d.setDate(d.getDate()+1);
   }
-  if(currentPage==="mySchedule")renderMySchedule();
-};
-function openTeacherSchedule(id){
-  teacherScheduleState.teacherId=Number(id);
-  teacherScheduleState.week=null;
-  go("mySchedule",{focusCurrentCalendar:true});
+  return days;
+}
+function teacherScheduleTeacherName(id){
+  const local=teacherById(id);
+  if(local)return local.name||teacherDisplay(local);
+  return window.REMS_CLOUD?.profile?.()?.displayName||window.REMS_CLOUD?.email?.()||"Викладач";
 }
 function teacherPortalTeacherId(){
   if(window.REMS_CLOUD?.role?.()==="teacher")return Number(window.REMS_CLOUD?.teacherId?.()||teacherScheduleFeed.teacherId)||null;
@@ -1458,112 +1479,162 @@ function teacherScheduleSource(){
     academicYear:db.academicYear
   };
 }
-function teacherSchedulePairs(source){
-  return (source.bellSchedule||[]).slice().sort((a,b)=>Number(a.id)-Number(b.id));
-}
-function teacherScheduleTeacherName(id){
-  const local=teacherById(id);
-  if(local)return local.name||teacherDisplay(local);
-  return window.REMS_CLOUD?.profile?.()?.displayName||window.REMS_CLOUD?.email?.()||"Викладач";
-}
-function teacherSourcePairId(x,source){
-  if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return String(x.pairId);
+function teacherEventPairLabel(x,source){
+  if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return `${x.pairId} пара`;
   const p=(source.bellSchedule||[]).find(p=>p.start===x?.start&&p.end===x?.end);
-  return p?String(p.id):null;
+  if(p)return `${p.id} пара`;
+  if(x?.start||x?.end)return `${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`;
+  return "без № пари";
 }
-function teacherScheduleEvents(source,date,pairId){
-  const lessons=(source.schedule||[]).filter(x=>x.date===date&&teacherSourcePairId(x,source)===String(pairId)).map(x=>({source:"schedule",data:x}));
-  const bookings=(source.roomBookings||[]).filter(x=>x.date===date&&teacherSourcePairId(x,source)===String(pairId)).map(x=>({source:"booking",data:x}));
-  return [...lessons,...bookings];
+function teacherEventsForDate(source,date){
+  const lessons=(source.schedule||[]).filter(x=>x.date===date).map(x=>({source:"schedule",data:x}));
+  const bookings=(source.roomBookings||[]).filter(x=>x.date===date).map(x=>({source:"booking",data:x}));
+  return [...lessons,...bookings].sort((a,b)=>{
+    const ax=a.data,bx=b.data;
+    const ap=Number(ax.pairId),bp=Number(bx.pairId);
+    if(Number.isFinite(ap)&&Number.isFinite(bp)&&ap!==bp)return ap-bp;
+    if(Number.isFinite(ap)!==Number.isFinite(bp))return Number.isFinite(ap)?-1:1;
+    return String(ax.start||"99:99").localeCompare(String(bx.start||"99:99"));
+  });
 }
-function teacherScheduleEventCard(ev){
+function teacherMonthEventCount(source,month){
+  return [...(source.schedule||[]),...(source.roomBookings||[])].filter(x=>String(x.date||"").slice(0,7)===month).length;
+}
+function teacherMonthTabsHtml(source){
+  return `<div class="teacher-month-tabs">${academicMonthTabs().map(m=>{
+    const count=teacherMonthEventCount(source,m.value);
+    return `<button class="${m.value===teacherScheduleState.month?"active":""}" onclick="setTeacherMonth('${m.value}')">
+      <span>${esc(m.label)}</span>${count?`<b>${count}</b>`:""}
+    </button>`;
+  }).join("")}</div>`;
+}
+function teacherMonthEventCard(ev,source){
   const x=ev.data;
+  const pair=teacherEventPairLabel(x,source);
   if(ev.source==="schedule"){
-    return `<div class="my-teacher-event">
-      <span class="my-teacher-kind">${esc(x.type||"Заняття")}</span>
-      <b>${esc(x.group||"—")}</b>
-      <span>${esc(x.discipline||"—")}</span>
-      <strong>ауд. ${esc(x.room||"—")}</strong>
+    return `<div class="teacher-month-event">
+      <div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div>
+      <span class="teacher-month-group">${esc(x.group||"—")}</span>
+      <span class="teacher-month-discipline">${esc(x.discipline||"Заняття")}</span>
+      ${x.type?`<small>${esc(x.type)}</small>`:""}
     </div>`;
   }
-  return `<div class="my-teacher-event booking">
-    <span class="my-teacher-kind">${esc(x.kind||"Подія")}</span>
-    <b>${esc(x.group||roomBookingLabel(x))}</b>
-    <span>${esc(x.title||roomBookingLabel(x))}</span>
-    <strong>ауд. ${esc(x.room||"—")}</strong>
+  return `<div class="teacher-month-event booking">
+    <div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div>
+    <span class="teacher-month-group">${esc(x.group||x.kind||"Подія")}</span>
+    <span class="teacher-month-discipline">${esc(x.title||roomBookingLabel(x))}</span>
+    ${x.kind?`<small>${esc(x.kind)}</small>`:""}
   </div>`;
 }
-function teacherScheduleWeekDates(week){return academicWeekDates(week);}
-function teacherScheduleAllDates(source){return [...new Set([...(source.schedule||[]),...(source.roomBookings||[])].map(x=>x.date).filter(dateInBounds))].sort();}
-function relevantTeacherDate(source){
-  const dates=teacherScheduleAllDates(source),today=localTodayISO(),bounds=academicYearBounds();
-  if(!dates.length)return currentAcademicDate();
-  if(today<bounds.start)return dates.find(d=>d>=bounds.start)||dates[0];
-  if(today>bounds.end)return dates.at(-1);
-  const weekSet=new Set(academicWeekDates(mondayOf(today)));
-  if(dates.some(d=>weekSet.has(d)))return today;
-  return dates.find(d=>d>=today)||dates.at(-1);
+function setTeacherMonth(month){
+  if(!teacherMonthAllowed(month))return;
+  teacherScheduleState.month=month;
+  renderMySchedule();
 }
-function focusTeacherRelevant(source){teacherScheduleState.week=mondayOf(relevantTeacherDate(source));}
-function shiftMyTeacherWeek(days){
-  const next=addDays(teacherScheduleState.week||mondayOf(currentAcademicDate()),days);
-  if(teacherScheduleWeekDates(next).length){teacherScheduleState.week=next;renderMySchedule();}
+function shiftTeacherMonth(delta){
+  const months=academicMonthTabs(),idx=months.findIndex(x=>x.value===teacherScheduleState.month);
+  const next=months[idx+Number(delta)];
+  if(next)setTeacherMonth(next.value);
 }
-function myTeacherToday(){teacherScheduleState.week=mondayOf(currentAcademicDate());renderMySchedule();}
-function myTeacherJump(date){if(date){teacherScheduleState.week=mondayOf(clampDate(date));renderMySchedule();}}
+function teacherMonthToday(){
+  setTeacherMonth(teacherCurrentMonth());
+}
+function openTeacherSchedule(id){
+  teacherScheduleState.teacherId=Number(id);
+  teacherScheduleState.month=teacherCurrentMonth();
+  go("mySchedule",{focusCurrentCalendar:false});
+}
+window.REMS_SET_TEACHER_FEED=(feed)=>{
+  teacherScheduleFeed={
+    teacherId:feed?.teacherId??null,
+    schedule:feed?.schedule||[],
+    roomBookings:feed?.roomBookings||[],
+    academicYear:feed?.academicYear||db.academicYear,
+    bellSchedule:feed?.bellSchedule||[]
+  };
+  if(window.REMS_CLOUD?.role?.()==="teacher")teacherScheduleState.teacherId=teacherScheduleFeed.teacherId;
+  if(!teacherScheduleState.month||!teacherMonthAllowed(teacherScheduleState.month))teacherScheduleState.month=teacherCurrentMonth();
+  if(currentPage==="mySchedule")renderMySchedule();
+};
+
 function renderMySchedule(){
   const role=window.REMS_CLOUD?.role?.();
   if(role==="teacher")teacherScheduleState.teacherId=teacherPortalTeacherId();
   const source=teacherScheduleSource(),teacherId=source.teacherId;
-  if(!teacherScheduleState.week)focusTeacherRelevant(source);
 
   if(!teacherId){
     $("#page-mySchedule").innerHTML=`<div class="card section"><div class="empty"><b>Акаунт ще не прив’язаний до викладача.</b><br>Адміністратор має відкрити «Налаштування → Користувачі та доступ» і вибрати викладача для цього акаунта.</div>${role==="teacher"?`<div class="actions" style="justify-content:center;margin-top:16px"><button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button></div>`:""}</div>`;
     return;
   }
 
-  let dates=teacherScheduleWeekDates(teacherScheduleState.week);
-  if(!dates.length){focusTeacherRelevant(source);dates=teacherScheduleWeekDates(teacherScheduleState.week);}
-  const pairs=teacherSchedulePairs(source);
+  if(!teacherScheduleState.month||!teacherMonthAllowed(teacherScheduleState.month))teacherScheduleState.month=teacherCurrentMonth();
+
+  const month=teacherScheduleState.month;
+  const monthDays=teacherMonthDays(month);
+  const monthCount=teacherMonthEventCount(source,month);
+  const totalCount=(source.schedule||[]).length+(source.roomBookings||[]).length;
   const name=teacherScheduleTeacherName(teacherId);
-  const eventsCount=dates.reduce((n,d)=>n+pairs.reduce((a,p)=>a+teacherScheduleEvents(source,d,p.id).length,0),0);
-  const allDates=teacherScheduleAllDates(source);
-  const nearest=allDates.find(d=>d>=currentAcademicDate())||allDates.at(-1)||null;
-  const nearestOutside=nearest&&!dates.includes(nearest);
+  const today=localTodayISO();
+  const weekdays=["Пн","Вт","Ср","Чт","Пт","Сб","Нд"];
+  const monthInfo=academicMonthTabs().find(x=>x.value===month);
+  const months=academicMonthTabs();
+  const monthIndex=months.findIndex(x=>x.value===month);
 
   $("#pageTitle").textContent=role==="teacher"?"Мій розклад":"Розклад викладача";
   $("#pageSubtitle").textContent=name;
 
-  $("#page-mySchedule").innerHTML=`<div class="card section teacher-schedule-shell">
-    <div class="section-head">
-      <div><h2>${esc(name)}</h2><div class="small">${dates.length?`${formatDate(dates[0])} — ${formatDate(dates.at(-1))}`:""} · ${esc(source.academicYear||db.academicYear)}</div></div>
-      <div class="actions"><button class="secondary" onclick="shiftMyTeacherWeek(-7)">← Тиждень</button><button class="secondary" onclick="myTeacherToday()">Поточний тиждень</button><button class="secondary" onclick="shiftMyTeacherWeek(7)">Тиждень →</button>${role==="teacher"?`<button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button>`:""}</div>
-    </div>
-    <div class="toolbar timetable-toolbar">
-      <label>Перейти до дати<input id="myTeacherDateJump" type="date" ${dateAttrs()} value="${esc(currentAcademicDate())}"></label>
-      <label>Тижні з заняттями<select id="myTeacherWeekJump">${(()=>{const weeks=[...new Set(allDates.map(mondayOf))];return weeks.map(w=>{const wd=teacherScheduleWeekDates(w),cnt=wd.reduce((n,d)=>n+pairs.reduce((a,p)=>a+teacherScheduleEvents(source,d,p.id).length,0),0);return `<option value="${w}" ${w===teacherScheduleState.week?"selected":""}>${formatDate(wd[0]||w).slice(0,5)} · ${cnt} под.</option>`}).join("")||`<option value="">—</option>`;})()}</select></label>
-      <div class="ready-count"><b>${(source.schedule||[]).length}</b><span>занять викладача в базі</span></div>
-      <div class="timetable-week-status"><b>${eventsCount}</b><span>подій цього тижня</span></div>
-      ${role!=="teacher"?`<button class="secondary" onclick="go('teachers')">← До викладачів</button>`:""}
-    </div>
-    ${!eventsCount?`<div class="timetable-empty-notice"><div><b>На цьому тижні занять немає.</b><span>${nearestOutside?`Найближча дата: ${formatDate(nearest)}.`:""}</span></div>${nearestOutside?`<button class="secondary" onclick="myTeacherJump('${nearest}')">Показати найближче →</button>`:""}</div>`:""}
-    <div class="timetable-wrap">
-      <div class="timetable-grid teacher-schedule-grid" style="grid-template-columns:88px repeat(${dates.length},minmax(160px,1fr));min-width:${88+dates.length*160}px">
-        <div class="tt-corner">Пара</div>
-        ${dates.map(d=>`<div class="tt-day ${d===currentAcademicDate()?"current-academic-day":""}"><b>${esc(weekdayNameForDate(d))}</b><span>${formatDate(d).slice(0,5)}</span></div>`).join("")}
-        ${pairs.map(pair=>`
-          <div class="tt-pair"><b>${esc(pair.id)}</b><span>пара</span>${pair.start&&pair.end?`<small>${esc(pair.start)}<br>${esc(pair.end)}</small>`:""}</div>
-          ${dates.map(date=>{
-            const events=teacherScheduleEvents(source,date,pair.id);
-            return `<div class="tt-cell ${date===currentAcademicDate()?"current-academic-column":""}">${events.map(teacherScheduleEventCard).join("")}</div>`;
-          }).join("")}
-        `).join("")}
+  $("#page-mySchedule").innerHTML=`<div class="teacher-month-page">
+    <div class="card section teacher-month-header">
+      <div class="section-head">
+        <div>
+          <h2>${esc(name)}</h2>
+          <div class="small">Індивідуальний розклад · ${esc(source.academicYear||db.academicYear)}</div>
+        </div>
+        <div class="actions">
+          ${role!=="teacher"?`<button class="secondary" onclick="go('teachers')">← До викладачів</button>`:""}
+          ${role==="teacher"?`<button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button>`:""}
+        </div>
+      </div>
+
+      ${teacherMonthTabsHtml(source)}
+
+      <div class="teacher-month-toolbar">
+        <button class="secondary" ${monthIndex<=0?"disabled":""} onclick="shiftTeacherMonth(-1)">← Попередній</button>
+        <div class="teacher-month-title">
+          <b>${esc(monthInfo?.label||monthLabel(month))}</b>
+          <span>${monthCount} подій у місяці · ${totalCount} у навчальному році</span>
+        </div>
+        <button class="secondary" onclick="teacherMonthToday()">Актуальний місяць</button>
+        <button class="secondary" ${monthIndex>=months.length-1?"disabled":""} onclick="shiftTeacherMonth(1)">Наступний →</button>
       </div>
     </div>
-    <div class="notice teacher-live-note">Цей календар оновлюється автоматично, коли навчальна частина змінює загальний розклад.</div>
+
+    <div class="card section teacher-month-calendar-card">
+      <div class="teacher-month-weekdays">
+        ${weekdays.map(w=>`<div>${w}</div>`).join("")}
+      </div>
+      <div class="teacher-month-calendar">
+        ${monthDays.map(date=>{
+          const inMonth=date.slice(0,7)===month;
+          const inAcademic=dateInBounds(date);
+          const events=inAcademic?teacherEventsForDate(source,date):[];
+          const day=Number(date.slice(8,10));
+          const isToday=date===today;
+          return `<div class="teacher-month-day ${inMonth?"":"outside-month"} ${isToday?"today":""}">
+            <div class="teacher-month-day-head">
+              <b>${day}</b>
+              ${isToday?`<span>сьогодні</span>`:""}
+            </div>
+            <div class="teacher-month-day-events">
+              ${events.length?events.map(ev=>teacherMonthEventCard(ev,source)).join(""):(inMonth?`<div class="teacher-month-free">—</div>`:"")}
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div class="notice teacher-live-note">Розклад оновлюється автоматично після змін у загальному розкладі. Липень і серпень не використовуються.</div>
   </div>`;
-  $("#myTeacherDateJump").onchange=e=>{if(e.target.value)myTeacherJump(e.target.value);};
-  $("#myTeacherWeekJump").onchange=e=>{if(e.target.value){teacherScheduleState.week=e.target.value;renderMySchedule();}};
 }
 window.REMS_APPLY_ROLE_ACCESS=()=>{
   const role=window.REMS_CLOUD?.role?.();
@@ -1572,6 +1643,7 @@ window.REMS_APPLY_ROLE_ACCESS=()=>{
   if(nav)nav.style.display=role==="teacher"?"":"none";
   if(role==="teacher"){
     teacherScheduleState.teacherId=teacherPortalTeacherId();
+    if(!teacherScheduleState.month)teacherScheduleState.month=teacherCurrentMonth();
     if(currentPage!=="mySchedule")go("mySchedule",{focusCurrentCalendar:false});
     else renderMySchedule();
   }
