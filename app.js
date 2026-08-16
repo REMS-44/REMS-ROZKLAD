@@ -288,7 +288,8 @@ function departmentTeachers(){return db.teachers.filter(t=>t.scope!=="external"&
 function externalTeachers(){return db.teachers.filter(t=>t.scope==="external"&&t.status!=="archived");}
 function totalDisciplineHours(d){return Object.values(d.hours||{}).reduce((a,b)=>a+num(b),0);}
 function teacherNames(ids=[]){return ids.map(id=>teacherDisplay(teacherById(id))).filter(Boolean).join(", ");}
-function kpi(label,value){return `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`;}
+function kpiIcon(label){return ({"Груп":"◉","Студентів":"✦","Викладачів кафедри":"♟","Дисциплін кафедри":"◇"})[label]||"•";}
+function kpi(label,value){return `<div class="card kpi studio-kpi"><div class="kpi-icon">${kpiIcon(label)}</div><div class="kpi-copy"><div class="label">${label}</div><div class="value">${value}</div></div><span class="kpi-line"></span></div>`;}
 function groupOptions(selected=""){return db.groups.slice().sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code)).map(g=>`<option value="${esc(g.code)}" ${g.code===selected?"selected":""}>${esc(g.code)} · ${g.course} курс</option>`).join("");}
 function sortedGroups(){
   return db.groups.slice().sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code,"uk"));
@@ -297,10 +298,10 @@ function groupSwitchButtonHtml(g,selected,onclick,badge=""){
   const active=normIdentity(g.code)===normIdentity(selected);
   const safe=String(g.code).replaceAll("\\","\\\\").replaceAll("'","\\'");
   return `<button type="button"
-    class="group-switch-btn ${active?"active":""}"
+    class="group-switch-btn course-${esc(g.course)} ${active?"active":""}"
     onclick="${onclick}('${safe}')">
+      <span class="group-switch-meta">${esc(g.course)} КУРС</span>
       <span class="group-switch-main">${esc(g.code)}</span>
-      <span class="group-switch-meta">${esc(g.course)} курс</span>
       ${badge!==""?`<span class="group-switch-count">${esc(badge)}</span>`:""}
     </button>`;
 }
@@ -309,8 +310,9 @@ function groupSwitchRowHtml({selected="",onclick,includeAll=false,allLabel="Ус
   return `<div class="group-switch-wrap ${extraClass}">
     <div class="group-switch-row">
       ${includeAll?`<button type="button" class="group-switch-btn all ${!selected?"active":""}" onclick="${onclick}('')">
+        <span class="group-switch-meta">ФІЛЬТР</span>
         <span class="group-switch-main">${esc(allLabel)}</span>
-        <span class="group-switch-meta">${list.length} груп</span>
+        <span class="group-switch-count">${list.length}</span>
       </button>`:""}
       ${list.map(g=>groupSwitchButtonHtml(g,selected,onclick,badgeFn?badgeFn(g):"")).join("")}
     </div>
@@ -448,20 +450,39 @@ function closeModal(){
 function renderHome(){
   const today=localTodayISO();
   const todays=db.schedule.filter(x=>x.date===today).sort((a,b)=>a.start.localeCompare(b.start));
+  const dateObj=new Date(today+"T12:00:00");
+  const dateDay=dateObj.toLocaleDateString("uk-UA",{day:"2-digit"});
+  const dateMonth=dateObj.toLocaleDateString("uk-UA",{month:"long"});
+  const activeDisciplines=db.disciplines.filter(x=>x.status!=="archived").length;
+  const groups=db.groups.slice().sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code));
+
   $("#page-home").innerHTML=`
+    <div class="home-stage">
+      <div class="home-stage-copy">
+        <span class="home-stage-kicker">НАВЧАЛЬНИЙ СЕЗОН</span>
+        <h2>${esc(db.academicYear)}</h2>
+        <p>${db.semester} семестр · система планування кафедри режисури естради і шоу</p>
+        <div class="home-stage-actions"><button class="primary" onclick="go('schedule')">Складати розклад →</button><button class="secondary" onclick="go('timetable',{focusCurrentCalendar:true})">Дивитися календар</button></div>
+      </div>
+      <div class="home-stage-date"><span>СЬОГОДНІ</span><b>${esc(dateDay)}</b><strong>${esc(dateMonth)}</strong><small>${todays.length} занять у базі на сьогодні</small></div>
+      <div class="home-stage-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+    </div>
+
     <div class="grid-kpi">
       ${kpi("Груп",db.groups.length)}
       ${kpi("Студентів",db.students.filter(x=>x.status!=="archived").length)}
       ${kpi("Викладачів кафедри",departmentTeachers().length)}
-      ${kpi("Дисциплін кафедри",db.disciplines.filter(x=>x.status!=="archived").length)}
+      ${kpi("Дисциплін кафедри",activeDisciplines)}
     </div>
-    <div class="card section">
-      <div class="section-head"><h2>${esc(db.academicYear)} · ${db.semester} семестр</h2><button class="secondary" onclick="go('settings')">Змінити</button></div>
-      <div class="group-grid">${db.groups.slice().sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code)).map(g=>`<div class="group-card"><b>${esc(g.code)}</b><p>${g.course} курс · ${groupStudentCount(g.code)} студентів</p></div>`).join("")}</div>
+
+    <div class="card section home-groups-section">
+      <div class="section-head"><div><span class="section-kicker">СТРУКТУРА</span><h2>Навчальні групи</h2><div class="small">Кожен курс має свій візуальний акцент — так легше орієнтуватися в системі.</div></div><button class="secondary" onclick="go('groups')">Групи і студенти →</button></div>
+      <div class="group-grid">${groups.map(g=>`<div class="group-card course-${g.course}"><span class="group-card-course">${g.course} КУРС</span><b>${esc(g.code)}</b><p><strong>${groupStudentCount(g.code)}</strong> студентів</p><span class="group-card-glow"></span></div>`).join("")}</div>
     </div>
-    <div class="card section">
-      <div class="section-head"><h2>Сьогодні</h2><button class="secondary" onclick="go('timetable',{focusCurrentCalendar:true})">Відкрити розклад →</button></div>
-      ${todays.length?miniSchedule(todays):`<div class="empty">На сьогодні занять ще немає.</div>`}
+
+    <div class="card section home-today-section">
+      <div class="section-head"><div><span class="section-kicker">СЬОГОДНІ</span><h2>Сьогодні</h2><div class="small">Оперативний зріз розкладу на поточну дату.</div></div><button class="secondary" onclick="go('timetable',{focusCurrentCalendar:true})">Відкрити розклад →</button></div>
+      ${todays.length?miniSchedule(todays):`<div class="empty studio-empty"><b>Сьогодні тихо</b><span>На поточну дату занять ще немає.</span></div>`}
     </div>`;
 }
 function miniSchedule(rows){
@@ -1302,7 +1323,7 @@ function loadPageActiveGroups(rows=loadPageRows()){
 }
 function loadGroupCardHtml(g,selected){
   const isSelected=normIdentity(g.code)===normIdentity(selected);
-  return `<button type="button" class="load-group-card ${isSelected?"active":""} ${g.attention?"needs-attention":""}" onclick="selectLoadGroup('${String(g.code).replaceAll("'","\\'")}')">
+  return `<button type="button" class="load-group-card course-${esc(g.course)} ${isSelected?"active":""} ${g.attention?"needs-attention":""}" onclick="selectLoadGroup('${String(g.code).replaceAll("'","\\'")}')">
     <div class="load-group-card-top">
       <div>
         <b>${esc(g.code)}</b>

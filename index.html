@@ -4,43 +4,52 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>РЕМС-Розклад</title>
-  <meta name="theme-color" content="#6d28d9">
-  <link rel="stylesheet" href="styles.css?v=1.0.29">
+  <meta name="theme-color" content="#1b0d2f">
+  <link rel="stylesheet" href="styles.css?v=1.1.0">
 </head>
-<body>
+<body class="rems-studio">
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><div class="brand-mark">Р</div><div><b>РЕМС</b><span>РОЗКЛАД</span></div></div>
+    <div class="brand">
+      <div class="brand-mark"><span>Р</span></div>
+      <div class="brand-copy"><b>РЕМС</b><span>СИСТЕМА РОЗКЛАДУ</span></div>
+    </div>
+    <div class="sidebar-studio-label"><span>КАФЕДРА</span><b>режисура естради і шоу</b></div>
     <nav>
-      <button class="nav-btn teacher-only-nav" id="teacherScheduleNav" data-page="mySchedule" style="display:none">▦ <span>Мій розклад</span></button>
-      <button class="nav-btn active" data-page="home">⌂ <span>Головна</span></button>
+      <button class="nav-btn teacher-only-nav" id="teacherScheduleNav" data-page="mySchedule" style="display:none"><i class="nav-icon">▦</i><span>Мій розклад</span></button>
+      <button class="nav-btn active" data-page="home"><i class="nav-icon">⌂</i><span>Головна</span></button>
 
       <div class="nav-section-label">ПЛАНУВАННЯ</div>
-      <button class="nav-btn" data-page="curricula">▤ <span>Навчальні плани</span></button>
-      <button class="nav-btn" data-page="disciplines">◇ <span>Навантаження</span></button>
+      <button class="nav-btn" data-page="curricula"><i class="nav-icon">▤</i><span>Навчальні плани</span></button>
+      <button class="nav-btn" data-page="disciplines"><i class="nav-icon">◇</i><span>Навантаження</span></button>
 
       <div class="nav-section-label">РОЗКЛАД</div>
-      <button class="nav-btn" data-page="schedule">✎ <span>Складання розкладу</span></button>
-      <button class="nav-btn" data-page="timetable">▦ <span>Розклад</span></button>
-      <button class="nav-btn" data-page="roomGrid">▥ <span>Аудиторії</span></button>
+      <button class="nav-btn" data-page="schedule"><i class="nav-icon">✎</i><span>Складання розкладу</span></button>
+      <button class="nav-btn" data-page="timetable"><i class="nav-icon">▦</i><span>Розклад</span></button>
+      <button class="nav-btn" data-page="roomGrid"><i class="nav-icon">▥</i><span>Аудиторії</span></button>
 
       <div class="nav-section-label">ЛЮДИ</div>
-      <button class="nav-btn" data-page="groups">◉ <span>Групи і студенти</span></button>
-      <button class="nav-btn" data-page="teachers">♟ <span>Викладачі</span></button>
+      <button class="nav-btn" data-page="groups"><i class="nav-icon">◉</i><span>Групи і студенти</span></button>
+      <button class="nav-btn" data-page="teachers"><i class="nav-icon">♟</i><span>Викладачі</span></button>
 
       <div class="nav-bottom">
-        <button class="nav-btn" data-page="settings">⚙ <span>Налаштування</span></button>
+        <button class="nav-btn" data-page="settings"><i class="nav-icon">⚙</i><span>Налаштування</span></button>
       </div>
     </nav>
     <div id="cloudSidebar" class="cloud-sidebar">
       <div id="cloudStatusDot" class="cloud-dot local"></div>
       <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
     </div>
-    <div class="sidebar-note">Версія 1.0.29 · три дії у спливаючих вікнах</div>
+    <div class="sidebar-note">Версія 1.1.0 · студійний інтерфейс</div>
   </aside>
   <main class="main">
     <header class="topbar">
-      <div><h1 id="pageTitle">Головна</h1><p id="pageSubtitle">Кафедральний пульт розкладу</p></div>
+      <div class="topbar-copy">
+        <span class="topbar-kicker">РЕМС · РОБОЧИЙ ПУЛЬТ</span>
+        <h1 id="pageTitle">Головна</h1>
+        <p id="pageSubtitle">Кафедральний пульт розкладу</p>
+      </div>
+      <div class="topbar-signature" aria-hidden="true"><i></i><i></i><i></i></div>
     </header>
     <section id="page-home" class="page active"></section>
     <section id="page-schedule" class="page"></section>
@@ -62,7 +71,7 @@
 <input id="importFile" type="file" accept=".json" hidden>
 <script src="data.js"></script>
 <script src="firebase-config.js"></script>
-<script src="app.js?v=1.0.29"></script>
+<script src="app.js?v=1.1.0"></script>
 <script type="module" src="cloud.js?v=1.0.19r3"></script>
 </body>
 </html>
