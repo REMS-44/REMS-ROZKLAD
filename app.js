@@ -2894,25 +2894,40 @@ function plannerSeriesCurrentDefaults(d,t){
 function plannerSeriesRowHtml(date,d,t,pairId=null,room="",type=""){
   const b=plannerSeriesBounds(d);
   const selectedPair=pairId||plannerSeriesDefaultPair(d,t);
-  return `<div class="planner-series-row" data-series-row>
-    <label class="planner-series-use">
-      <input type="checkbox" data-series-use checked>
-      <span>включити</span>
-    </label>
-    <label class="planner-series-date-input">Дата
-      <input type="date" data-series-date min="${b.start}" max="${b.end}" value="${esc(date||"")}">
-    </label>
-    <label>Вид заняття
-      <select data-series-type>${plannerSeriesTypeOptions(d,t,type)}</select>
-    </label>
-    <label>Пара
-      <select data-series-pair>${pairOptions(selectedPair,false)}</select>
-    </label>
-    <label>Аудиторія
-      <select data-series-room>${plannerRoomOptions(date||disciplinePlannerState.date,selectedPair,room)}</select>
-    </label>
-    <div class="planner-series-status" data-series-status></div>
-    <button type="button" class="danger small-btn planner-series-remove" data-series-remove title="Прибрати дату">×</button>
+
+  return `<div class="planner-series-row planner-series-card" data-series-row>
+    <div class="planner-series-card-head">
+      <label class="planner-series-use">
+        <input type="checkbox" data-series-use checked>
+        <span>Включити</span>
+      </label>
+
+      <label class="planner-series-date-input">
+        <span>Дата</span>
+        <input type="date" data-series-date min="${b.start}" max="${b.end}" value="${esc(date||"")}">
+      </label>
+
+      <div class="planner-series-status" data-series-status></div>
+
+      <button type="button" class="danger small-btn planner-series-remove" data-series-remove title="Прибрати дату">×</button>
+    </div>
+
+    <div class="planner-series-card-fields">
+      <label>
+        <span>Вид заняття</span>
+        <select data-series-type>${plannerSeriesTypeOptions(d,t,type)}</select>
+      </label>
+
+      <label>
+        <span>Пара</span>
+        <select data-series-pair>${plannerPairOptions(date||disciplinePlannerState.date,d,t,selectedPair)}</select>
+      </label>
+
+      <label>
+        <span>Аудиторія</span>
+        <select data-series-room>${plannerRoomOptions(date||disciplinePlannerState.date,selectedPair,room)}</select>
+      </label>
+    </div>
   </div>`;
 }
 function plannerSeriesPanelHtml(d,t){
@@ -3048,8 +3063,15 @@ function plannerSeriesRefreshRow(row,d,t){
   const status=row.querySelector("[data-series-status]");
 
   const date=dateEl?.value||"";
-  const pairId=pairEl?.value||"";
+  let pairId=pairEl?.value||"";
   const oldRoom=roomEl?.value||"";
+
+  if(date&&pairEl){
+    const previous=pairId;
+    pairEl.innerHTML=plannerPairOptions(date,d,t,previous);
+    if([...pairEl.options].some(o=>String(o.value)===String(previous)))pairEl.value=previous;
+    pairId=pairEl.value||previous;
+  }
 
   if(date&&pairId&&roomEl){
     roomEl.innerHTML=plannerRoomOptions(date,pairId,oldRoom);
@@ -3342,99 +3364,211 @@ function savePlannerSeries(d,t){
 
 function teacherAvailabilityRuleLabel(rule){
   if(!rule)return "";
-  const type=rule.type||"weekday";
+  const kind=rule.kind||"weekday";
   const dayName=id=>{
     const d=db.weekDays.find(x=>String(x.id)===String(id));
     return d?.name||`день ${id}`;
   };
+
   let base="";
-  if(type==="weekday")base=dayName(rule.weekday);
-  else if(type==="date")base=rule.date?formatDate(rule.date):"конкретна дата";
-  else if(type==="range")base=`${rule.dateFrom?formatDate(rule.dateFrom):"…"}–${rule.dateTo?formatDate(rule.dateTo):"…"}`;
+  if(kind==="weekday")base=dayName(rule.day);
+  else if(kind==="date")base=rule.date?formatDate(rule.date):"конкретна дата";
+  else if(kind==="range")base=`${rule.dateFrom?formatDate(rule.dateFrom):"…"}–${rule.dateTo?formatDate(rule.dateTo):"…"}`;
   else base="правило";
 
   const time=(rule.start||rule.end)
     ? ` · ${rule.start||"…"}–${rule.end||"…"}`
     : "";
+
   return `${base}${time}`;
 }
-function plannerTeacherAvailabilitySummaryHtml(t,date){
-  const unavailable=t.unavailableRules||[];
-  const preferred=t.preferredRules||[];
 
-  const dayUnavailable=unavailable.filter(r=>ruleApplies(r,date));
-  const dayPreferred=preferred.filter(r=>ruleApplies(r,date));
-
-  let dayState="neutral";
-  let dayText="Можна ставити";
-  if(dayUnavailable.length){
-    dayState="blocked";
-    dayText=dayUnavailable.some(r=>!r.start&&!r.end)
-      ?"Цього дня викладач недоступний"
-      :"Є недоступні години";
-  }else if(dayPreferred.length){
-    dayState="preferred";
-    dayText="Є бажані години цього дня";
-  }else if(preferred.length){
-    dayState="outside";
-    dayText="Цей день не входить до бажаних";
-  }
-
-  const unavailableText=unavailable.length
-    ? unavailable.slice(0,2).map(teacherAvailabilityRuleLabel).join(" · ")+(unavailable.length>2?` · +${unavailable.length-2}`:"")
-    : "не задано";
-
-  const preferredText=preferred.length
-    ? preferred.slice(0,2).map(teacherAvailabilityRuleLabel).join(" · ")+(preferred.length>2?` · +${preferred.length-2}`:"")
-    : "не задано";
-
-  return `<div class="planner-teacher-availability">
-    <div class="planner-teacher-availability-head">
-      <div>
-        <span>Доступність викладача</span>
-        <b>${esc(teacherDisplay(t))}</b>
-      </div>
-      <button type="button" class="secondary" onclick="openTeacherAvailabilityModal(${t.id})">Змінити</button>
-    </div>
-
-    <div class="planner-availability-today ${dayState}">
-      <b>${formatDate(date)}</b>
-      <span>${esc(dayText)}</span>
-    </div>
-
-    <div class="planner-availability-grid">
-      <div>
-        <span>Не можна ставити</span>
-        <b>${esc(unavailableText)}</b>
-      </div>
-      <div>
-        <span>Бажано ставити</span>
-        <b>${esc(preferredText)}</b>
-      </div>
-      <div>
-        <span>Макс. на день</span>
-        <b>${t.maxPerDay?`${esc(t.maxPerDay)} пар`:"не задано"}</b>
-      </div>
-      <div>
-        <span>Макс. підряд</span>
-        <b>${t.maxConsecutive?`${esc(t.maxConsecutive)} пар`:"не задано"}</b>
-      </div>
-    </div>
-  </div>`;
-}
-function plannerCalendarAvailabilityTag(date,t){
+function teacherAvailabilityDayState(t,date){
   const unavailable=(t.unavailableRules||[]).filter(r=>ruleApplies(r,date));
   const preferred=(t.preferredRules||[]).filter(r=>ruleApplies(r,date));
 
-  if(unavailable.some(r=>!r.start&&!r.end))
-    return `<span class="planner-day-availability blocked">викл. не може</span>`;
-  if(unavailable.length)
-    return `<span class="planner-day-availability limited">є обмеження</span>`;
-  if(preferred.length)
-    return `<span class="planner-day-availability preferred">бажано</span>`;
-  if((t.preferredRules||[]).length)
-    return `<span class="planner-day-availability outside">поза бажаним</span>`;
-  return "";
+  if(unavailable.some(r=>!r.start&&!r.end)){
+    return {state:"blocked",text:"Викладач цього дня недоступний"};
+  }
+  if(unavailable.length){
+    return {state:"limited",text:"Є недоступні години цього дня"};
+  }
+  if(preferred.length){
+    return {state:"preferred",text:"Є бажані години цього дня"};
+  }
+  if((t.preferredRules||[]).length){
+    return {state:"outside",text:"Цей день поза бажаними днями"};
+  }
+  return {state:"neutral",text:"Обмежень на цей день немає"};
+}
+let plannerAvailabilityOpen=false;
+
+function plannerTeacherAvailabilitySummaryHtml(t,date){
+  const unavailable=t.unavailableRules||[];
+  const preferred=t.preferredRules||[];
+  const dayState=teacherAvailabilityDayState(t,date);
+
+  return `<div class="planner-availability-accordion">
+    <button type="button"
+      class="planner-availability-toggle ${dayState.state}"
+      id="plannerAvailabilityToggle"
+      onclick="togglePlannerAvailabilityPanel()">
+
+      <div class="planner-availability-toggle-title">
+        <span class="planner-availability-icon">◷</span>
+        <div>
+          <b>Доступність викладача</b>
+          <span>${esc(teacherDisplay(t))}</span>
+        </div>
+      </div>
+
+      <div class="planner-availability-toggle-state">
+        <strong id="plannerAvailabilityStatus">${esc(dayState.text)}</strong>
+        <span>${plannerAvailabilityOpen?"▲":"▼"}</span>
+      </div>
+    </button>
+
+    <div id="plannerAvailabilityBody" class="planner-availability-body ${plannerAvailabilityOpen?"":"hidden"}">
+      <div class="planner-availability-date-status ${dayState.state}">
+        <b>${formatDate(date)} · ${esc(weekdayNameForDate(date))}</b>
+        <span>${esc(dayState.text)}</span>
+      </div>
+
+      <div class="planner-inline-availability-section blocked">
+        <div class="planner-inline-availability-title">
+          <div>
+            <b>Не можна ставити</b>
+            <span>День, дата або період + години.</span>
+          </div>
+          <button type="button" class="secondary" onclick="addRule('plannerAvailabilityUnavailableRules')">+ Додати</button>
+        </div>
+        <div id="plannerAvailabilityUnavailableRules" class="rule-list planner-rule-list">
+          ${unavailable.map(ruleRow).join("")}
+        </div>
+        ${unavailable.length?"":`<div class="planner-inline-empty">Обмежень поки немає.</div>`}
+      </div>
+
+      <div class="planner-inline-availability-section preferred">
+        <div class="planner-inline-availability-title">
+          <div>
+            <b>Бажано ставити</b>
+            <span>Зручні для викладача дні та години.</span>
+          </div>
+          <button type="button" class="secondary" onclick="addRule('plannerAvailabilityPreferredRules')">+ Додати</button>
+        </div>
+        <div id="plannerAvailabilityPreferredRules" class="rule-list planner-rule-list">
+          ${preferred.map(ruleRow).join("")}
+        </div>
+        ${preferred.length?"":`<div class="planner-inline-empty">Бажаний час поки не задано.</div>`}
+      </div>
+
+      <div class="planner-inline-limits">
+        <label>
+          <span>Максимум пар на день</span>
+          <input id="plannerAvailabilityMaxPerDay" type="number" min="0" value="${esc(t.maxPerDay||"")}" placeholder="наприклад 4">
+        </label>
+        <label>
+          <span>Максимум пар підряд</span>
+          <input id="plannerAvailabilityMaxConsecutive" type="number" min="0" value="${esc(t.maxConsecutive||"")}" placeholder="наприклад 3">
+        </label>
+      </div>
+
+      <div id="plannerAvailabilitySaveMessage"></div>
+
+      <button type="button"
+        class="primary planner-availability-save"
+        onclick="savePlannerTeacherAvailability(${t.id})">
+        Зберегти доступність
+      </button>
+    </div>
+  </div>`;
+}
+
+function togglePlannerAvailabilityPanel(){
+  plannerAvailabilityOpen=!plannerAvailabilityOpen;
+  const body=$("#plannerAvailabilityBody");
+  const toggle=$("#plannerAvailabilityToggle");
+
+  if(body)body.classList.toggle("hidden",!plannerAvailabilityOpen);
+
+  if(toggle){
+    const arrow=toggle.querySelector(".planner-availability-toggle-state>span");
+    if(arrow)arrow.textContent=plannerAvailabilityOpen?"▲":"▼";
+  }
+
+  if(plannerAvailabilityOpen)bindRuleRows();
+}
+
+function savePlannerTeacherAvailability(teacherId){
+  const t=teacherById(teacherId);
+  if(!t)return;
+
+  t.unavailableRules=readRules("plannerAvailabilityUnavailableRules");
+  t.preferredRules=readRules("plannerAvailabilityPreferredRules");
+  t.maxPerDay=$("#plannerAvailabilityMaxPerDay")?.value||"";
+  t.maxConsecutive=$("#plannerAvailabilityMaxConsecutive")?.value||"";
+
+  /* Save underlying data but leave this planner modal and all draft rows intact. */
+  save();
+
+  const dayState=teacherAvailabilityDayState(t,disciplinePlannerState.date);
+  const status=$("#plannerAvailabilityStatus");
+  if(status)status.textContent=dayState.text;
+
+  const toggle=$("#plannerAvailabilityToggle");
+  if(toggle){
+    toggle.classList.remove("blocked","limited","preferred","outside","neutral");
+    toggle.classList.add(dayState.state);
+  }
+
+  const dateStatus=$(".planner-availability-date-status");
+  if(dateStatus){
+    dateStatus.classList.remove("blocked","limited","preferred","outside","neutral");
+    dateStatus.classList.add(dayState.state);
+    const text=dateStatus.querySelector("span");
+    if(text)text.textContent=dayState.text;
+  }
+
+  const d=disciplineById(disciplinePlannerState.disciplineId);
+  if(d){
+    $$("[data-planner-entry]").forEach(row=>{
+      const pairEl=row.querySelector("[data-planner-pair]");
+      const roomEl=row.querySelector("[data-planner-room]");
+      if(!pairEl)return;
+
+      const selected=pairEl.value;
+      pairEl.innerHTML=plannerPairOptions(disciplinePlannerState.date,d,t,selected);
+      if([...pairEl.options].some(o=>String(o.value)===String(selected)))pairEl.value=selected;
+
+      if(roomEl){
+        const oldRoom=roomEl.value;
+        roomEl.innerHTML=plannerRoomOptions(disciplinePlannerState.date,pairEl.value,oldRoom);
+        if([...roomEl.options].some(o=>o.value===oldRoom&&!o.disabled))roomEl.value=oldRoom;
+      }
+    });
+
+    $$("[data-series-row]").forEach(row=>plannerSeriesRefreshRow(row,d,t));
+  }
+
+  const message=$("#plannerAvailabilitySaveMessage");
+  if(message){
+    message.innerHTML=`<div class="ok-box">Збережено. Ти залишаєшся в цьому ж вікні.</div>`;
+    setTimeout(()=>{
+      const el=$("#plannerAvailabilitySaveMessage");
+      if(el)el.innerHTML="";
+    },3500);
+  }
+}
+function plannerCalendarAvailabilityTag(date,t){
+  const s=teacherAvailabilityDayState(t,date);
+  if(s.state==="neutral")return "";
+  const labels={
+    preferred:"бажано",
+    blocked:"викл. не може",
+    limited:"є обмеження",
+    outside:"поза бажаним"
+  };
+  return `<span class="planner-day-availability ${s.state}">${esc(labels[s.state]||"")}</span>`;
 }
 
 function plannerSelectedDayPanel(d,t,totalRemaining){
@@ -3568,6 +3702,8 @@ function renderDisciplinePlannerModal(){
 
   $("#modal").querySelector(".modal-card").classList.add("planner-modal-card");
 
+  if(plannerAvailabilityOpen)bindRuleRows();
+
   if(totalRemaining>0){
     $$("[data-planner-entry]").forEach(r=>bindPlannerEntryRow(r,d,t));
     $("#plannerAddEntry").onclick=()=>addPlannerEntry();
@@ -3597,6 +3733,7 @@ function safeOpenDisciplineTeacherScheduler(disciplineId,teacherId){
 function openDisciplineTeacherScheduler(disciplineId,teacherId,state={}){
   const d=disciplineById(disciplineId),t=teacherById(teacherId);
   if(!d||!t)return;
+  if(!state.keepAvailabilityOpen)plannerAvailabilityOpen=false;
   disciplinePlannerState={
     disciplineId:Number(disciplineId),
     teacherId:Number(teacherId),

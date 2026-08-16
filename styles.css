@@ -2531,3 +2531,296 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
 #readyModeBody.hidden{
   display:none!important;
 }
+
+
+/* v1.0.27 · series cards: no horizontal scroll */
+.planner-series-rows{
+  overflow-x:hidden!important;
+  padding-right:3px;
+}
+.planner-series-row.planner-series-card{
+  display:block!important;
+  width:100%!important;
+  min-width:0!important;
+  padding:9px!important;
+  border:1px solid #e7dfeb!important;
+  border-radius:11px!important;
+  background:#fff!important;
+}
+.planner-series-row.planner-series-card.blocked{
+  background:#fff7f7!important;
+  border-color:#efc9c9!important;
+}
+.planner-series-card-head{
+  display:grid;
+  grid-template-columns:auto minmax(150px,190px) minmax(0,1fr) 32px;
+  gap:8px;
+  align-items:center;
+  padding-bottom:7px;
+  margin-bottom:7px;
+  border-bottom:1px solid #eee8f2;
+}
+.planner-series-use{
+  display:flex!important;
+  align-items:center;
+  gap:5px;
+  margin:0!important;
+  font-size:8px;
+  font-weight:750;
+  white-space:nowrap;
+}
+.planner-series-date-input{
+  display:flex!important;
+  flex-direction:column;
+  gap:3px;
+}
+.planner-series-date-input>span,
+.planner-series-card-fields label>span{
+  font-size:7px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.35px;
+}
+.planner-series-status{
+  min-width:0;
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+  align-items:center!important;
+  font-size:7.5px!important;
+}
+.planner-series-status span{
+  padding:3px 5px;
+  border-radius:6px;
+  background:#f3f1f5;
+}
+.planner-series-status .ok,
+.planner-series-status .preferred{
+  background:#edf8f0;
+  color:#34744a;
+}
+.planner-series-status .warn{
+  background:#fff5e6;
+  color:#9a6517;
+}
+.planner-series-status .bad{
+  background:#fff0f0;
+  color:#a53d3d;
+}
+.planner-series-remove{
+  width:32px!important;
+  height:34px!important;
+  align-self:center!important;
+}
+.planner-series-card-fields{
+  display:grid;
+  grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr);
+  gap:8px;
+}
+.planner-series-card-fields label{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  margin:0!important;
+}
+.planner-series-card-fields select,
+.planner-series-card-head input[type="date"]{
+  width:100%;
+  min-width:0;
+}
+.planner-series-defaults{
+  grid-template-columns:1fr 1fr!important;
+}
+.planner-series-default-actions{
+  grid-column:1/-1;
+  grid-template-columns:1fr 1fr!important;
+}
+.planner-series-default-actions button{width:100%}
+
+@media(max-width:700px){
+  .planner-series-card-head{
+    grid-template-columns:auto minmax(0,1fr) 32px;
+  }
+  .planner-series-status{
+    grid-column:1/-1;
+    grid-row:2;
+  }
+  .planner-series-card-fields{
+    grid-template-columns:1fr;
+  }
+  .planner-series-defaults{
+    grid-template-columns:1fr!important;
+  }
+  .planner-series-default-actions{
+    grid-column:auto;
+    grid-template-columns:1fr!important;
+  }
+}
+
+/* v1.0.27 · large teacher availability accordion */
+.planner-availability-accordion{
+  margin-bottom:11px;
+  border:1px solid #d9cde4;
+  border-radius:13px;
+  overflow:hidden;
+  background:#fff;
+}
+.planner-availability-toggle{
+  width:100%;
+  min-height:70px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 13px;
+  border:0;
+  background:#f8f4fc;
+  color:var(--ink);
+  text-align:left;
+}
+.planner-availability-toggle:hover{background:#f4eef9}
+.planner-availability-toggle.preferred{background:#eef8f1}
+.planner-availability-toggle.blocked{background:#fff0f0}
+.planner-availability-toggle.limited,
+.planner-availability-toggle.outside{background:#fff7e9}
+.planner-availability-toggle-title{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.planner-availability-icon{
+  flex:0 0 40px;
+  width:40px;
+  height:40px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:10px;
+  background:#fff;
+  color:var(--purple2);
+  font-size:19px;
+  box-shadow:0 2px 7px rgba(62,32,85,.08);
+}
+.planner-availability-toggle-title>div{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.planner-availability-toggle-title b{
+  font-size:14px;
+  color:var(--ink);
+}
+.planner-availability-toggle-title span{
+  font-size:9px;
+  color:var(--muted);
+}
+.planner-availability-toggle-state{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.planner-availability-toggle-state strong{
+  max-width:220px;
+  padding:7px 9px;
+  border-radius:8px;
+  background:rgba(255,255,255,.75);
+  font-size:9px;
+  color:#645b6d;
+}
+.planner-availability-toggle-state>span{
+  font-size:12px;
+  color:var(--purple2);
+}
+.planner-availability-body{
+  padding:11px;
+  border-top:1px solid #e5dce9;
+  background:#fff;
+}
+.planner-availability-date-status{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  margin-bottom:9px;
+  padding:9px 10px;
+  border-radius:9px;
+  background:#f3f1f5;
+}
+.planner-availability-date-status b{font-size:9px}
+.planner-availability-date-status span{font-size:9px;font-weight:750}
+.planner-availability-date-status.preferred{background:#eaf7ee;color:#34744a}
+.planner-availability-date-status.blocked{background:#fff0f0;color:#a53d3d}
+.planner-availability-date-status.limited,
+.planner-availability-date-status.outside{background:#fff5e6;color:#986417}
+
+.planner-inline-availability-section{
+  margin-bottom:9px;
+  padding:10px;
+  border:1px solid #e8e1ec;
+  border-radius:10px;
+  background:#fbfafc;
+}
+.planner-inline-availability-section.blocked{border-left:4px solid #c95555}
+.planner-inline-availability-section.preferred{border-left:4px solid #52a06a}
+.planner-inline-availability-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:9px;
+  margin-bottom:8px;
+}
+.planner-inline-availability-title>div{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.planner-inline-availability-title b{font-size:11px}
+.planner-inline-availability-title span{font-size:8px;color:var(--muted)}
+.planner-rule-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.planner-inline-empty{
+  padding:8px;
+  border:1px dashed #dcd4e2;
+  border-radius:8px;
+  color:var(--muted);
+  font-size:8px;
+  text-align:center;
+}
+.planner-inline-limits{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-bottom:9px;
+}
+.planner-inline-limits label{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.planner-inline-limits label>span{
+  font-size:8px;
+  color:var(--muted);
+}
+.planner-availability-save{
+  width:100%;
+  min-height:43px;
+}
+@media(max-width:900px){
+  .planner-availability-toggle{
+    align-items:flex-start;
+  }
+  .planner-availability-toggle-state{
+    flex-direction:column;
+    align-items:flex-end;
+  }
+  .planner-rule-list .availability-row{
+    overflow-x:auto;
+  }
+}
