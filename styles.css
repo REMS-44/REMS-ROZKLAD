@@ -2824,3 +2824,166 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     overflow-x:auto;
   }
 }
+
+
+/* v1.0.28 · group navigation buttons */
+.group-switch-wrap{
+  width:100%;
+  margin:8px 0 12px;
+}
+.group-switch-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+}
+.group-switch-btn{
+  position:relative;
+  min-width:128px;
+  min-height:58px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:2px;
+  padding:9px 34px 9px 11px;
+  border:1px solid #ddd4e6;
+  border-radius:11px;
+  background:#fff;
+  color:var(--ink);
+  text-align:left;
+  transition:.12s ease;
+}
+.group-switch-btn:hover{
+  border-color:#bca7d2;
+  background:#faf7fd;
+  transform:translateY(-1px);
+}
+.group-switch-btn.active{
+  border-color:var(--purple2);
+  background:#f3ebfb;
+  box-shadow:inset 0 0 0 1px var(--purple2),0 4px 11px rgba(68,33,101,.09);
+}
+.group-switch-btn.all{
+  min-width:142px;
+}
+.group-switch-main{
+  font-size:11px;
+  font-weight:850;
+  color:#2d183e;
+}
+.group-switch-btn.active .group-switch-main{
+  color:var(--purple2);
+}
+.group-switch-meta{
+  font-size:8px;
+  color:var(--muted);
+}
+.group-switch-count{
+  position:absolute;
+  top:8px;
+  right:8px;
+  max-width:64px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  padding:3px 5px;
+  border-radius:999px;
+  background:#f1edf5;
+  color:#74677e;
+  font-size:6.8px;
+  font-weight:800;
+}
+.group-switch-btn.active .group-switch-count{
+  background:#fff;
+  color:var(--purple2);
+}
+
+/* Timetable */
+.group-timetable-switch-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:6px;
+}
+.group-timetable-switch-head>div:first-child{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.group-timetable-switch-head>div:first-child>span{
+  font-size:8px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.4px;
+}
+.group-timetable-switch-head>div:first-child>b{
+  font-size:13px;
+}
+.timetable-group-switch{
+  padding-bottom:3px;
+  border-bottom:1px solid #eee8f2;
+}
+
+/* Schedule builder */
+.schedule-group-switch{
+  margin-top:10px;
+  padding:10px;
+  border:1px solid #e7dfed;
+  border-radius:12px;
+  background:#faf8fc;
+}
+.schedule-group-switch .group-switch-btn{
+  min-width:145px;
+}
+
+/* Journal */
+.journal-group-placeholder>span{
+  display:flex;
+  align-items:center;
+  min-height:40px;
+  padding:0 10px;
+  border:1px dashed #ddd4e6;
+  border-radius:8px;
+  color:var(--muted);
+  font-size:8px;
+}
+.journal-group-switch{
+  margin:10px 0;
+  padding-bottom:9px;
+  border-bottom:1px solid #eee8f2;
+}
+.journal-group-switch .group-switch-btn{
+  min-width:125px;
+  min-height:52px;
+}
+
+/* Students */
+.student-filter-head{
+  display:flex;
+  margin:5px 0 8px;
+}
+.student-filter-head input{
+  width:min(420px,100%);
+}
+.student-group-switch{
+  padding:8px 0 3px;
+}
+.student-group-switch .group-switch-btn{
+  min-width:130px;
+}
+
+@media(max-width:650px){
+  .group-switch-row{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+  .group-switch-btn{
+    min-width:0!important;
+    width:100%;
+  }
+  .group-timetable-switch-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}

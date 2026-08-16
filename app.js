@@ -290,6 +290,32 @@ function totalDisciplineHours(d){return Object.values(d.hours||{}).reduce((a,b)=
 function teacherNames(ids=[]){return ids.map(id=>teacherDisplay(teacherById(id))).filter(Boolean).join(", ");}
 function kpi(label,value){return `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div></div>`;}
 function groupOptions(selected=""){return db.groups.slice().sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code)).map(g=>`<option value="${esc(g.code)}" ${g.code===selected?"selected":""}>${esc(g.code)} · ${g.course} курс</option>`).join("");}
+function sortedGroups(){
+  return db.groups.slice().sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code,"uk"));
+}
+function groupSwitchButtonHtml(g,selected,onclick,badge=""){
+  const active=normIdentity(g.code)===normIdentity(selected);
+  const safe=String(g.code).replaceAll("\\","\\\\").replaceAll("'","\\'");
+  return `<button type="button"
+    class="group-switch-btn ${active?"active":""}"
+    onclick="${onclick}('${safe}')">
+      <span class="group-switch-main">${esc(g.code)}</span>
+      <span class="group-switch-meta">${esc(g.course)} курс</span>
+      ${badge!==""?`<span class="group-switch-count">${esc(badge)}</span>`:""}
+    </button>`;
+}
+function groupSwitchRowHtml({selected="",onclick,includeAll=false,allLabel="Усі групи",badgeFn=null,groups=null,extraClass=""}){
+  const list=(groups||sortedGroups());
+  return `<div class="group-switch-wrap ${extraClass}">
+    <div class="group-switch-row">
+      ${includeAll?`<button type="button" class="group-switch-btn all ${!selected?"active":""}" onclick="${onclick}('')">
+        <span class="group-switch-main">${esc(allLabel)}</span>
+        <span class="group-switch-meta">${list.length} груп</span>
+      </button>`:""}
+      ${list.map(g=>groupSwitchButtonHtml(g,selected,onclick,badgeFn?badgeFn(g):"")).join("")}
+    </div>
+  </div>`;
+}
 function departmentTeacherOptions(ids=[]){return departmentTeachers().map(t=>`<option value="${t.id}" ${ids.map(Number).includes(Number(t.id))?"selected":""}>${esc(teacherDisplay(t))}</option>`).join("");}
 function formatMode(m){return ({academic_pair:"Аудиторні / парами",contingent:"За контингентом",per_student:"Індивідуально кожному",fixed:"Фіксовані години",manual:"Ручний підрахунок"})[m]||m;}
 
@@ -392,20 +418,42 @@ function renderGroups(){
     </div>
     <div class="card section">
       <div class="section-head"><div><h2>Студенти</h2><div class="small">Усі студенти тепер працюють у цій самій вкладці.</div></div><button class="primary" onclick="addStudent()">+ Додати студента</button></div>
-      <div class="toolbar"><input id="studentSearch" placeholder="Пошук…"><select id="studentGroupFilter"><option value="">Усі групи</option>${groupOptions()}</select></div>
+      <div class="student-filter-head">
+        <input id="studentSearch" placeholder="Пошук студентів…">
+      </div>
+      <input id="studentGroupFilter" type="hidden" value="">
+      <div id="studentGroupButtons">
+        ${groupSwitchRowHtml({
+          selected:"",
+          onclick:"setStudentGroupFilter",
+          includeAll:true,
+          badgeFn:g=>String(groupStudentCount(g.code)),
+          extraClass:"student-group-switch"
+        })}
+      </div>
       <div id="studentTable"></div>
     </div>`;
   $("#studentSearch").oninput=renderStudentTable;
-  $("#studentGroupFilter").onchange=renderStudentTable;
+  renderStudentTable();
+}
+function setStudentGroupFilter(code){
+  const input=$("#studentGroupFilter");
+  if(input)input.value=code||"";
+  const wrap=$("#studentGroupButtons");
+  if(wrap){
+    wrap.innerHTML=groupSwitchRowHtml({
+      selected:code||"",
+      onclick:"setStudentGroupFilter",
+      includeAll:true,
+      badgeFn:g=>String(groupStudentCount(g.code)),
+      extraClass:"student-group-switch"
+    });
+  }
   renderStudentTable();
 }
 function showGroupStudents(code){
-  const select=$("#studentGroupFilter");
-  if(select){
-    select.value=code;
-    renderStudentTable();
-    select.scrollIntoView({behavior:"smooth",block:"center"});
-  }
+  setStudentGroupFilter(code);
+  $("#studentGroupButtons")?.scrollIntoView({behavior:"smooth",block:"center"});
 }
 function addGroup(){
   openModal(`<h2>Нова група</h2><form id="f" class="form-grid"><label>Курс<select id="gc">${[1,2,3,4,5,6].map(x=>`<option>${x}</option>`).join("")}</select></label><label>Шифр<input id="gn" required></label><div class="wide"><button class="primary">Додати</button></div></form>`);
@@ -1616,6 +1664,29 @@ function workloadGroupOptions(selected){
 function currentWorkloadGroup(){
   return $("#workloadGroup")?.value||bestWorkloadGroup();
 }
+function setWorkloadScheduleGroup(code){
+  const input=$("#workloadGroup");
+  if(input)input.value=code;
+  rememberWorkloadGroup(code);
+  const label=$("#workloadGroupLabel");
+  if(label)label.textContent=code;
+  const wrap=$("#workloadGroupButtons");
+  if(wrap){
+    const loaded=groupsWithDistributedAuditoriumLoad();
+    wrap.innerHTML=groupSwitchRowHtml({
+      selected:code,
+      onclick:"setWorkloadScheduleGroup",
+      groups:sortedGroups(),
+      badgeFn:g=>{
+        const rows=workloadTeacherRowsForGroup(g.code);
+        return rows.length?`${rows.length} навант.`:"—";
+      },
+      extraClass:"schedule-group-switch"
+    });
+  }
+  const box=$("#workloadScheduleBox");
+  if(box)box.innerHTML=renderWorkloadToSchedule(code);
+}
 function workloadTypeSummary(types){
   return `<div class="integrated-load-types">${types.map(x=>`<div class="integrated-load-type"><b>${esc(x.lt.name)}</b><span>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</span><small>зал. ${fmtHours(x.remaining)}</small></div>`).join("")}</div>`;
 }
@@ -2320,7 +2391,20 @@ function renderSchedule(){
     </div>
     <div class="workflow-status-strip">
       <div><span>Груп із розподіленим аудиторним навантаженням</span><b>${loadedGroups.length}</b></div>
-      <div class="workflow-group-picker"><label>Група<select id="workloadGroup">${workloadGroupOptions(defaultGroup)}</select></label></div>
+      <div><span>Вибрана група</span><b id="workloadGroupLabel">${esc(defaultGroup)}</b></div>
+    </div>
+    <input id="workloadGroup" type="hidden" value="${esc(defaultGroup)}">
+    <div id="workloadGroupButtons">
+      ${groupSwitchRowHtml({
+        selected:defaultGroup,
+        onclick:"setWorkloadScheduleGroup",
+        groups:sortedGroups(),
+        badgeFn:g=>{
+          const rows=workloadTeacherRowsForGroup(g.code);
+          return rows.length?`${rows.length} навант.`:"—";
+        },
+        extraClass:"schedule-group-switch"
+      })}
     </div>
     <div id="workloadScheduleBox"></div>
   </div>
@@ -2345,8 +2429,9 @@ function renderSchedule(){
         <label>Місяць
           <select id="scheduleMonth">${scheduleJournalMonthOptions(journalMonth)}</select>
         </label>
-        <label>Група
-          <select id="scheduleGroup"><option value="">Усі групи</option>${groupOptions()}</select>
+        <label class="journal-group-placeholder">Група
+          <input id="scheduleGroup" type="hidden" value="">
+          <span>обирається кнопками нижче</span>
         </label>
         <label>Викладач
           <select id="scheduleTeacher">${scheduleJournalTeacherOptions()}</select>
@@ -2366,21 +2451,25 @@ function renderSchedule(){
         </label>
       </div>
 
+      <div id="scheduleJournalGroupButtons">
+        ${groupSwitchRowHtml({
+          selected:"",
+          onclick:"setScheduleJournalGroup",
+          includeAll:true,
+          badgeFn:g=>String(db.schedule.filter(x=>dateInBounds(x.date)&&normIdentity(x.group)===normIdentity(g.code)).length),
+          extraClass:"journal-group-switch"
+        })}
+      </div>
+
       <div id="scheduleJournalSummary" class="schedule-journal-summary"></div>
       <div id="scheduleTable"></div>
     </div>
   </div>`;
 
-  const draw=()=>{
-    const group=$("#workloadGroup").value;
-    rememberWorkloadGroup(group);
-    $("#workloadScheduleBox").innerHTML=renderWorkloadToSchedule(group);
-  };
-  $("#workloadGroup").onchange=draw;
-  draw();
+  setWorkloadScheduleGroup(defaultGroup);
 
   if(scheduleJournalState.open){
-    ["scheduleMonth","scheduleGroup","scheduleTeacher","scheduleDiscipline","scheduleSource"].forEach(id=>{
+    ["scheduleMonth","scheduleTeacher","scheduleDiscipline","scheduleSource"].forEach(id=>{
       const el=$("#"+id);
       if(el)el.onchange=resetScheduleJournalLimit;
     });
@@ -2389,6 +2478,24 @@ function renderSchedule(){
     renderScheduleTable();
   }
 }
+function setScheduleJournalGroup(code){
+  const input=$("#scheduleGroup");
+  if(input)input.value=code||"";
+
+  const wrap=$("#scheduleJournalGroupButtons");
+  if(wrap){
+    wrap.innerHTML=groupSwitchRowHtml({
+      selected:code||"",
+      onclick:"setScheduleJournalGroup",
+      includeAll:true,
+      badgeFn:g=>String(db.schedule.filter(x=>dateInBounds(x.date)&&normIdentity(x.group)===normIdentity(g.code)).length),
+      extraClass:"journal-group-switch"
+    });
+  }
+
+  resetScheduleJournalLimit();
+}
+
 function renderScheduleTable(){
   if(!scheduleJournalState.open||!$("#scheduleTable"))return;
 
@@ -3883,6 +3990,13 @@ function groupDayPairSlots(group,date){
 
   return slots+(unslotted.length?`<div class="group-unslotted"><span>Без № пари</span>${unslotted.map(groupMonthEventCard).join("")}</div>`:"");
 }
+function setTimetableGroup(code){
+  if(!db.groups.some(g=>normGroup(g.code)===normGroup(code)))return;
+  timetableState.group=code;
+  rememberTimetableGroup(code);
+  timetableState.month=groupCurrentMonth();
+  renderTimetable();
+}
 function setGroupTimetableMonth(month){if(!academicMonthTabs().some(x=>x.value===month))return;timetableState.month=month;renderTimetable();}
 function shiftGroupTimetableMonth(delta){const months=academicMonthTabs(),idx=months.findIndex(x=>x.value===timetableState.month),next=months[idx+Number(delta)];if(next)setGroupTimetableMonth(next.value);}
 function timetableToday(){setGroupTimetableMonth(groupCurrentMonth());}
@@ -3895,14 +4009,25 @@ function renderTimetable(){
   $("#page-timetable").innerHTML=`<div class="teacher-month-page group-month-page">
     <div class="card section teacher-month-header">
       <div class="section-head"><div><h2>Розклад групи</h2><div class="small">Усі виставлені заняття беруться безпосередньо зі «Складання розкладу».</div></div></div>
-      <div class="toolbar group-month-groupbar"><label>Група<select id="timetableGroup">${groupOptions(group)}</select></label><div class="ready-count"><b>${total}</b><span>занять групи у базі</span></div></div>
+      <div class="group-timetable-switch-head">
+        <div>
+          <span>Група</span>
+          <b>${esc(group)} · ${groupCourse(group)} курс</b>
+        </div>
+        <div class="ready-count"><b>${total}</b><span>занять групи у базі</span></div>
+      </div>
+      ${groupSwitchRowHtml({
+        selected:group,
+        onclick:"setTimetableGroup",
+        badgeFn:g=>String(scheduleLessonsForGroup(g.code).length),
+        extraClass:"timetable-group-switch"
+      })}
       ${groupMonthTabsHtml(group)}
       <div class="teacher-month-toolbar"><button class="secondary" ${idx<=0?"disabled":""} onclick="shiftGroupTimetableMonth(-1)">← Попередній</button><div class="teacher-month-title"><b>${esc(info?.label||monthLabel(month))}</b><span>${monthCount} подій у місяці · ${esc(db.academicYear)}</span></div><button class="secondary" onclick="timetableToday()">Актуальний місяць</button><button class="secondary" ${idx>=months.length-1?"disabled":""} onclick="shiftGroupTimetableMonth(1)">Наступний →</button></div>
     </div>
     <div class="card section teacher-month-calendar-card"><div class="teacher-month-weekdays">${weekdays.map(w=>`<div>${w}</div>`).join("")}</div><div class="teacher-month-calendar">${days.map(date=>{const inMonth=date.slice(0,7)===month,inAcademic=dateInBounds(date),day=Number(date.slice(8,10)),isToday=date===today;return `<div class="teacher-month-day ${inMonth?"":"outside-month"} ${isToday?"today":""}"><div class="teacher-month-day-head"><b>${day}</b>${isToday?`<span>сьогодні</span>`:""}</div><div class="teacher-month-day-events group-pair-slots">${inMonth&&inAcademic?groupDayPairSlots(group,date):""}</div></div>`;}).join("")}</div></div>
     <div class="notice">Це не окрема копія розкладу: кожне заняття тут — той самий запис, який одночасно бачить сітка аудиторій і індивідуальний розклад викладача.</div>
   </div>`;
-  $("#timetableGroup").onchange=e=>{timetableState.group=e.target.value;rememberTimetableGroup(timetableState.group);timetableState.month=groupCurrentMonth();renderTimetable();};
 }
 /* Individual teacher schedule — monthly view */
 let teacherScheduleFeed={teacherId:null,schedule:[],roomBookings:[],academicYear:"",bellSchedule:[]};
