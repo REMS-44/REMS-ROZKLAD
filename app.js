@@ -1384,18 +1384,123 @@ function bindPlannerEntryRow(row,d,t){const type=row.querySelector("[data-planne
 function renumberPlannerEntries(){$$("[data-planner-entry]").forEach((r,i)=>{const n=r.querySelector(".planner-entry-number");if(n)n.textContent=i+1;});}
 function addPlannerEntry(){const d=disciplineById(disciplinePlannerState.disciplineId),t=teacherById(disciplinePlannerState.teacherId);if(!d||!t)return;const box=$("#plannerEntries"),i=$$("[data-planner-entry]").length;box.insertAdjacentHTML("beforeend",plannerNewRowHtml(d,t,i));bindPlannerEntryRow(box.lastElementChild,d,t);}
 function plannerTypeSummaryHtml(d,t){return `<div class="planner-load-summary">${plannerTypes(d,t.id).map(x=>`<div class="planner-load-card"><span>${esc(x.lt.name)}</span><b>${fmtHours(x.remaining)} год</b><small>${fmtHours(x.scheduled)} виставлено з ${fmtHours(x.planned)}</small></div>`).join("")}</div>`;}
-function renderDisciplinePlannerModal(){const d=disciplineById(disciplinePlannerState.disciplineId),t=teacherById(disciplinePlannerState.teacherId);if(!d||!t)return;const b=semesterDateBounds(d.semester),months=schedulerMonthsForDiscipline(d);if(!disciplinePlannerState.month||!months.some(x=>x.value===disciplinePlannerState.month))disciplinePlannerState.month=schedulerCurrentMonth(d);if(!disciplinePlannerState.date||disciplinePlannerState.date.slice(0,7)!==disciplinePlannerState.month||!dateInBounds(disciplinePlannerState.date,b))disciplinePlannerState.date=schedulerDateForMonth(d,disciplinePlannerState.month,disciplinePlannerState.date);const days=calendarMonthDays(disciplinePlannerState.month),weekdays=["Пн","Вт","Ср","Чт","Пт","Сб","Нд"],totalRemaining=plannerTypes(d,t.id).reduce((a,x)=>a+x.remaining,0);openModal(`<div class="discipline-planner"><div class="allocation-scheduler-head"><div><h2>Розставити навантаження</h2><h3>${esc(d.name)}</h3><div class="small"><b>${esc(teacherDisplay(t))}</b> · ${esc(d.group)} · ${d.semester} семестр</div></div><span class="badge ${totalRemaining>0?"warn":"ok"}">${totalRemaining>0?`Залишок ${fmtHours(totalRemaining)} год`:"Навантаження розставлено"}</span></div>${plannerTypeSummaryHtml(d,t)}${plannerMonthTabsHtml(d,t)}<div class="scheduler-calendar-wrap"><div class="scheduler-weekdays">${weekdays.map(x=>`<div>${x}</div>`).join("")}</div><div class="scheduler-calendar">${days.map(date=>plannerCalendarDayHtml(date,d,t)).join("")}</div></div><div class="scheduler-selected-date"><div class="scheduler-selected-title"><div><span>Вибрана дата</span><h3>${formatDate(disciplinePlannerState.date)} · ${esc(weekdayNameForDate(disciplinePlannerState.date))}</h3></div><span class="small">Натисни інший день у календарі, щоб перейти на нього.</span></div>${plannerDayOccupancyHtml(d,t,disciplinePlannerState.date)}${totalRemaining>0?`<div class="planner-add-section"><div class="section-head"><div><h4>Додати заняття цього дня</h4><div class="small">Можна поставити кілька пар різних видів за один раз.</div></div><button type="button" class="secondary" id="plannerAddEntry">+ Ще одна пара</button></div><form id="plannerDateForm"><div id="plannerEntries">${plannerNewRowHtml(d,t,0)}</div><div class="planner-extra"><label>Охоплення<select id="plannerCoverage">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select></label><label>Примітка<input id="plannerNote" placeholder="необов’язково"></label></div><div id="plannerConflictMessage"></div><div class="planner-save-row"><button class="primary">Зберегти заняття на ${formatDate(disciplinePlannerState.date)}</button></div></form></div>`:`<div class="notice"><b>Усі розподілені аудиторні години цього викладача за цією дисципліною вже стоять у розкладі.</b></div>`}</div></div>`,true);if(totalRemaining>0){$$("[data-planner-entry]").forEach(r=>bindPlannerEntryRow(r,d,t));$("#plannerAddEntry").onclick=addPlannerEntry;$("#plannerDateForm").onsubmit=e=>savePlannerDateEntries(e,d,t);}}
-function safeOpenDisciplineTeacherScheduler(disciplineId,teacherId){
-  try{
-    openDisciplineTeacherScheduler(disciplineId,teacherId);
-  }catch(err){
-    console.error("Planner open failed",err);
-    alert("Не вдалося відкрити календар постановки розкладу. Помилка: "+(err?.message||err));
+function plannerSelectedDayPanel(d,t,totalRemaining){
+  const date=disciplinePlannerState.date;
+  const summary=plannerDateEventsSummary(date,d,t);
+  const ownCount=summary.own.length;
+  const teacherOther=summary.teacher.filter(x=>!summary.own.includes(x)).length;
+  const groupOther=summary.group.filter(x=>!summary.own.includes(x)&&!summary.teacher.includes(x)).length;
+
+  return `<div class="scheduler-day-workspace" id="schedulerDayWorkspace">
+    <div class="scheduler-day-workspace-head">
+      <div>
+        <span>Вибрана дата</span>
+        <h3>${formatDate(date)} · ${esc(weekdayNameForDate(date))}</h3>
+        <div class="small">${ownCount?`Уже виставлено ${ownCount} занять цієї дисципліни.`:"Цього дня ця дисципліна ще не стоїть."}</div>
+      </div>
+      <div class="scheduler-day-kpis">
+        <div><b>${ownCount}</b><span>своїх занять</span></div>
+        <div><b>${teacherOther}</b><span>інших у викладача</span></div>
+        <div><b>${groupOther}</b><span>інших у групи</span></div>
+      </div>
+    </div>
+
+    ${plannerDayOccupancyHtml(d,t,date)}
+
+    ${totalRemaining>0?`
+      <div class="planner-add-section">
+        <div class="section-head">
+          <div>
+            <h4>Поставити заняття на ${formatDate(date)}</h4>
+            <div class="small">Можна одразу додати кілька пар різних видів.</div>
+          </div>
+          <button type="button" class="secondary" id="plannerAddEntry">+ Ще одна пара</button>
+        </div>
+
+        <form id="plannerDateForm">
+          <div id="plannerEntries">${plannerNewRowHtml(d,t,0)}</div>
+
+          <div class="planner-extra">
+            <label>Охоплення
+              <select id="plannerCoverage">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select>
+            </label>
+            <label>Примітка
+              <input id="plannerNote" placeholder="необов’язково">
+            </label>
+          </div>
+
+          <div id="plannerConflictMessage"></div>
+          <div class="planner-save-row">
+            <button class="primary">Зберегти заняття на ${formatDate(date)}</button>
+          </div>
+        </form>
+      </div>
+    `:`<div class="notice"><b>Усі розподілені аудиторні години цього викладача за цією дисципліною вже стоять у розкладі.</b> Календар залишається доступним для перегляду.</div>`}
+  </div>`;
+}
+
+function renderDisciplinePlannerModal(){
+  const d=disciplineById(disciplinePlannerState.disciplineId),t=teacherById(disciplinePlannerState.teacherId);
+  if(!d||!t)return;
+
+  const b=semesterDateBounds(d.semester),months=schedulerMonthsForDiscipline(d);
+  if(!disciplinePlannerState.month||!months.some(x=>x.value===disciplinePlannerState.month))
+    disciplinePlannerState.month=schedulerCurrentMonth(d);
+
+  if(!disciplinePlannerState.date||
+     disciplinePlannerState.date.slice(0,7)!==disciplinePlannerState.month||
+     !dateInBounds(disciplinePlannerState.date,b)){
+    disciplinePlannerState.date=schedulerDateForMonth(d,disciplinePlannerState.month,disciplinePlannerState.date);
+  }
+
+  const days=calendarMonthDays(disciplinePlannerState.month);
+  const weekdays=["Пн","Вт","Ср","Чт","Пт","Сб","Нд"];
+  const totalRemaining=plannerTypes(d,t.id).reduce((a,x)=>a+x.remaining,0);
+
+  openModal(`<div class="discipline-planner">
+    <div class="allocation-scheduler-head">
+      <div>
+        <h2>Розставити навантаження</h2>
+        <h3>${esc(d.name)}</h3>
+        <div class="small"><b>${esc(teacherDisplay(t))}</b> · ${esc(d.group)} · ${d.semester} семестр</div>
+      </div>
+      <span class="badge ${totalRemaining>0?"warn":"ok"}">${totalRemaining>0?`Залишок ${fmtHours(totalRemaining)} год`:"Навантаження розставлено"}</span>
+    </div>
+
+    ${plannerTypeSummaryHtml(d,t)}
+    ${plannerMonthTabsHtml(d,t)}
+
+    <div class="planner-main-layout">
+      <div class="planner-calendar-column">
+        <div class="scheduler-calendar-wrap">
+          <div class="scheduler-weekdays">${weekdays.map(x=>`<div>${x}</div>`).join("")}</div>
+          <div class="scheduler-calendar">${days.map(date=>plannerCalendarDayHtml(date,d,t)).join("")}</div>
+        </div>
+        <div class="small planner-calendar-tip">Натисни на дату — справа одразу відкриється повна робоча картка цього дня.</div>
+      </div>
+
+      <div class="planner-day-column">
+        ${plannerSelectedDayPanel(d,t,totalRemaining)}
+      </div>
+    </div>
+  </div>`,true);
+
+  if(totalRemaining>0){
+    $$("[data-planner-entry]").forEach(r=>bindPlannerEntryRow(r,d,t));
+    $("#plannerAddEntry").onclick=addPlannerEntry;
+    $("#plannerDateForm").onsubmit=e=>savePlannerDateEntries(e,d,t);
   }
 }
 function openDisciplineTeacherScheduler(disciplineId,teacherId,state={}){const d=disciplineById(disciplineId),t=teacherById(teacherId);if(!d||!t)return;disciplinePlannerState={disciplineId:Number(disciplineId),teacherId:Number(teacherId),month:state.month||schedulerCurrentMonth(d),date:state.date||null};disciplinePlannerState.date=schedulerDateForMonth(d,disciplinePlannerState.month,state.date||null);renderDisciplinePlannerModal();}
 function setDisciplinePlannerMonth(month){const d=disciplineById(disciplinePlannerState.disciplineId);if(!d||!schedulerMonthsForDiscipline(d).some(x=>x.value===month))return;disciplinePlannerState.month=month;disciplinePlannerState.date=schedulerDateForMonth(d,month,null);renderDisciplinePlannerModal();}
-function selectDisciplinePlannerDate(date){const d=disciplineById(disciplinePlannerState.disciplineId);if(!d||!dateInBounds(date,semesterDateBounds(d.semester)))return;disciplinePlannerState.date=date;disciplinePlannerState.month=date.slice(0,7);renderDisciplinePlannerModal();}
+function selectDisciplinePlannerDate(date){
+  const d=disciplineById(disciplinePlannerState.disciplineId);
+  if(!d||!dateInBounds(date,semesterDateBounds(d.semester)))return;
+  disciplinePlannerState.date=date;
+  disciplinePlannerState.month=date.slice(0,7);
+  renderDisciplinePlannerModal();
+  requestAnimationFrame(()=>$("#schedulerDayWorkspace")?.scrollIntoView({behavior:"smooth",block:"nearest"}));
+}
 function savePlannerDateEntries(e,d,t){e.preventDefault();const rows=$$("[data-planner-entry]");if(!rows.length)return alert("Додай хоча б одну пару.");const date=disciplinePlannerState.date,byType={},draft=[],problems=[];rows.forEach((row,i)=>{const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}byType[type]=used+hours;const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`}),cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null);if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: конфлікт.`);return;}if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}draft.push(item);});if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));const keep={month:disciplinePlannerState.month,date:disciplinePlannerState.date};save();openDisciplineTeacherScheduler(d.id,t.id,keep);}
 function openAllocationScheduler(disciplineId,typeName,teacherId){openDisciplineTeacherScheduler(disciplineId,teacherId);}
 function addDays(dateStr,days){const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
