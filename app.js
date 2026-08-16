@@ -114,6 +114,41 @@ function resolvedScheduleGroup(item,state=db){
   }
   return "";
 }
+function teacherMatchByText(text,state=db){
+  const key=normIdentity(text);
+  if(!key)return null;
+
+  const matches=(state?.teachers||[]).filter(t=>{
+    if(t.status==="archived")return false;
+    return [t.name,t.shortName]
+      .map(normIdentity)
+      .filter(Boolean)
+      .includes(key);
+  });
+
+  return matches.length===1?matches[0]:null;
+}
+function ensureReadyExternalTeacher(text,state=db){
+  const name=String(text||"").trim();
+  if(!name)return null;
+
+  const existing=teacherMatchByText(name,state);
+  if(existing)return existing;
+
+  state.teachers=state.teachers||[];
+  const t={
+    id:uid(state.teachers),
+    scope:"external",
+    name,
+    shortName:"",
+    note:"Автоматично додано з готового розкладу",
+    autoCreatedFromReady:true,
+    status:"active"
+  };
+  state.teachers.push(t);
+  return t;
+}
+
 function resolvedScheduleTeacherId(item,state=db){
   if(item?.teacherId!==null&&item?.teacherId!==undefined&&String(item.teacherId)!==""){
     const exact=(state?.teachers||[]).find(t=>Number(t.id)===Number(item.teacherId));
@@ -130,6 +165,18 @@ function resolvedScheduleTeacherId(item,state=db){
 function repairScheduleLinks(state){
   let changed=0;
   (state?.schedule||[]).forEach(item=>{
+    if(item.scheduleSource==="ready_external"&&item.teacher){
+      let linked=teacherMatchByText(item.teacher,state);
+      if(!linked){
+        linked=ensureReadyExternalTeacher(item.teacher,state);
+        if(linked)changed++;
+      }
+      if(linked&&Number(item.teacherId)!==Number(linked.id)){
+        item.teacherId=linked.id;
+        changed++;
+      }
+    }
+
     const d=resolvedScheduleDiscipline(item,state);
     if(d){
       if(Number(item.disciplineId)!==Number(d.id)){item.disciplineId=d.id;changed++;}
@@ -892,6 +939,55 @@ function teacherEmploymentText(t){
   if(!t.employmentStart&&!t.employmentEnd)return "Період роботи не вказано";
   return `${t.employmentStart?formatDate(t.employmentStart):"…"} — ${t.employmentEnd?formatDate(t.employmentEnd):"дотепер"}`;
 }
+function readyAcademicHours(x){
+  if(x?.specialSchedule)return num(x.workloadHours||1);
+  return 2;
+}
+function externalTeacherScheduleRows(t){
+  return db.schedule
+    .filter(x=>!x.specialSchedule&&dateInBounds(x.date))
+    .filter(x=>{
+      const tid=resolvedScheduleTeacherId(x,db);
+      if(tid&&Number(tid)===Number(t.id))return true;
+      return normIdentity(x.teacher)===normIdentity(teacherDisplay(t))
+        ||normIdentity(x.teacher)===normIdentity(t.name);
+    });
+}
+function externalTeacherStats(t){
+  const rows=externalTeacherScheduleRows(t);
+  const disciplines=[...new Set(rows.map(x=>x.discipline).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+  const groups=[...new Set(rows.map(x=>x.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+  const hours=rows.reduce((sum,x)=>sum+readyAcademicHours(x),0);
+  return {rows,disciplines,groups,pairs:rows.length,hours};
+}
+function externalTeacherCard(t){
+  const s=externalTeacherStats(t);
+  return `<article class="external-teacher-card">
+    <div class="external-teacher-card-main">
+      <div>
+        <span class="external-teacher-kicker">ЗОВНІШНІЙ / ІНША КАФЕДРА</span>
+        <h3>${esc(t.name)}</h3>
+        ${t.shortName?`<small>${esc(t.shortName)}</small>`:""}
+      </div>
+      <div class="external-teacher-kpis">
+        <div><b>${s.pairs}</b><span>пар</span></div>
+        <div><b>${fmtHours(s.hours)}</b><span>акад. год</span></div>
+      </div>
+    </div>
+
+    <div class="external-teacher-facts">
+      <div><span>Дисципліни</span><b>${esc(s.disciplines.join(" · ")||"ще немає")}</b></div>
+      <div><span>Групи</span><b>${esc(s.groups.join(" · ")||"—")}</b></div>
+    </div>
+
+    <div class="external-teacher-actions">
+      <button onclick="openTeacherSchedule(${t.id})">Розклад</button>
+      <button onclick="openExternalTeacherModal(${t.id})">Редагувати</button>
+      <button class="quiet-danger" onclick="deleteTeacher(${t.id})">Видалити</button>
+    </div>
+  </article>`;
+}
+
 function renderTeachers(){
   const dep=departmentTeachers().slice().sort((a,b)=>a.name.localeCompare(b.name));
   const ext=externalTeachers().slice().sort((a,b)=>a.name.localeCompare(b.name));
@@ -903,9 +999,15 @@ function renderTeachers(){
       </div>
       ${dep.length?`<div class="teacher-grid">${dep.map(teacherCard).join("")}</div>`:`<div class="empty">Викладачів кафедри ще немає.</div>`}
     </div>
-    <div class="card section">
-      <div class="section-head"><h2>Зовнішні / загальноосвітні викладачі</h2><span class="small">Вони використовуються в розкладі, але не входять до кафедральної картки навантаження.</span></div>
-      ${ext.length?`<div class="table-wrap"><table><thead><tr><th>ПІБ</th><th>Коротке ім’я</th><th>Примітка</th><th></th></tr></thead><tbody>${ext.map(t=>`<tr><td><b>${esc(t.name)}</b></td><td>${esc(t.shortName||"—")}</td><td>${esc(t.note||"—")}</td><td class="actions"><button onclick="openExternalTeacherModal(${t.id})">Редагувати</button><button onclick="deleteTeacher(${t.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Зовнішніх викладачів ще немає.</div>`}
+    <div class="card section external-teachers-section">
+      <div class="section-head">
+        <div>
+          <h2>Зовнішні / загальноосвітні викладачі</h2>
+          <span class="small">Фактичні дані з готового розкладу. Вони не входять до кафедральної картки навантаження.</span>
+        </div>
+        <button class="secondary" onclick="openExternalTeacherModal()">+ Додати вручну</button>
+      </div>
+      ${ext.length?`<div class="external-teacher-grid">${ext.map(externalTeacherCard).join("")}</div>`:`<div class="empty">Зовнішніх викладачів ще немає. Вони також створюються автоматично, коли ти вводиш нове ПІБ у «Готових парах».</div>`}
     </div>`;
 }
 function teacherAvailabilitySummary(t){
@@ -1630,11 +1732,87 @@ function loadDisciplineStatusHtml(d){
     <div class="small">${s.status==="done"?"Усе навантаження розподілено.":s.status==="over"?`Перевищено на ${fmtHours(s.allocated-s.plan)} год.`:`Залишилось ${fmtHours(s.remaining)} год.`}</div>
   </div>`;
 }
+function readyExternalRowsForGroup(group){
+  return db.schedule
+    .filter(x=>x.scheduleSource==="ready_external"&&!x.specialSchedule&&dateInBounds(x.date))
+    .filter(x=>normIdentity(x.group)===normIdentity(group));
+}
+function readyExternalDisciplineSummaries(group){
+  const rows=readyExternalRowsForGroup(group);
+  const map=new Map();
+
+  rows.forEach(x=>{
+    const key=[
+      normIdentity(x.discipline||""),
+      String(x.sourceSemester||"")
+    ].join("|");
+
+    if(!map.has(key)){
+      map.set(key,{
+        key,
+        group:x.group,
+        discipline:x.discipline||"Без назви",
+        semester:x.sourceSemester||null,
+        rows:[],
+        sourceCurriculumId:x.sourceCurriculumId||null,
+        sourceComponentId:x.sourceComponentId||null
+      });
+    }
+    map.get(key).rows.push(x);
+  });
+
+  return [...map.values()]
+    .map(s=>{
+      const teachers=[...new Set(s.rows.map(x=>x.teacher).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+      const types=[...new Set(s.rows.map(x=>x.type).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+      const hours=s.rows.reduce((sum,x)=>sum+readyAcademicHours(x),0);
+      return {...s,teachers,types,hours,pairs:s.rows.length};
+    })
+    .sort((a,b)=>a.discipline.localeCompare(b.discipline,"uk"));
+}
+function compactTeacherChips(names=[]){
+  if(!names.length)return `<span class="teacher-palette-chip empty">ще не вказано</span>`;
+  return `<div class="teacher-palette-chips">${names.map((name,i)=>`<span class="teacher-palette-chip shade-${(i%3)+1}">${esc(name)}</span>`).join("")}</div>`;
+}
+function readyExternalDisciplineCardHtml(s){
+  return `<article class="load-discipline-row load-discipline-card ready-external-load-card" style="${scheduleColorVars({group:s.group,discipline:s.discipline})}">
+    <div class="compact-discipline-head">
+      <div class="load-discipline-title">
+        <span class="load-discipline-color"></span>
+        <div>
+          <b>${esc(s.discipline)}</b>
+          <span>${s.semester?`${esc(s.semester)} семестр · `:""}інша кафедра / готовий розклад</span>
+        </div>
+      </div>
+      <span class="compact-source-badge">НЕ КАФЕДРАЛЬНА</span>
+    </div>
+
+    <div class="compact-discipline-teachers">
+      <span>Викладачі</span>
+      ${compactTeacherChips(s.teachers)}
+    </div>
+
+    <div class="ready-load-stats">
+      <div><b>${s.pairs}</b><span>пар внесено</span></div>
+      <div><b>${fmtHours(s.hours)}</b><span>акад. год</span></div>
+      <div><b>${s.types.length}</b><span>видів занять</span></div>
+    </div>
+
+    <div class="compact-discipline-actions">
+      <button class="secondary" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" onclick="openReadyExternalManager(this.dataset.group,this.dataset.discipline)">Редагувати пари</button>
+      <button class="primary-inline" onclick="openReadyScheduleModal()">+ Додати</button>
+    </div>
+  </article>`;
+}
+
 function loadDisciplineRowHtml(d){
   const s=disciplineLoadState(d);
-  const teachers=explicitlyAllocatedTeacherNames(d);
-  return `<div class="load-discipline-row ${s.status}" style="${scheduleColorVars({group:d.group,discipline:d.name})}">
-    <div class="load-discipline-main">
+  const teacherNames=explicitlyAllocatedTeacherIds(d)
+    .map(id=>teacherDisplay(teacherById(id)))
+    .filter(Boolean);
+
+  return `<article class="load-discipline-row load-discipline-card ${s.status}" style="${scheduleColorVars({group:d.group,discipline:d.name})}">
+    <div class="compact-discipline-head">
       <div class="load-discipline-title">
         <span class="load-discipline-color"></span>
         <div>
@@ -1642,17 +1820,21 @@ function loadDisciplineRowHtml(d){
           <span>${d.semester?`${esc(d.semester)} семестр · `:""}${esc(d.controlForm||"без контролю")}</span>
         </div>
       </div>
-      <div class="load-discipline-teachers">
-        <span>Викладачі</span>
-        <b>${esc(teachers||"ще не розподілено")}</b>
-      </div>
+      <span class="compact-status-badge ${s.status}">${s.status==="done"?"РОЗПОДІЛЕНО":s.status==="over"?"ПЕРЕВИЩЕНО":s.status==="noaud"?"БЕЗ АУД. ПАР":"ПОТРЕБУЄ УВАГИ"}</span>
     </div>
+
+    <div class="compact-discipline-teachers">
+      <span>Викладачі</span>
+      ${compactTeacherChips(teacherNames)}
+    </div>
+
     <div class="load-discipline-progress">${loadDisciplineStatusHtml(d)}</div>
-    <div class="load-discipline-actions">
-      <button class="${s.status==="done"?"secondary":"primary-inline"}" onclick="openDisciplineModal(${d.id})">${s.status==="done"?"Переглянути розподіл":"Розподілити години"}</button>
+
+    <div class="compact-discipline-actions">
+      <button class="${s.status==="done"?"secondary":"primary-inline"}" onclick="openDisciplineModal(${d.id})">${s.status==="done"?"Переглянути":"Розподілити години"}</button>
       <button class="quiet-danger" onclick="deleteDiscipline(${d.id})">Видалити</button>
     </div>
-  </div>`;
+  </article>`;
 }
 function renderLoadDisciplinePanel(){
   const box=$("#loadDisciplinePanel");
@@ -1684,7 +1866,7 @@ function renderLoadDisciplinePanel(){
       <div>
         <span>Відкрита група</span>
         <h3>${esc(group)} · ${esc(course)} курс</h3>
-        <div class="small">${groupStudentCount(group)} студентів · ${counts.all} активних дисциплін</div>
+        <div class="small">${groupStudentCount(group)} студентів · ${counts.all} кафедральних · ${readyExternalDisciplineSummaries(group).length} інших дисциплін</div>
       </div>
       <div class="load-filter-tabs">
         <button class="${loadPageState.filter==="all"?"active":""}" onclick="setLoadPageFilter('all')">Усі <b>${counts.all}</b></button>
@@ -1701,8 +1883,23 @@ function renderLoadDisciplinePanel(){
     <div class="load-discipline-list">
       ${filtered.length
         ? filtered.map(loadDisciplineRowHtml).join("")
-        : `<div class="empty load-filter-empty">${loadPageState.filter==="attention"?"У цій групі зараз немає дисциплін, які потребують розподілу.":"За вибраним фільтром дисциплін немає."}</div>`}
-    </div>`;
+        : `<div class="empty load-filter-empty">${loadPageState.filter==="attention"?"У цій групі зараз немає дисциплін, які потребують розподілу.":"За вибраним фільтром кафедральних дисциплін немає."}</div>`}
+    </div>
+
+    ${loadPageState.filter==="all"?(()=>{
+      const ready=readyExternalDisciplineSummaries(group);
+      return ready.length?`<section class="ready-load-section">
+        <div class="ready-load-section-head">
+          <div>
+            <span>ОКРЕМИЙ БЛОК</span>
+            <h3>Інші кафедри / готовий розклад</h3>
+            <p>Ці дисципліни існують у розкладі групи, але не входять у кафедральне навантаження наших викладачів.</p>
+          </div>
+          <button class="ready-import-btn" onclick="openReadyScheduleModal()">+ Внести готові пари</button>
+        </div>
+        <div class="load-discipline-list ready-load-grid">${ready.map(readyExternalDisciplineCardHtml).join("")}</div>
+      </section>`:"";
+    })():""}`;
 }
 function renderDisciplines(){
   const rows=loadPageRows();
@@ -1747,7 +1944,7 @@ function renderDisciplines(){
 
     <div class="load-overview-strip">
       <div><b>${groups.length}</b><span>груп</span></div>
-      <div><b>${rows.length}</b><span>активних дисциплін</span></div>
+      <div><b>${rows.length}</b><span>кафедральних дисциплін</span></div>
       <div class="${totalAttention?"attention":""}"><b>${totalAttention}</b><span>потребують уваги</span></div>
       <div class="done"><b>${totalDone}</b><span>розподілено</span></div>
     </div>
@@ -3397,6 +3594,52 @@ function readyRefreshPlanFields(){
   }
   applyReadyDateBounds();
 }
+let readyExternalManagerState={group:"",discipline:""};
+function readyExternalManagerRows(group,discipline){
+  return db.schedule
+    .filter(x=>x.scheduleSource==="ready_external"&&!x.specialSchedule)
+    .filter(x=>normIdentity(x.group)===normIdentity(group))
+    .filter(x=>normIdentity(x.discipline)===normIdentity(discipline))
+    .slice()
+    .sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||Number(a.pairId||99)-Number(b.pairId||99));
+}
+function openReadyExternalManager(group,discipline){
+  readyExternalManagerState={group,discipline};
+  const rows=readyExternalManagerRows(group,discipline);
+
+  openModal(`<div class="ready-manager">
+    <div class="ready-manager-head" style="${scheduleColorVars({group,discipline})}">
+      <div>
+        <span>ГОТОВИЙ РОЗКЛАД · ІНША КАФЕДРА</span>
+        <h2>${esc(discipline)}</h2>
+        <p>${esc(group)} · ${rows.length} пар · ${fmtHours(rows.reduce((s,x)=>s+readyAcademicHours(x),0))} академічних годин</p>
+      </div>
+      <button class="primary" onclick="closeModal();openReadyScheduleModal()">+ Додати пари</button>
+    </div>
+
+    ${rows.length?`<div class="ready-manager-list">${rows.map(x=>`<div class="ready-manager-row">
+      <div class="ready-manager-date"><b>${formatDate(x.date)}</b><span>${esc(weekdayNameForDate(x.date))}</span></div>
+      <div class="ready-manager-pair"><b>${esc(pairDisplay(x))}</b><span>${esc(pairTimeDisplay(x)||"")}</span></div>
+      <div class="ready-manager-main">
+        <b>${esc(x.type||"Заняття")}</b>
+        <span>${esc(x.teacher||"викладач не вказаний")} · ${esc(x.room||"без аудиторії")}</span>
+      </div>
+      <div class="ready-manager-actions">
+        <button onclick="openReadyScheduleModal(${x.id})">Редагувати</button>
+        <button class="quiet-danger" onclick="deleteReadyExternalItem(${x.id})">Видалити</button>
+      </div>
+    </div>`).join("")}</div>`:`<div class="empty">Для цієї дисципліни пар уже немає.</div>`}
+  </div>`,true);
+}
+function deleteReadyExternalItem(id){
+  const x=db.schedule.find(r=>Number(r.id)===Number(id));
+  if(!x)return;
+  if(!confirm(`Видалити ${formatDate(x.date)} · ${pairDisplay(x)} · ${x.discipline}?`))return;
+  db.schedule=db.schedule.filter(r=>Number(r.id)!==Number(id));
+  save();
+  openReadyExternalManager(readyExternalManagerState.group,readyExternalManagerState.discipline);
+}
+
 function openReadyScheduleModal(editId=null){
   const existing=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
   const editing=!!existing;
@@ -3433,7 +3676,7 @@ function openReadyScheduleModal(editId=null){
       </label>
       <label>Викладач
         <input id="readyTeacher" list="readyTeacherList" placeholder="ПІБ або вибери з довідника" value="${esc(teacherText)}">
-        <small>Якщо ПІБ збігається з викладачем у довіднику, заняття автоматично потрапить і в його індивідуальний розклад.</small>
+        <small>Якщо такого ПІБ ще немає в довіднику, система автоматично створить зовнішнього викладача. Його пари з’являться у розкладі та в розділі «Викладачі».</small>
       </label>
       <label>Охоплення
         <select id="readyCoverage">${db.coverageTypes.map(v=>`<option ${v===(existing?.coverage||"Вся група")?"selected":""}>${esc(v)}</option>`).join("")}</select>
@@ -3493,7 +3736,11 @@ function saveReadySchedule(e,editId=null){
   const ref=$("#readyDiscipline").value;
   const plan=readyPlanRecordByRef(group,ref);
   const discipline=readyDisciplineName();
-  const teacher=$("#readyTeacher").value.trim();
+  let teacher=$("#readyTeacher").value.trim();
+  if(teacher){
+    const teacherRecord=ensureReadyExternalTeacher(teacher,db);
+    if(teacherRecord)teacher=teacherDisplay(teacherRecord);
+  }
   const coverage=$("#readyCoverage").value;
   const note=$("#readyNote").value.trim();
 
@@ -3549,6 +3796,10 @@ function saveReadySchedule(e,editId=null){
   rememberWorkloadGroup(group);
   closeModal();
   save();
+
+  if(editId&&readyExternalManagerState.group&&readyExternalManagerState.discipline){
+    setTimeout(()=>openReadyExternalManager(readyExternalManagerState.group,readyExternalManagerState.discipline),0);
+  }
 }
 
 /* Compact schedule journal */
