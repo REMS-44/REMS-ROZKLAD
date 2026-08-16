@@ -1852,14 +1852,39 @@ function renderSpecialSchedule(){
 function specialStudentButtonsHtml(group,selected=null){return `<div class="special-student-picker">${studentsForGroup(group).map(s=>`<button type="button" class="${Number(selected)===Number(s.id)?"active":""}" data-student-id="${s.id}" onclick="selectSpecialStudent(${s.id})"><span>${esc(s.name)}</span></button>`).join("")}</div>`;}
 function selectSpecialStudent(id){const hidden=$("#specialStudentId");if(hidden)hidden.value=id;$$('[data-student-id]').forEach(b=>b.classList.toggle("active",Number(b.dataset.studentId)===Number(id)));}
 function specialHalfOptionsHtml(pairId,selected=1){return [1,2].map(h=>{const times=specialHalfTimes(pairId,h);return `<button type="button" class="special-half-btn ${Number(selected)===h?"active":""}" data-half="${h}" onclick="selectSpecialHalf(${h})"><b>${h===1?"І половина":"ІІ половина"}</b><span>${esc(times.start)}–${esc(times.end)}</span></button>`;}).join("");}
-function selectSpecialHalf(half){const hidden=$("#specialHalf");if(hidden)hidden.value=half;$$('[data-half]').forEach(b=>b.classList.toggle("active",Number(b.dataset.half)===Number(half)));}
-function refreshSpecialHalfButtons(){const pairId=$("#specialPair")?.value,half=Number($("#specialHalf")?.value||1),box=$("#specialHalfButtons");if(box)box.innerHTML=specialHalfOptionsHtml(pairId,half);}
+function selectSpecialHalf(half){const hidden=$("#specialHalf");if(hidden)hidden.value=half;$$('[data-half]').forEach(b=>b.classList.toggle("active",Number(b.dataset.half)===Number(half)));refreshSpecialRoomOptions();}
+function specialRoomOptions(date,pairId,half,selected=""){
+  const times=specialHalfTimes(pairId,half);
+  return `<option value="">— без аудиторії —</option>`+
+    db.rooms.filter(r=>r.status!=="archived").map(r=>{
+      const conflict=roomConflictRecord(date,times.start,times.end,pairId,r.name,null);
+      const busy=!!conflict;
+      return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(roomBusyOptionLabel(r.name,conflict))}</option>`;
+    }).join("");
+}
+function refreshSpecialRoomOptions(){
+  const room=$("#specialRoom");
+  if(!room)return;
+  const selected=room.value;
+  const date=$("#specialDate")?.value||"";
+  const pairId=$("#specialPair")?.value;
+  const half=Number($("#specialHalf")?.value||1);
+  room.innerHTML=specialRoomOptions(date,pairId,half,selected);
+  if([...room.options].some(o=>o.value===selected&&!o.disabled))room.value=selected;
+}
+function refreshSpecialHalfButtons(){
+  const pairId=$("#specialPair")?.value,half=Number($("#specialHalf")?.value||1),box=$("#specialHalfButtons");
+  if(box)box.innerHTML=specialHalfOptionsHtml(pairId,half);
+  refreshSpecialRoomOptions();
+}
 function openSpecialScheduleModal(disciplineId,teacherId,typeId){
   const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=db.lessonTypes.find(x=>Number(x.id)===Number(typeId));if(!d||!t||!lt)return;
   const students=studentsForGroup(d.group);if(!students.length)return alert("У цій групі немає студентів.");const remaining=remainingLoad(d,t.id,lt.name);if(remaining<1-.001)return alert("Для цього виду занять уже немає щонайменше 1 години залишку.");
   const bounds=semesterDateBounds(d.semester),defaultDate=clampDate(currentAcademicDate(),bounds),firstPair=bellPairs()[0]?.id||1;
-  openModal(`<div class="special-modal"><div class="special-modal-head"><div><span>${esc(specialKindMeta(specialScheduleState.kind).label)}</span><h2>${esc(d.name)}</h2><strong>${esc(teacherDisplay(t))}</strong><p>${esc(d.group)} · ${esc(lt.name)} · залишок ${fmtHours(remaining)} год</p></div><div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div></div><form id="specialScheduleForm"><input id="specialStudentId" type="hidden" value="${students[0].id}"><input id="specialHalf" type="hidden" value="1"><div class="special-form-section"><div class="special-form-title"><span>1</span><div><b>Студент</b><small>кожен запис належить конкретному студенту</small></div></div>${specialStudentButtonsHtml(d.group,students[0].id)}</div><div class="special-form-section"><div class="special-form-title"><span>2</span><div><b>Дата і половина пари</b><small>повної пари тут немає — тільки одна академічна година</small></div></div><div class="special-time-grid"><label>Дата<input id="specialDate" type="date" min="${bounds.start}" max="${bounds.end}" value="${defaultDate}"></label><label>Пара<select id="specialPair">${bellPairs().map(p=>`<option value="${p.id}">${p.id} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("")}</select></label></div><div id="specialHalfButtons" class="special-half-buttons">${specialHalfOptionsHtml(firstPair,1)}</div></div><div class="special-form-section"><div class="special-form-title"><span>3</span><div><b>Місце</b><small>аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій</small></div></div><div class="special-time-grid"><label>Аудиторія<select id="specialRoom"><option value="">— без аудиторії —</option>${db.rooms.filter(r=>r.status!=="archived").map(r=>`<option>${esc(r.name)}</option>`).join("")}</select></label><label>Примітка<input id="specialNote" placeholder="необов’язково"></label></div></div><div id="specialConflictMessage"></div><div class="special-modal-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button class="primary">Зберегти 1 академічну годину</button></div></form></div>`,true);
-  $("#specialPair").onchange=refreshSpecialHalfButtons;$("#specialScheduleForm").onsubmit=e=>saveSpecialScheduleEvent(e,d,t,lt);
+  openModal(`<div class="special-modal"><div class="special-modal-head"><div><span>${esc(specialKindMeta(specialScheduleState.kind).label)}</span><h2>${esc(d.name)}</h2><strong>${esc(teacherDisplay(t))}</strong><p>${esc(d.group)} · ${esc(lt.name)} · залишок ${fmtHours(remaining)} год</p></div><div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div></div><form id="specialScheduleForm"><input id="specialStudentId" type="hidden" value="${students[0].id}"><input id="specialHalf" type="hidden" value="1"><div class="special-form-section"><div class="special-form-title"><span>1</span><div><b>Студент</b><small>кожен запис належить конкретному студенту</small></div></div>${specialStudentButtonsHtml(d.group,students[0].id)}</div><div class="special-form-section"><div class="special-form-title"><span>2</span><div><b>Дата і половина пари</b><small>повної пари тут немає — тільки одна академічна година</small></div></div><div class="special-time-grid"><label>Дата<input id="specialDate" type="date" min="${bounds.start}" max="${bounds.end}" value="${defaultDate}"></label><label>Пара<select id="specialPair">${bellPairs().map(p=>`<option value="${p.id}">${p.id} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("")}</select></label></div><div id="specialHalfButtons" class="special-half-buttons">${specialHalfOptionsHtml(firstPair,1)}</div></div><div class="special-form-section"><div class="special-form-title"><span>3</span><div><b>Місце</b><small>аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій</small></div></div><div class="special-time-grid"><label>Аудиторія<select id="specialRoom">${specialRoomOptions(defaultDate,firstPair,1,"")}</select></label><label>Примітка<input id="specialNote" placeholder="необов’язково"></label></div></div><div id="specialConflictMessage"></div><div class="special-modal-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button class="primary">Зберегти 1 академічну годину</button></div></form></div>`,true);
+  $("#specialPair").onchange=refreshSpecialHalfButtons;
+  $("#specialDate").onchange=refreshSpecialRoomOptions;
+  $("#specialScheduleForm").onsubmit=e=>saveSpecialScheduleEvent(e,d,t,lt);
 }
 function saveSpecialScheduleEvent(e,d,t,lt){
   e.preventDefault();const studentId=Number($("#specialStudentId").value),student=db.students.find(s=>Number(s.id)===studentId);if(!student)return alert("Оберіть студента.");
@@ -1867,7 +1892,10 @@ function saveSpecialScheduleEvent(e,d,t,lt){
   const item={id:uid(db.schedule),date,start:times.start,end:times.end,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type:lt.name,coverage:student.name,students:student.name,studentId,teacherId:t.id,teacher:teacherDisplay(t),room,workloadHours:1,note:$("#specialNote").value.trim(),repeatBatchId:null,specialSchedule:true,specialKind:specialScheduleState.kind,specialHalf:half,scheduleSource:"special"};
   const rem=remainingLoad(d,t.id,lt.name);if(rem<1-.001)return alert(`Залишок навантаження лише ${fmtHours(rem)} год.`);
   const cs=conflictsFor(item,null),info=teacherAvailabilityInfo(item,null),studentConflict=db.schedule.some(x=>x.date===date&&Number(x.studentId)===studentId&&((x.specialSchedule||item.specialSchedule)?timeOverlap(item.start,item.end,x.start,x.end):(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))));if(studentConflict)cs.push({discipline:"Студент уже зайнятий у цей час"});
-  if(cs.length||info.warnings.length){$("#specialConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${cs.length?`Є конфлікт викладача / аудиторії / студента.<br>`:""}${info.warnings.map(esc).join("<br>")}</div>`;return;}
+  if(cs.length||info.warnings.length){
+    $("#specialConflictMessage").innerHTML=conflictDetailsHtml(item,cs,info.warnings);
+    return;
+  }
   db.schedule.push(item);closeModal();save();go("specialSchedule",{focusCurrentCalendar:false});
 }
 function openSpecialEventFromRoom(id){const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x||!x.specialSchedule)return;specialScheduleState.kind=x.specialKind||"individual";specialScheduleState.group=x.group||"";specialScheduleState.month=String(x.date||"").slice(0,7)||specialScheduleState.month;go("specialSchedule",{focusCurrentCalendar:false});}
@@ -2655,10 +2683,8 @@ function saveReadySchedule(e,editId=null){
     const all=[...cs,...textTeacher];
 
     if(all.length){
-      warnings.push(`${formatDate(item.date)} · ${pairDisplay(item)}: ${all.map(x=>{
-        const d=x.discipline||x.title||"заняття";
-        return `${x.group||""} ${d}${x.room?` · ${x.room}`:""}`.trim();
-      }).join("; ")}`);
+      const detailed=conflictReasonLines(item,all);
+      warnings.push(`${formatDate(item.date)} · ${pairDisplay(item)}: ${detailed.length?detailed.join(" "):"Є конфлікт із уже внесеним розкладом."}`);
     }
     draft.push(item);
   });
@@ -2937,6 +2963,99 @@ function renderScheduleTable(){
       ${remaining?`<div class="journal-more"><button class="secondary" onclick="showMoreScheduleJournal()">Показати ще 30 <span>(${remaining} залишилось)</span></button></div>`:""}`
     : `<div class="empty journal-empty">За вибраними фільтрами занять немає.</div>`;
 }
+function conflictEventTimeLabel(x){
+  if(x?.specialSchedule)return specialSlotLabel(x);
+  const pair=pairDisplay(x);
+  const times=pairTimeDisplay(x);
+  return `${pair||"час не вказано"}${times?` · ${times}`:""}`;
+}
+function conflictEventContext(x){
+  const parts=[];
+  if(x?.group)parts.push(x.group);
+  if(x?.discipline||x?.title||x?.kind)parts.push(x.discipline||x.title||x.kind);
+  if(x?.teacher)parts.push(x.teacher);
+  if(x?.specialSchedule){
+    const student=specialStudentName(x);
+    if(student)parts.push(student);
+  }
+  return parts.filter(Boolean).join(" · ");
+}
+function conflictReasonLines(item,conflicts=[]){
+  const lines=[];
+  const seen=new Set();
+  const add=line=>{
+    const key=normIdentity(line);
+    if(!key||seen.has(key))return;
+    seen.add(key);
+    lines.push(line);
+  };
+
+  (conflicts||[]).forEach(c=>{
+    const time=conflictEventTimeLabel(c);
+    const context=conflictEventContext(c);
+    const tail=[time,context].filter(Boolean).join(" — ");
+
+    if(item.room&&c.room&&normIdentity(item.room)===normIdentity(c.room)){
+      add(`Аудиторія ${item.room} зайнята${tail?` — ${tail}`:""}.`);
+    }
+
+    const conflictTeacherId=resolvedScheduleTeacherId(c,db);
+    if(item.teacherId&&Number(conflictTeacherId)===Number(item.teacherId)){
+      const teacherName=teacherDisplay(teacherById(item.teacherId))||item.teacher||"Викладач";
+      add(`Викладач ${teacherName} уже зайнятий у цей час${tail?` — ${tail}`:""}.`);
+    }
+
+    if(item.studentId&&c.studentId&&Number(item.studentId)===Number(c.studentId)){
+      const student=db.students.find(s=>Number(s.id)===Number(item.studentId));
+      add(`Студент ${student?.name||item.students||"—"} уже зайнятий у цей час${tail?` — ${tail}`:""}.`);
+    }
+
+    const sameGroup=item.group&&c.group&&normIdentity(item.group)===normIdentity(c.group);
+    const groupIsConflict=sameGroup&&!(item.specialSchedule&&c.specialSchedule);
+    if(groupIsConflict){
+      add(`У групи ${item.group} уже є заняття в цей час${tail?` — ${tail}`:""}.`);
+    }
+  });
+
+  return lines;
+}
+function conflictDetailsHtml(item,conflicts=[],availabilityWarnings=[]){
+  const reasons=[
+    ...conflictReasonLines(item,conflicts),
+    ...(availabilityWarnings||[])
+  ];
+  if(!reasons.length)return "";
+  return `<div class="conflict conflict-detailed">
+    <b>Не можу зберегти. Ось де саме конфлікт:</b>
+    <ul>${reasons.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+  </div>`;
+}
+function roomConflictRecord(date,start,end,pairId,room,ignoreId=null){
+  const scheduleHit=db.schedule.find(x=>{
+    if(Number(x.id)===Number(ignoreId))return false;
+    if(x.date!==date||normIdentity(x.room)!==normIdentity(room))return false;
+    if(start&&end)return timeOverlap(start,end,x.start,x.end);
+    return pairId&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId);
+  });
+  if(scheduleHit)return scheduleHit;
+
+  const bookingHit=db.roomBookings.find(x=>{
+    if(x.date!==date||normIdentity(x.room)!==normIdentity(room))return false;
+    if(start&&end)return timeOverlap(start,end,x.start,x.end);
+    return pairId&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId);
+  });
+  return bookingHit?{...bookingHit,source:"booking",discipline:bookingHit.title||bookingHit.kind||"Бронювання"}:null;
+}
+function roomBusyOptionLabel(room,record){
+  if(!record)return room;
+  const who=record.specialSchedule
+    ? specialStudentName(record)
+    : (record.group||record.teacher||"");
+  const what=record.discipline||record.title||record.kind||"заняття";
+  const time=record.specialSchedule?specialSlotLabel(record):pairDisplay(record);
+  return `${room} · ЗАЙНЯТА — ${[time,who,what].filter(Boolean).join(" · ")}`;
+}
+
 function conflictsFor(item,ignore=null,extra=[]){
   const sameSlot=x=>{if(x.date!==item.date)return false;if(item.specialSchedule||x.specialSchedule)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);};
   const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||(item.group&&normIdentity(x.group)===normIdentity(item.group)&&!(item.specialSchedule&&x.specialSchedule))||(item.studentId&&x.studentId&&Number(item.studentId)===Number(x.studentId))||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
@@ -3063,7 +3182,7 @@ function openLessonModal(id=null,preset={}){
   const applyLessonDateBounds=()=>{const did=$("#ldi").value,d=did&&did!=="__custom__"?disciplineById(Number(did)):null,b=d?semesterDateBounds(d.semester):academicYearBounds(),input=$("#ld");input.min=b.start;input.max=b.end;if(!dateInBounds(input.value,b))input.value=clampDate(input.value,b);};
   applyLessonDateBounds();
   const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;return lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:$("#lr").value,note:$("#ln").value.trim()});};
-  const check=()=>{const item=readLesson(),cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);let html="";if(cs.length)html+=`<div class="conflict"><b>Конфлікт:</b> ${cs.map(c=>`${esc(c.group)} · ${esc(pairDisplay(c))} · ${esc(c.room||"без ауд.")}`).join("; ")}</div>`;if(info.warnings.length)html+=`<div class="conflict">${info.warnings.map(esc).join("<br>")}</div>`;if(info.notes.length)html+=`<div class="notice">${info.notes.map(esc).join("<br>")}</div>`;$("#conflictBox").innerHTML=html;};
+  const check=()=>{const item=readLesson(),cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);let html="";if(cs.length||info.warnings.length)html+=conflictDetailsHtml(item,cs,info.warnings);if(info.notes.length)html+=`<div class="notice">${info.notes.map(esc).join("<br>")}</div>`;$("#conflictBox").innerHTML=html;};
   $("#lg").onchange=()=>{$("#ldi").innerHTML=disciplineOptionsForGroup($("#lg").value,null,true);populateLessonFormFromLoad({});check();};$("#ldi").onchange=()=>{populateLessonFormFromLoad({});applyLessonDateBounds();check();};$("#lt").onchange=()=>{refreshTeachersAndLoad(null);check();};$("#ltea").onchange=()=>{renderLoadHint();check();};
   $("#lpair").onchange=()=>{$("#customTimeBox").style.display=$("#lpair").value==="__custom__"?"grid":"none";check();};["ld","lr","lwh"].forEach(k=>$("#"+k).onchange=check);check();
   $("#lf").onsubmit=e=>{e.preventDefault();const item=readLesson();if(!item.discipline)return alert("Вкажіть дисципліну.");const d0=item.disciplineId?disciplineById(item.disciplineId):null,b0=d0?semesterDateBounds(d0.semester):academicYearBounds();if(!dateInBounds(item.date,b0))return alert(`Дата має бути в межах ${d0?`${d0.semester} семестру`:`навчального року`}: ${academicDateMessage(b0)}.`);if(!item.pairId&&(!item.start||!item.end||item.end<=item.start))return alert("Оберіть пару або коректний час.");const d=item.disciplineId?disciplineById(item.disciplineId):null;if(d){if(!item.teacherId)return alert("Потрібно вибрати викладача з розподіленого навантаження.");const rem=remainingLoad(d,item.teacherId,item.type,id);if(item.workloadHours>rem+0.0001)return alert(`Недостатньо розподілених годин. Залишок у ${teacherDisplay(teacherById(item.teacherId))}: ${fmtHours(rem)} год. Зміни розподіл у «Навантаженні» або зменш години цього заняття.`);}const cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);if((cs.length||info.warnings.length)&&!confirm("Є конфлікт або обмеження викладача. Все одно зберегти?"))return;if(id)Object.assign(db.schedule.find(s=>s.id===id),item);else db.schedule.push({id:uid(db.schedule),...item});currentEditingLessonId=null;closeModal();save();};
@@ -3274,8 +3393,20 @@ function plannerPairOptions(date,d,t,selected=null){
     return `<option value="${esc(p.id)}" ${String(selected)===String(p.id)?"selected":""} ${hard.length?"disabled":""}>${esc(p.id)} пара · ${esc(p.start)}–${esc(p.end)}${esc(suffix)}</option>`;
   }).join("");
 }
-function plannerRoomBusy(date,pairId,room){return db.schedule.some(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))||db.roomBookings.some(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
-function plannerRoomOptions(date,pairId,selected=""){const rooms=(typeof gridRooms==="function"?gridRooms():db.rooms.filter(r=>r.status!=="archived"));return `<option value="">— обери аудиторію —</option>`+rooms.map(r=>{const busy=plannerRoomBusy(date,pairId,r.name);return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(r.name)}${busy?" · зайнята":""}</option>`;}).join("");}
+function plannerRoomBusyRecord(date,pairId,room){
+  return roomConflictRecord(date,"","",pairId,room,null);
+}
+function plannerRoomBusy(date,pairId,room){
+  return !!plannerRoomBusyRecord(date,pairId,room);
+}
+function plannerRoomOptions(date,pairId,selected=""){
+  const rooms=(typeof gridRooms==="function"?gridRooms():db.rooms.filter(r=>r.status!=="archived"));
+  return `<option value="">— обери аудиторію —</option>`+rooms.map(r=>{
+    const conflict=plannerRoomBusyRecord(date,pairId,r.name);
+    const busy=!!conflict;
+    return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(roomBusyOptionLabel(r.name,conflict))}</option>`;
+  }).join("");
+}
 function plannerAvailableTypeOptions(d,t,selected=null){return plannerTypes(d,t.id).map(x=>`<option value="${esc(x.lt.name)}" ${x.lt.name===selected?"selected":""} ${x.remaining<=0?"disabled":""}>${esc(x.lt.name)} · залишок ${fmtHours(x.remaining)} год</option>`).join("");}
 function plannerNextFreePair(date,d,t){return bellPairs().find(p=>{const b=plannerPairBusyInfo(date,p.id,d,t);return !b.teacher&&!b.group;})?.id||bellPairs()[0]?.id||null;}
 function plannerNewRowHtml(d,t,index,typeName=null,pairId=null){
@@ -3858,7 +3989,7 @@ function savePlannerSeries(d,t){
     const cs=conflictsFor(item,null,draft);
     const info=teacherAvailabilityInfo(item,null,draft);
     if(cs.length){
-      problems.push(`${formatDate(x.date)} · ${pairDisplay(item)}: конфлікт із уже внесеним розкладом.`);
+      problems.push(`${formatDate(x.date)} · ${pairDisplay(item)}: ${conflictReasonLines(item,cs).join(" ")}`);
       continue;
     }
     if(info.warnings.length){
@@ -4460,7 +4591,7 @@ function selectDisciplinePlannerDate(date){
   renderDisciplinePlannerModal();
   requestAnimationFrame(()=>$("#schedulerDayWorkspace")?.scrollIntoView({behavior:"smooth",block:"nearest"}));
 }
-function savePlannerDateEntries(e,d,t){e.preventDefault();const rows=$$("[data-planner-entry]");if(!rows.length)return alert("Додай хоча б одну пару.");const date=disciplinePlannerState.date,byType={},draft=[],problems=[];rows.forEach((row,i)=>{const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}byType[type]=used+hours;const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`}),cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: конфлікт.`);return;}if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}draft.push(item);});if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));refreshPlannerAfterAction(d,t);}
+function savePlannerDateEntries(e,d,t){e.preventDefault();const rows=$$("[data-planner-entry]");if(!rows.length)return alert("Додай хоча б одну пару.");const date=disciplinePlannerState.date,byType={},draft=[],problems=[];rows.forEach((row,i)=>{const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}byType[type]=used+hours;const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`}),cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: ${conflictReasonLines(item,cs).join(" ")}`);return;}if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}draft.push(item);});if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));refreshPlannerAfterAction(d,t);}
 function openAllocationScheduler(disciplineId,typeName,teacherId){openDisciplineTeacherScheduler(disciplineId,teacherId);}
 function addDays(dateStr,days){const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
 function datesForPattern(pattern,from,to,weekday,specific,bounds=academicYearBounds()){if(pattern==="dates")return [...new Set((specific||"").split(/[\s,;]+/).map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&dateInBounds(x,bounds)))].sort();const result=[];if(!from||!to)return result;let d=from;while(d<=to){if(dateInBounds(d,bounds)&&weekdayId(d)===Number(weekday))result.push(d);d=addDays(d,1);}return pattern==="biweekly"?result.filter((_,i)=>i%2===0):result;}
@@ -4468,7 +4599,7 @@ function openBulkScheduleModal(presetGroup=null){
   const group=presetGroup||bestWorkloadGroup();openModal(`<h2>Розставити за правилом</h2><div class="notice">Для випадків, коли одна й та сама пара повторюється щотижня або через тиждень.</div><form id="bf" class="form-grid"><label>Група<select id="bg">${groupOptions(group)}</select></label><label>Дисципліна<select id="bd">${disciplineOptionsForGroup(group,null,false)}</select></label><label>Вид заняття<select id="bt"></select></label><label>Викладач<select id="btea"></select></label><div id="bulkLoadHint" class="wide"></div><label>Повторення<select id="bpattern"><option value="weekly">Щотижня</option><option value="biweekly">Через тиждень</option><option value="dates">Конкретні дати</option></select></label><label>День тижня<select id="bweekday">${db.weekDays.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label><label>Від<input id="bfrom" type="date" ${dateAttrs()}></label><label>До<input id="bto" type="date" ${dateAttrs()}></label><label id="bdatesLabel" class="wide" style="display:none">Конкретні дати<textarea id="bdates" rows="3" placeholder="2026-09-03, 2026-09-10, 2026-09-24"></textarea></label><label>Пара<select id="bpair">${pairOptions(bellPairs()[0]?.id||null,false)}</select></label><label>Аудиторія<select id="br"><option value="">—</option>${db.rooms.filter(r=>r.status!=="archived").map(r=>`<option>${esc(r.name)}</option>`).join("")}</select></label><label>Годин за заняття<input id="bwh" type="number" min="0.01" step="0.01" value="2"></label><label>Охоплення<select id="bc">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select></label><label class="wide">Примітка<input id="bn"></label><div class="wide"><button class="primary">Створити повтори</button></div></form>`,true);
   const refreshDisc=()=>{$("#bd").innerHTML=disciplineOptionsForGroup($("#bg").value,null,false);refreshType();};const refreshType=()=>{const d=disciplineById(Number($("#bd").value)),types=d?schedulableTypes(d):[];$("#bt").innerHTML=types.map(x=>`<option>${esc(x.name)}</option>`).join("");const b=d?semesterDateBounds(d.semester):academicYearBounds();["#bfrom","#bto"].forEach(id=>{const el=$(id);el.min=b.start;el.max=b.end;if(el.value&&!dateInBounds(el.value,b))el.value="";});refreshTeacher();};const refreshTeacher=()=>{const d=disciplineById(Number($("#bd").value)),type=$("#bt").value,teachers=d?allocatedTeachersForType(d,type):[];$("#btea").innerHTML=teachers.map(t=>`<option value="${t.id}">${esc(teacherDisplay(t))}</option>`).join("");const lt=lessonTypeByName(type);$("#bwh").value=lt?.defaultUnit||1;bulkHint();};const bulkHint=()=>{const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid){$("#bulkLoadHint").innerHTML=`<div class="conflict">Спочатку має бути розподілене навантаження.</div>`;return;}const p=teacherTypePlan(d,tid,type),used=scheduledLoad(d.id,tid,type),r=p-used;$("#bulkLoadHint").innerHTML=`<div class="load-hint-grid"><div><span>План</span><b>${fmtHours(p)} год</b></div><div><span>Виставлено</span><b>${fmtHours(used)} год</b></div><div><span>Залишок</span><b>${fmtHours(r)} год</b></div></div>`;};
   $("#bg").onchange=refreshDisc;$("#bd").onchange=refreshType;$("#bt").onchange=refreshTeacher;$("#btea").onchange=bulkHint;$("#bpattern").onchange=()=>{const dates=$("#bpattern").value==="dates";$("#bdatesLabel").style.display=dates?"":"none";$("#bweekday").disabled=dates;$("#bfrom").disabled=dates;$("#bto").disabled=dates;};refreshDisc();
-  $("#bf").onsubmit=e=>{e.preventDefault();const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid)return alert("Немає розподіленого навантаження.");let rem=remainingLoad(d,tid,type,null);if(rem<=0)return alert("Години вже вичерпані.");const bounds=semesterDateBounds(d.semester),dates=datesForPattern($("#bpattern").value,$("#bfrom").value,$("#bto").value,$("#bweekday").value,$("#bdates").value,bounds);if(!dates.length)return alert("Не знайдено дат.");const unit=num($("#bwh").value),valid=[],blocked=[],batchId=`B${Date.now()}`;for(const date of dates){if(rem<=0.0001)break;const wh=Math.min(unit,rem),item=lessonItemFromValues({date,pairId:$("#bpair").value,group:$("#bg").value,disciplineId:d.id,discipline:d.name,type,workloadHours:wh,coverage:$("#bc").value,teacherId:tid,room:$("#br").value,note:$("#bn").value.trim(),repeatBatchId:batchId}),cs=conflictsFor(item,null,valid),info=teacherAvailabilityInfo(item,null);if(cs.length||info.warnings.length){blocked.push(date);continue;}valid.push(item);rem-=wh;}if(!valid.length)return alert("Усі дати мають конфлікти.");if(blocked.length&&!confirm(`${blocked.length} дат буде пропущено через конфлікти. Продовжити?`))return;valid.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));closeModal();save();go("schedule");};
+  $("#bf").onsubmit=e=>{e.preventDefault();const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid)return alert("Немає розподіленого навантаження.");let rem=remainingLoad(d,tid,type,null);if(rem<=0)return alert("Години вже вичерпані.");const bounds=semesterDateBounds(d.semester),dates=datesForPattern($("#bpattern").value,$("#bfrom").value,$("#bto").value,$("#bweekday").value,$("#bdates").value,bounds);if(!dates.length)return alert("Не знайдено дат.");const unit=num($("#bwh").value),valid=[],blocked=[],batchId=`B${Date.now()}`;for(const date of dates){if(rem<=0.0001)break;const wh=Math.min(unit,rem),item=lessonItemFromValues({date,pairId:$("#bpair").value,group:$("#bg").value,disciplineId:d.id,discipline:d.name,type,workloadHours:wh,coverage:$("#bc").value,teacherId:tid,room:$("#br").value,note:$("#bn").value.trim(),repeatBatchId:batchId}),cs=conflictsFor(item,null,valid),info=teacherAvailabilityInfo(item,null);if(cs.length||info.warnings.length){blocked.push({date,reasons:[...conflictReasonLines(item,cs),...info.warnings]});continue;}valid.push(item);rem-=wh;}if(!valid.length)return alert("Усі дати мають конфлікти:\n\n"+blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n"));if(blocked.length&&!confirm(`${blocked.length} дат буде пропущено:\n\n${blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n")}${blocked.length>8?"\n…":""}\n\nПродовжити?`))return;valid.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));closeModal();save();go("schedule");};
 }
 function deleteLesson(id){if(confirm("Видалити заняття? Години автоматично повернуться у залишок навантаження.")){db.schedule=db.schedule.filter(x=>x.id!==id);save();}}
 
