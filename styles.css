@@ -6482,3 +6482,9 @@ td .small{font-size:12px}
   max-width:540px;
   line-height:1.38;
 }
+
+
+/* v1.6.2 · quota-safe sync */
+.cloud-toast.error{
+  max-width:580px;
+}

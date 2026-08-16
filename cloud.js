@@ -79,6 +79,11 @@ window.REMS_CLOUD={
   updateUser:updateManagedUser,
   sendPasswordReset:sendManagedPasswordReset,
   reconnect:()=>manualCloudReconnect(),
+  acceptScheduleBaseline:(schedule)=>{
+    if(!remoteState||pushing||pendingPush)return false;
+    remoteState.schedule=clean(schedule||[]);
+    return true;
+  },
   retryPending:()=>{
     if(!pendingPush)return false;
     clearTimeout(pushTimer);
@@ -382,13 +387,21 @@ async function flushPush(){
       if(!pendingPush)pendingPush=wanted;
 
       const code=cloudErrorCode(e);
-      const title=code==="permission-denied"?"Немає дозволу Firebase":"Не синхронізовано";
+      const title=
+        code==="permission-denied"?"Немає дозволу Firebase":
+        code==="resource-exhausted"?"Ліміт Firebase":
+        "Не синхронізовано";
+
       setSidebar("error",title,`${user.email||""} · ${summary}`);
 
+      const extra=code==="resource-exhausted"
+        ?" Не натискай багато разів зберегти: локальні зміни збережені, а наступна зміна спробує синхронізацію знову."
+        :"";
+
       toast(
-        `Зміни залишилися у цьому браузері, але ще не записані у Firebase. Помилка: ${summary}. Дані не повертаю до старої версії.`,
+        `Зміни залишилися у цьому браузері, але ще не записані у Firebase. Помилка: ${summary}.${extra} Дані не повертаю до старої версії.`,
         "error",
-        12000
+        15000
       );
     }
   }finally{
@@ -481,13 +494,39 @@ async function writeScheduleLesson(lesson){
       }
     }
     const newIds=new Set(newLocks.map(x=>x.id));
+    const oldIds=new Set(oldLocks.map(x=>x.id));
+
     for(const l of oldLocks){
       if(newIds.has(l.id))continue;
-      const item=lockSnaps.get(l.id);if(item.snap.exists()&&String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`))===`schedule:${lesson.id}`)tx.delete(item.ref);
+      const item=lockSnaps.get(l.id);
+      if(item.snap.exists()&&String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`))===`schedule:${lesson.id}`){
+        tx.delete(item.ref);
+      }
     }
+
     for(const l of newLocks){
-      tx.set(lockSnaps.get(l.id).ref,{ownerKey:`schedule:${lesson.id}`,ownerType:"schedule",ownerId:String(lesson.id),ownerLessonId:String(lesson.id),kind:l.kind,resource:l.res,date:lesson.date,slot:slotKey(lesson),updatedAt:serverTimestamp()});
+      const holder=lockSnaps.get(l.id);
+      const owner=holder.snap.exists()
+        ?String(holder.snap.data().ownerKey||(`schedule:${holder.snap.data().ownerLessonId}`))
+        :"";
+
+      // If this lesson already owned the same lock before the edit,
+      // do not spend another Firestore write just to refresh updatedAt.
+      if(oldIds.has(l.id)&&owner===`schedule:${lesson.id}`)continue;
+
+      tx.set(holder.ref,{
+        ownerKey:`schedule:${lesson.id}`,
+        ownerType:"schedule",
+        ownerId:String(lesson.id),
+        ownerLessonId:String(lesson.id),
+        kind:l.kind,
+        resource:l.res,
+        date:lesson.date,
+        slot:slotKey(lesson),
+        updatedAt:serverTimestamp()
+      });
     }
+
     tx.set(lref,clean(lesson));
   });
 }
@@ -512,8 +551,34 @@ async function writeRoomBookingCloud(booking){
     for(const [id] of all){const r=itemRef("locks",id);lockSnaps.set(id,{ref:r,snap:await tx.get(r)});}
     for(const l of newLocks){const ls=lockSnaps.get(l.id).snap;if(ls.exists()){const existing=String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`));if(existing!==owner){const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:l.kind==="student"?`Студент`:`Викладач`;throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${booking.date}, ${booking.pairId?booking.pairId+" пара":(booking.start+"–"+booking.end)}. Бронювання не збережено.`);}}}
     const newIds=new Set(newLocks.map(x=>x.id));
-    for(const l of oldLocks){if(newIds.has(l.id))continue;const item=lockSnaps.get(l.id),existing=item.snap.exists()?String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`)):"";if(existing===owner)tx.delete(item.ref);}
-    for(const l of newLocks)tx.set(lockSnaps.get(l.id).ref,{ownerKey:owner,ownerType:"roomBooking",ownerId:String(booking.id),kind:l.kind,resource:l.res,date:booking.date,slot:slotKey(booking),updatedAt:serverTimestamp()});
+    const oldIds=new Set(oldLocks.map(x=>x.id));
+
+    for(const l of oldLocks){
+      if(newIds.has(l.id))continue;
+      const item=lockSnaps.get(l.id),
+        existing=item.snap.exists()?String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`)):"";
+      if(existing===owner)tx.delete(item.ref);
+    }
+
+    for(const l of newLocks){
+      const holder=lockSnaps.get(l.id);
+      const existing=holder.snap.exists()
+        ?String(holder.snap.data().ownerKey||(`schedule:${holder.snap.data().ownerLessonId}`))
+        :"";
+      if(oldIds.has(l.id)&&existing===owner)continue;
+
+      tx.set(holder.ref,{
+        ownerKey:owner,
+        ownerType:"roomBooking",
+        ownerId:String(booking.id),
+        kind:l.kind,
+        resource:l.res,
+        date:booking.date,
+        slot:slotKey(booking),
+        updatedAt:serverTimestamp()
+      });
+    }
+
     tx.set(bref,clean(booking));
   });
 }

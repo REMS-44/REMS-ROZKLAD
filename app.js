@@ -443,25 +443,36 @@ window.REMS_GET_STATE=()=>clone(db);
 window.REMS_MIGRATE_STATE=(state)=>migrate(state);
 window.REMS_CURRENT_PAGE=()=>currentPage;
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
-  const rawSchedule=new Map((remote?.schedule||[]).map(x=>[String(x.id),x]));
   const remoteCurriculumKeys=new Set((remote?.curricula||[]).map(curriculumSeedKey));
   const remoteGroupKeys=new Set((remote?.groups||[]).map(groupSeedKey));
   const remoteStudentKeys=new Set((remote?.students||[]).map(studentSeedKey));
+
   db=migrate(remote);
+
   const addedSeedCurriculum=(db.curricula||[]).some(c=>!remoteCurriculumKeys.has(curriculumSeedKey(c)));
   const addedSeedGroup=(db.groups||[]).some(g=>!remoteGroupKeys.has(groupSeedKey(g)));
   const addedSeedStudent=(db.students||[]).some(s=>!remoteStudentKeys.has(studentSeedKey(s)));
-  const repaired=repairScheduleLinks(db);
-  const needsCloudRepair=addedSeedCurriculum||addedSeedGroup||addedSeedStudent||repaired>0||db.schedule.some(x=>{
-    const raw=rawSchedule.get(String(x.id));
-    return raw&&(String(raw.group||"")!==String(x.group||"")||Number(raw.teacherId||0)!==Number(x.teacherId||0)||Number(raw.disciplineId||0)!==Number(x.disciplineId||0));
-  });
+
+  // Repair old links only for local use. Old schedule rows must NOT all be
+  // written back to Firestore merely because this browser normalized them.
+  repairScheduleLinks(db);
+
   db.schemaVersion=15;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
+
+  // Critical v1.6.2:
+  // compare future user saves against the normalized schedule the user
+  // actually sees, not against raw legacy Firestore documents.
+  window.REMS_CLOUD?.acceptScheduleBaseline?.(clone(db.schedule||[]));
+
   renderCurrent();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
-  if(needsCloudRepair&&window.REMS_CLOUD?.canWrite?.()){
+
+  // Seed curricula/groups/students may still be created if genuinely missing.
+  // Schedule repair is deliberately excluded from this automatic push.
+  const needsSeedRepair=addedSeedCurriculum||addedSeedGroup||addedSeedStudent;
+  if(needsSeedRepair&&window.REMS_CLOUD?.canWrite?.()){
     setTimeout(()=>window.REMS_CLOUD?.schedulePush?.(clone(db)),350);
   }
 };
