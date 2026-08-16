@@ -157,6 +157,26 @@ function repairScheduleLinks(state){
   return changed;
 }
 
+function curriculumSeedKey(c){
+  return [
+    normIdentity(c?.academicYear||""),
+    String(Number(c?.course)||""),
+    normIdentity(c?.program||"")
+  ].join("|");
+}
+function mergeSeedCurricula(existing=[],seed=[]){
+  const result=clone(existing||[]);
+  const keys=new Set(result.map(curriculumSeedKey));
+  (seed||[]).forEach(c=>{
+    const key=curriculumSeedKey(c);
+    if(!keys.has(key)){
+      result.push(clone(c));
+      keys.add(key);
+    }
+  });
+  return result;
+}
+
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
   if(!old||typeof old!=="object") return fresh;
@@ -205,7 +225,7 @@ function migrate(old){
     sourceCurriculumId:d.sourceCurriculumId||null,sourceComponentId:d.sourceComponentId||null,
     planMeta:d.planMeta||{}
   }));
-  fresh.curricula=old.curricula||fresh.curricula||[];
+  fresh.curricula=mergeSeedCurricula(old.curricula||[],fresh.curricula||[]);
   fresh.schemaVersion=13;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     let teacherId=s.teacherId||null;
@@ -263,9 +283,11 @@ window.REMS_MIGRATE_STATE=(state)=>migrate(state);
 window.REMS_CURRENT_PAGE=()=>currentPage;
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
   const rawSchedule=new Map((remote?.schedule||[]).map(x=>[String(x.id),x]));
+  const remoteCurriculumKeys=new Set((remote?.curricula||[]).map(curriculumSeedKey));
   db=migrate(remote);
+  const addedSeedCurriculum=(db.curricula||[]).some(c=>!remoteCurriculumKeys.has(curriculumSeedKey(c)));
   const repaired=repairScheduleLinks(db);
-  const needsCloudRepair=repaired>0||db.schedule.some(x=>{
+  const needsCloudRepair=addedSeedCurriculum||repaired>0||db.schedule.some(x=>{
     const raw=rawSchedule.get(String(x.id));
     return raw&&(String(raw.group||"")!==String(x.group||"")||Number(raw.teacherId||0)!==Number(x.teacherId||0)||Number(raw.disciplineId||0)!==Number(x.disciplineId||0));
   });
