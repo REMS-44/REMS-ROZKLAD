@@ -1761,7 +1761,8 @@ function setWorkloadScheduleGroup(code){
       groups:sortedGroups(),
       badgeFn:g=>{
         const rows=workloadTeacherRowsForGroup(g.code);
-        return rows.length?`${rows.length} навант.`:"—";
+        const disciplines=new Set(rows.map(x=>String(x.d.id))).size;
+        return disciplines?`${disciplines} дисц.`:"—";
       },
       extraClass:"schedule-group-switch"
     });
@@ -1772,12 +1773,127 @@ function setWorkloadScheduleGroup(code){
 function workloadTypeSummary(types){
   return `<div class="integrated-load-types">${types.map(x=>`<div class="integrated-load-type"><b>${esc(x.lt.name)}</b><span>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</span><small>зал. ${fmtHours(x.remaining)}</small></div>`).join("")}</div>`;
 }
+function workloadDisciplineGroups(rows){
+  const map=new Map();
+  rows.forEach(row=>{
+    const key=String(row.d.id);
+    if(!map.has(key))map.set(key,{d:row.d,teachers:[]});
+    map.get(key).teachers.push(row);
+  });
+  return [...map.values()].sort((a,b)=>
+    Number(a.d.semester||99)-Number(b.d.semester||99)
+    || String(a.d.name||"").localeCompare(String(b.d.name||""),"uk")
+  );
+}
+function workloadTeacherCardHtml(x){
+  const percent=x.planned>0?Math.min(100,Math.max(0,x.scheduled/x.planned*100)):0;
+  return `<div class="schedule-discipline-teacher ${x.remaining<=0?"done":""}">
+    <div class="schedule-discipline-teacher-head">
+      <div>
+        <span>Викладач</span>
+        <h4>${esc(teacherDisplay(x.t))}</h4>
+      </div>
+      <div class="schedule-discipline-teacher-total">
+        <b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</b>
+        <span>виставлено / розподілено</span>
+      </div>
+    </div>
+
+    <div class="schedule-discipline-teacher-types">
+      ${x.types.map(type=>`
+        <div class="schedule-teacher-type ${type.remaining<=0?"done":""}">
+          <span>${esc(type.lt.name)}</span>
+          <b>${fmtHours(type.scheduled)} / ${fmtHours(type.planned)} год</b>
+          <small>${type.remaining>0?`залишок ${fmtHours(type.remaining)} год`:"готово"}</small>
+        </div>
+      `).join("")}
+    </div>
+
+    <div class="schedule-teacher-progress">
+      <i style="width:${percent}%"></i>
+    </div>
+
+    <div class="schedule-discipline-teacher-foot">
+      <span class="schedule-remaining ${x.remaining<=0?"done":""}">
+        ${x.remaining<=0?"✓ усе виставлено":`залишилось ${fmtHours(x.remaining)} год`}
+      </span>
+      <button class="${x.remaining>0?"primary-inline":"secondary"}"
+        onclick="safeOpenDisciplineTeacherScheduler(${x.d.id},${x.t.id})">
+        ${x.remaining>0?"Розставити":"Переглянути календар"}
+      </button>
+    </div>
+  </div>`;
+}
+function workloadDisciplineCardHtml(group){
+  const planned=group.teachers.reduce((sum,x)=>sum+x.planned,0);
+  const scheduled=group.teachers.reduce((sum,x)=>sum+x.scheduled,0);
+  const remaining=group.teachers.reduce((sum,x)=>sum+x.remaining,0);
+  const percent=planned>0?Math.min(100,Math.max(0,scheduled/planned*100)):0;
+  const teachersCount=group.teachers.length;
+
+  return `<section class="schedule-discipline-card ${remaining<=0?"done":""}"
+    style="${scheduleColorVars({group:group.d.group,discipline:group.d.name})}">
+    <div class="schedule-discipline-head">
+      <div class="schedule-discipline-identity">
+        <span class="schedule-discipline-accent"></span>
+        <div>
+          <div class="schedule-discipline-kicker">
+            <span>${esc(group.d.group)}</span>
+            <span>${group.d.semester?`${esc(group.d.semester)} семестр`:""}</span>
+          </div>
+          <h3>${esc(group.d.name)}</h3>
+          <div class="schedule-discipline-meta">
+            <span>${teachersCount} ${teachersCount===1?"викладач":"викладачі"}</span>
+            <span>${esc(group.d.controlForm||"без контролю")}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="schedule-discipline-summary">
+        <div>
+          <b>${fmtHours(scheduled)} / ${fmtHours(planned)} год</b>
+          <span>виставлено / розподілено</span>
+        </div>
+        <strong class="${remaining<=0?"done":""}">
+          ${remaining<=0?"ГОТОВО":`${fmtHours(remaining)} год лишилось`}
+        </strong>
+      </div>
+    </div>
+
+    <div class="schedule-discipline-progress">
+      <i style="width:${percent}%"></i>
+    </div>
+
+    <div class="schedule-discipline-teachers-grid">
+      ${group.teachers.map(workloadTeacherCardHtml).join("")}
+    </div>
+  </section>`;
+}
 function renderWorkloadToSchedule(group){
   const rows=workloadTeacherRowsForGroup(group);
-  const unallocated=db.disciplines.filter(d=>d.status!=="archived"&&normIdentity(d.group)===normIdentity(group)).flatMap(d=>schedulableTypes(d).map(lt=>({d,lt,plan:disciplineTypePlan(d,lt.name),allocated:disciplineAllocatedForType(d,lt.id)}))).filter(x=>x.plan-x.allocated>0.001);
-  if(!rows.length)return `<div class="empty">Для ${esc(group)} ще немає розподіленого аудиторного навантаження. Спочатку відкрий «Навантаження» і розподіли години між викладачами.</div>`;
-  const warning=unallocated.length?`<div class="notice warn-notice"><b>Ще не все розподілено між викладачами:</b> ${unallocated.map(x=>`${esc(x.d.name)} · ${esc(x.lt.name)} — ${fmtHours(x.plan-x.allocated)} год`).join("; ")}</div>`:"";
-  return `${warning}<div class="table-wrap"><table class="integrated-load-table"><thead><tr><th>Дисципліна</th><th>Сем.</th><th>Викладач</th><th>Розподілене навантаження</th><th>Усього</th><th>Залишок</th><th></th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.d.name)}</b><div class="small">${esc(x.d.group)}</div></td><td>${x.d.semester||"—"}</td><td><b>${esc(teacherDisplay(x.t))}</b></td><td>${workloadTypeSummary(x.types)}</td><td><b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)}</b><div class="small">виставлено / розподілено</div></td><td><span class="badge ${x.remaining<=0?"ok":"warn"}">${fmtHours(x.remaining)} год</span></td><td class="actions"><button class="${x.remaining>0?"primary-inline":"secondary"}" onclick="safeOpenDisciplineTeacherScheduler(${x.d.id},${x.t.id})">${x.remaining>0?"Розставити навантаження":"Переглянути календар"}</button></td></tr>`).join("")}</tbody></table></div>`;
+  const unallocated=db.disciplines
+    .filter(d=>d.status!=="archived"&&normIdentity(d.group)===normIdentity(group))
+    .flatMap(d=>schedulableTypes(d).map(lt=>({
+      d,lt,
+      plan:disciplineTypePlan(d,lt.name),
+      allocated:disciplineAllocatedForType(d,lt.id)
+    })))
+    .filter(x=>x.plan-x.allocated>0.001);
+
+  if(!rows.length){
+    return `<div class="empty">Для ${esc(group)} ще немає розподіленого аудиторного навантаження. Спочатку відкрий «Навантаження» і розподіли години між викладачами.</div>`;
+  }
+
+  const warning=unallocated.length
+    ? `<div class="notice warn-notice"><b>Ще не все розподілено між викладачами:</b> ${unallocated.map(x=>`${esc(x.d.name)} · ${esc(x.lt.name)} — ${fmtHours(x.plan-x.allocated)} год`).join("; ")}</div>`
+    : "";
+
+  const disciplines=workloadDisciplineGroups(rows);
+
+  return `${warning}
+    <div class="schedule-discipline-list">
+      ${disciplines.map(workloadDisciplineCardHtml).join("")}
+    </div>`;
 }
 
 /* Ready-made schedule from other departments */

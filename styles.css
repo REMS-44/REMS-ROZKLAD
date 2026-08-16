@@ -3593,3 +3593,252 @@ table{min-width:760px}th,td{padding:11px 12px;font-size:10px;border-bottom:1px s
   .grid-kpi{grid-template-columns:1fr 1fr}.studio-kpi{min-height:82px;padding:13px}.kpi-icon{width:36px;height:36px}.kpi .value{font-size:23px}
   .group-switch-row{grid-template-columns:1fr 1fr;display:grid}.group-switch-btn{min-width:0;width:100%;min-height:80px}.group-grid{grid-template-columns:1fr 1fr}
 }
+
+
+/* v1.1.1 · schedule workload grouped by discipline */
+.schedule-discipline-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  margin-top:11px;
+}
+.schedule-discipline-card{
+  overflow:hidden;
+  border:1px solid #e5deeb;
+  border-left:5px solid var(--subject-border);
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 5px 16px rgba(48,28,66,.045);
+}
+.schedule-discipline-card.done{
+  background:linear-gradient(180deg,#fff 0%,#fbfefc 100%);
+}
+.schedule-discipline-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:18px;
+  padding:15px 16px 12px;
+  background:linear-gradient(135deg,var(--subject-bg) 0%,#fff 72%);
+}
+.schedule-discipline-identity{
+  min-width:0;
+  display:flex;
+  align-items:flex-start;
+  gap:11px;
+}
+.schedule-discipline-accent{
+  flex:0 0 13px;
+  width:13px;
+  height:44px;
+  border-radius:8px;
+  background:var(--subject-border);
+  box-shadow:0 4px 12px color-mix(in srgb,var(--subject-border) 24%,transparent);
+}
+.schedule-discipline-identity>div{
+  min-width:0;
+}
+.schedule-discipline-kicker{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-bottom:3px;
+}
+.schedule-discipline-kicker span{
+  padding:3px 6px;
+  border-radius:999px;
+  background:rgba(255,255,255,.78);
+  color:var(--subject-muted);
+  font-size:7px;
+  font-weight:800;
+  letter-spacing:.35px;
+  text-transform:uppercase;
+}
+.schedule-discipline-head h3{
+  margin:0;
+  font-size:17px;
+  line-height:1.2;
+  color:var(--subject-text);
+}
+.schedule-discipline-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:5px;
+  font-size:8px;
+  color:var(--subject-muted);
+}
+.schedule-discipline-summary{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.schedule-discipline-summary>div{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:2px;
+}
+.schedule-discipline-summary>div b{
+  font-size:12px;
+  color:var(--ink);
+}
+.schedule-discipline-summary>div span{
+  font-size:7px;
+  color:var(--muted);
+}
+.schedule-discipline-summary strong{
+  padding:7px 9px;
+  border-radius:9px;
+  background:#fff4df;
+  color:#946115;
+  font-size:8px;
+  white-space:nowrap;
+}
+.schedule-discipline-summary strong.done{
+  background:#eaf7ee;
+  color:#34744a;
+}
+.schedule-discipline-progress{
+  height:5px;
+  background:#eee8f1;
+}
+.schedule-discipline-progress i{
+  display:block;
+  height:100%;
+  border-radius:999px;
+  background:var(--subject-border);
+}
+.schedule-discipline-teachers-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(330px,1fr));
+  gap:9px;
+  padding:11px;
+}
+.schedule-discipline-teacher{
+  display:flex;
+  flex-direction:column;
+  gap:9px;
+  padding:11px;
+  border:1px solid #e9e2ed;
+  border-radius:12px;
+  background:#fcfbfd;
+}
+.schedule-discipline-teacher.done{
+  background:#fbfefc;
+}
+.schedule-discipline-teacher-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+}
+.schedule-discipline-teacher-head>div:first-child{
+  min-width:0;
+}
+.schedule-discipline-teacher-head>div:first-child>span{
+  display:block;
+  margin-bottom:2px;
+  font-size:6.5px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.45px;
+}
+.schedule-discipline-teacher-head h4{
+  margin:0;
+  font-size:12px;
+  color:var(--ink);
+}
+.schedule-discipline-teacher-total{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:1px;
+}
+.schedule-discipline-teacher-total b{
+  font-size:9px;
+}
+.schedule-discipline-teacher-total span{
+  font-size:6.5px;
+  color:var(--muted);
+}
+.schedule-discipline-teacher-types{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+.schedule-teacher-type{
+  min-width:105px;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  padding:7px 8px;
+  border:1px solid #ded3e7;
+  border-radius:9px;
+  background:#f6f1fa;
+}
+.schedule-teacher-type.done{
+  background:#eef8f1;
+  border-color:#d3ead9;
+}
+.schedule-teacher-type span{
+  font-size:7px;
+  color:#706678;
+}
+.schedule-teacher-type b{
+  font-size:9px;
+  color:var(--purple2);
+}
+.schedule-teacher-type small{
+  font-size:6.5px;
+  color:var(--muted);
+}
+.schedule-teacher-progress{
+  height:4px;
+  overflow:hidden;
+  border-radius:999px;
+  background:#ece7ef;
+}
+.schedule-teacher-progress i{
+  display:block;
+  height:100%;
+  border-radius:999px;
+  background:var(--subject-border);
+}
+.schedule-discipline-teacher-foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:9px;
+}
+.schedule-remaining{
+  padding:5px 7px;
+  border-radius:8px;
+  background:#fff4df;
+  color:#946115;
+  font-size:7.5px;
+  font-weight:800;
+}
+.schedule-remaining.done{
+  background:#eaf7ee;
+  color:#34744a;
+}
+.schedule-discipline-teacher-foot button{
+  min-width:122px;
+}
+@media(max-width:800px){
+  .schedule-discipline-head{
+    flex-direction:column;
+  }
+  .schedule-discipline-summary{
+    width:100%;
+    justify-content:space-between;
+  }
+  .schedule-discipline-summary>div{
+    align-items:flex-start;
+  }
+  .schedule-discipline-teachers-grid{
+    grid-template-columns:1fr;
+  }
+}
