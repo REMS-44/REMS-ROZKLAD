@@ -673,11 +673,34 @@ function renderTeachers(){
       ${ext.length?`<div class="table-wrap"><table><thead><tr><th>ПІБ</th><th>Коротке ім’я</th><th>Примітка</th><th></th></tr></thead><tbody>${ext.map(t=>`<tr><td><b>${esc(t.name)}</b></td><td>${esc(t.shortName||"—")}</td><td>${esc(t.note||"—")}</td><td class="actions"><button onclick="openExternalTeacherModal(${t.id})">Редагувати</button><button onclick="deleteTeacher(${t.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Зовнішніх викладачів ще немає.</div>`}
     </div>`;
 }
+function teacherAvailabilitySummary(t){
+  const unavailable=(t.unavailableRules||[]).length;
+  const preferred=(t.preferredRules||[]).length;
+  const parts=[];
+  if(unavailable)parts.push(`не можна: ${unavailable}`);
+  if(preferred)parts.push(`бажано: ${preferred}`);
+  if(t.maxPerDay)parts.push(`до ${t.maxPerDay}/день`);
+  if(t.maxConsecutive)parts.push(`до ${t.maxConsecutive} підряд`);
+  return parts.length?parts.join(" · "):"обмеження не задані";
+}
 function teacherCard(t){
   return `<div class="teacher-card teacher-card-compact">
     <div class="teacher-compact-main">
-      <div><h3>${esc(t.name)}</h3><div class="teacher-compact-tags"><span class="badge ok">${esc(t.employmentType||"—")}</span><span class="rate-chip">${t.rate!==""?esc(t.rate):"—"} ставки</span></div></div>
-      <div class="actions teacher-actions"><button onclick="openTeacherSchedule(${t.id})">Розклад</button><button onclick="openTeacherWorkload(${t.id})">Картка навантаження</button><button onclick="openTeacherModal(${t.id})">Редагувати</button><button onclick="deleteTeacher(${t.id})">Видалити</button></div>
+      <div>
+        <h3>${esc(t.name)}</h3>
+        <div class="teacher-compact-tags">
+          <span class="badge ok">${esc(t.employmentType||"—")}</span>
+          <span class="rate-chip">${t.rate!==""?esc(t.rate):"—"} ставки</span>
+        </div>
+        <div class="teacher-availability-summary">${esc(teacherAvailabilitySummary(t))}</div>
+      </div>
+      <div class="actions teacher-actions">
+        <button onclick="openTeacherSchedule(${t.id})">Розклад</button>
+        <button onclick="openTeacherWorkload(${t.id})">Картка навантаження</button>
+        <button class="availability-action" onclick="openTeacherAvailabilityModal(${t.id})">Доступність</button>
+        <button onclick="openTeacherModal(${t.id})">Редагувати</button>
+        <button onclick="deleteTeacher(${t.id})">Видалити</button>
+      </div>
     </div>
   </div>`;
 }
@@ -686,6 +709,78 @@ function openExternalTeacherModal(id=null){
   openModal(`<h2>${id?"Редагувати":"Новий"} зовнішній викладач</h2><div class="notice">Цей викладач буде доступний у розкладі, але його кафедральне навантаження не рахується.</div><form id="etf" class="form-grid"><label class="wide">ПІБ<input id="etn" value="${esc(t.name)}" required></label><label>Коротке ім’я<input id="ets" value="${esc(t.shortName||"")}"></label><label class="wide">Примітка<textarea id="etnote" rows="3">${esc(t.note||"")}</textarea></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
   $("#etf").onsubmit=e=>{e.preventDefault();const obj={scope:"external",name:$("#etn").value.trim(),shortName:$("#ets").value.trim(),note:$("#etnote").value.trim(),status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save();};
 }
+function openTeacherAvailabilityModal(id){
+  const t=teacherById(id);
+  if(!t)return;
+
+  openModal(`<div class="teacher-availability-modal">
+    <div class="allocation-scheduler-head">
+      <div>
+        <h2>Доступність викладача</h2>
+        <h3>${esc(t.name)}</h3>
+        <div class="small">Ці правила система враховує під час складання розкладу.</div>
+      </div>
+    </div>
+
+    <form id="teacherAvailabilityForm">
+      <div class="availability-section unavailable">
+        <div class="section-head compact">
+          <div>
+            <b>Не можна ставити</b>
+            <div class="small">Жорстке обмеження: день тижня, конкретна дата або період дат + час.</div>
+          </div>
+          <button type="button" class="secondary" onclick="addRule('availabilityUnavailableRules')">+ Додати</button>
+        </div>
+        <div id="availabilityUnavailableRules" class="rule-list">${(t.unavailableRules||[]).map(ruleRow).join("")}</div>
+        ${(t.unavailableRules||[]).length?"" : `<div class="availability-empty">Немає заборонених днів або годин.</div>`}
+      </div>
+
+      <div class="availability-section preferred">
+        <div class="section-head compact">
+          <div>
+            <b>Бажано ставити</b>
+            <div class="small">Система підкаже ці дні й години як зручні для викладача.</div>
+          </div>
+          <button type="button" class="secondary" onclick="addRule('availabilityPreferredRules')">+ Додати</button>
+        </div>
+        <div id="availabilityPreferredRules" class="rule-list">${(t.preferredRules||[]).map(ruleRow).join("")}</div>
+        ${(t.preferredRules||[]).length?"" : `<div class="availability-empty">Бажаний час не задано.</div>`}
+      </div>
+
+      <div class="availability-limits">
+        <label>Максимум пар на день
+          <input id="availabilityMaxPerDay" type="number" min="0" value="${esc(t.maxPerDay||"")}" placeholder="наприклад 4">
+        </label>
+        <label>Максимум пар підряд
+          <input id="availabilityMaxConsecutive" type="number" min="0" value="${esc(t.maxConsecutive||"")}" placeholder="наприклад 3">
+        </label>
+      </div>
+
+      <div class="availability-legend">
+        <span class="preferred">Бажано — система підсвічує як зручний час</span>
+        <span class="neutral">Можна — звичайний час</span>
+        <span class="blocked">Не можна — система не дає зберегти без виправлення</span>
+      </div>
+
+      <div class="modal-footer-actions">
+        <button class="primary">Зберегти доступність</button>
+      </div>
+    </form>
+  </div>`,true);
+
+  bindRuleRows();
+
+  $("#teacherAvailabilityForm").onsubmit=e=>{
+    e.preventDefault();
+    t.unavailableRules=readRules("availabilityUnavailableRules");
+    t.preferredRules=readRules("availabilityPreferredRules");
+    t.maxPerDay=$("#availabilityMaxPerDay").value;
+    t.maxConsecutive=$("#availabilityMaxConsecutive").value;
+    closeModal();
+    save();
+  };
+}
+
 function openTeacherModal(id=null){
   const t=id?teacherById(id):{
     scope:"department",name:"",shortName:"",position:"",academicTitle:"",degree:"",honoraryTitle:"",
@@ -1284,6 +1379,10 @@ function setReadyScheduleMode(mode,existing=null){
     ? readySingleModeHtml(existing)
     : readySeriesModeHtml();
 
+  if(readyScheduleMode==="series"){
+    readySeriesMethod=null;
+    setReadySeriesMethod(null);
+  }
   bindReadyMode(existing);
   readyRefreshPlanFields();
 }
@@ -1313,79 +1412,97 @@ function readySeriesModeHtml(){
   const b=readyDateBounds($("#readyGroup")?.value||"",$("#readyDiscipline")?.value||"");
   const firstPair=bellPairs()[0]?.id||1;
   const defaultWeekday=weekdayId(clampDate(currentAcademicDate(),b));
+
   return `<div class="ready-mode-panel ready-series-panel">
-    <div class="ready-series-methods">
-      <div class="ready-series-method">
-        <h4>Конкретні дати</h4>
-        <div class="small">Коли тобі вже прислали точний список дат.</div>
-        <div class="ready-paste-dates">
-          <label>Дати
-            <input id="readyDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09">
-          </label>
-          <button type="button" class="secondary" id="readyAddDates">Додати дати</button>
+    <div class="series-method-switch">
+      <button type="button" id="readySeriesMethodDates" onclick="setReadySeriesMethod('dates')">
+        <b>Конкретні дати</b>
+        <span>вставити готовий список</span>
+      </button>
+      <button type="button" id="readySeriesMethodRule" onclick="setReadySeriesMethod('rule')">
+        <b>За правилом</b>
+        <span>щотижня або через тиждень</span>
+      </button>
+    </div>
+
+    <div id="readySeriesMethodHint" class="series-method-hint">
+      Обери, як сформувати дати серії.
+    </div>
+
+    <div id="readySeriesDatesMethod" class="series-method-body hidden">
+      <label>Конкретні дати
+        <input id="readyDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09">
+      </label>
+      <button type="button" class="primary-inline" id="readyAddDates">Додати дати</button>
+    </div>
+
+    <div id="readySeriesRuleMethod" class="series-method-body hidden">
+      <div class="ready-series-rule">
+        <label>Повторення
+          <select id="readyRulePattern">
+            <option value="weekly">Щотижня</option>
+            <option value="biweekly">Через тиждень</option>
+          </select>
+        </label>
+        <label>День
+          <select id="readyRuleWeekday">${db.weekDays.map(d=>`<option value="${d.id}" ${Number(d.id)===Number(defaultWeekday)?"selected":""}>${esc(d.name)}</option>`).join("")}</select>
+        </label>
+        <label>Від
+          <input id="readyRuleFrom" type="date" min="${b.start}" max="${b.end}" value="${b.start}">
+        </label>
+        <label>До
+          <input id="readyRuleTo" type="date" min="${b.start}" max="${b.end}" value="${b.end}">
+        </label>
+        <button type="button" class="primary-inline" id="readyGenerateRule">Згенерувати дати</button>
+      </div>
+    </div>
+
+    <div id="readySeriesWorkArea" class="hidden">
+      <div class="ready-defaults ready-series-defaults">
+        <label>Вид для всіх
+          <select id="readyDefaultType"><option value="">— не змінювати —</option>${readyTypeOptions()}</select>
+        </label>
+        <label>Пара для всіх
+          <select id="readyDefaultPair"><option value="">— не змінювати —</option>${readyPairOptions(firstPair)}</select>
+        </label>
+        <label>Аудиторія для всіх
+          <input id="readyDefaultRoom" list="readyRoomList" placeholder="наприклад 415">
+        </label>
+        <button type="button" class="secondary" id="readyApplyDefaults">Застосувати до всіх</button>
+      </div>
+
+      <div class="section-head compact ready-rows-head">
+        <div>
+          <b>Дати серії</b>
+          <div class="small" id="readyDateHint"></div>
         </div>
+        <button type="button" class="secondary" id="readyAddRow">+ Додати дату</button>
       </div>
 
-      <div class="ready-series-or">або</div>
-
-      <div class="ready-series-method">
-        <h4>Згенерувати за правилом</h4>
-        <div class="small">Наприклад: щочетверга, 2 пара, упродовж семестру.</div>
-        <div class="ready-series-rule">
-          <label>Повторення
-            <select id="readyRulePattern">
-              <option value="weekly">Щотижня</option>
-              <option value="biweekly">Через тиждень</option>
-            </select>
-          </label>
-          <label>День
-            <select id="readyRuleWeekday">${db.weekDays.map(d=>`<option value="${d.id}" ${Number(d.id)===Number(defaultWeekday)?"selected":""}>${esc(d.name)}</option>`).join("")}</select>
-          </label>
-          <label>Від
-            <input id="readyRuleFrom" type="date" min="${b.start}" max="${b.end}" value="${b.start}">
-          </label>
-          <label>До
-            <input id="readyRuleTo" type="date" min="${b.start}" max="${b.end}" value="${b.end}">
-          </label>
-          <button type="button" class="secondary" id="readyGenerateRule">Згенерувати дати</button>
+      <form id="readyScheduleForm">
+        <div id="readyRows"></div>
+        <div id="readyConflictBox"></div>
+        <div class="modal-footer-actions">
+          <button class="primary">Додати серію в розклад</button>
         </div>
-      </div>
+      </form>
     </div>
-
-    <div class="ready-defaults ready-series-defaults">
-      <label>Вид для всіх
-        <select id="readyDefaultType"><option value="">— не змінювати —</option>${readyTypeOptions()}</select>
-      </label>
-      <label>Пара для всіх
-        <select id="readyDefaultPair"><option value="">— не змінювати —</option>${readyPairOptions(firstPair)}</select>
-      </label>
-      <label>Аудиторія для всіх
-        <input id="readyDefaultRoom" list="readyRoomList" placeholder="наприклад 415">
-      </label>
-      <button type="button" class="secondary" id="readyApplyDefaults">Застосувати до всіх</button>
-    </div>
-
-    <div class="section-head compact ready-rows-head">
-      <div>
-        <b>Дати серії</b>
-        <div class="small" id="readyDateHint"></div>
-      </div>
-      <button type="button" class="secondary" id="readyAddRow">+ Додати дату вручну</button>
-    </div>
-
-    <form id="readyScheduleForm">
-      <div id="readyRows"></div>
-      <div id="readyRowsEmpty" class="ready-rows-empty">
-        Додай конкретні дати або згенеруй їх за правилом. Потім кожну дату можна змінити окремо.
-      </div>
-      <div id="readyConflictBox"></div>
-      <div class="modal-footer-actions">
-        <button class="primary">Додати серію в розклад</button>
-      </div>
-    </form>
   </div>`;
 }
-
+let readySeriesMethod=null;
+function setReadySeriesMethod(method){
+  readySeriesMethod=method==="rule"?"rule":method==="dates"?"dates":null;
+  const datesBtn=$("#readySeriesMethodDates");
+  const ruleBtn=$("#readySeriesMethodRule");
+  const datesBody=$("#readySeriesDatesMethod");
+  const ruleBody=$("#readySeriesRuleMethod");
+  const hint=$("#readySeriesMethodHint");
+  if(datesBtn)datesBtn.classList.toggle("active",readySeriesMethod==="dates");
+  if(ruleBtn)ruleBtn.classList.toggle("active",readySeriesMethod==="rule");
+  if(datesBody)datesBody.classList.toggle("hidden",readySeriesMethod!=="dates");
+  if(ruleBody)ruleBody.classList.toggle("hidden",readySeriesMethod!=="rule");
+  if(hint)hint.classList.toggle("hidden",!!readySeriesMethod);
+}
 function bindReadyMode(existing=null){
   const row0=$("[data-ready-row]");
   if(row0)bindReadyRow(row0);
@@ -1404,8 +1521,9 @@ function bindReadyMode(existing=null){
 }
 
 function readyUpdateEmptyState(){
-  const empty=$("#readyRowsEmpty");
-  if(empty)empty.classList.toggle("hidden",$$("[data-ready-row]").length>0);
+  const hasRows=$$("[data-ready-row]").length>0;
+  const work=$("#readySeriesWorkArea");
+  if(work)work.classList.toggle("hidden",!hasRows);
 }
 
 function generateReadyDatesByRule(){
@@ -2040,19 +2158,67 @@ function conflictsFor(item,ignore=null,extra=[]){
   const bookingConflicts=db.roomBookings.filter(x=>sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||(item.group&&x.group&&normIdentity(x.group)===normIdentity(item.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }
-function teacherAvailabilityInfo(item,ignoreId=null){
-  const warnings=[],notes=[];const t=teacherById(item.teacherId);
+function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
+  const warnings=[],notes=[];
+  const t=teacherById(item.teacherId);
   if(!t||t.scope==="external"||!item.date)return{warnings,notes};
-  if(t.employmentStart&&item.date<t.employmentStart)warnings.push(`Дата заняття раніше дати початку роботи викладача (${formatDate(t.employmentStart)}).`);
-  if(t.employmentEnd&&item.date>t.employmentEnd)warnings.push(`Дата заняття пізніше дати завершення роботи / контракту (${formatDate(t.employmentEnd)}).`);
+
+  if(t.employmentStart&&item.date<t.employmentStart)
+    warnings.push(`Дата заняття раніше дати початку роботи викладача (${formatDate(t.employmentStart)}).`);
+  if(t.employmentEnd&&item.date>t.employmentEnd)
+    warnings.push(`Дата заняття пізніше дати завершення роботи / контракту (${formatDate(t.employmentEnd)}).`);
+
   if(item.start&&item.end){
-    (t.unavailableRules||[]).filter(r=>ruleApplies(r,item.date)&&ruleTimeMatches(r,item.start,item.end)).forEach(()=>warnings.push("Викладач позначив цю пару як недоступну."));
+    const unavailable=(t.unavailableRules||[]).some(r=>ruleApplies(r,item.date)&&ruleTimeMatches(r,item.start,item.end));
+    if(unavailable)warnings.push("Викладач позначив цю пару як недоступну.");
+
     const applicablePref=(t.preferredRules||[]).filter(r=>ruleApplies(r,item.date));
-    if(applicablePref.length){const ok=applicablePref.some(r=>ruleTimeMatches(r,item.start,item.end));notes.push(ok?"Пара входить до бажаного інтервалу викладача.":"На цю дату є бажані інтервали викладача, але вибрана пара до них не входить.");}
+    if(applicablePref.length){
+      const ok=applicablePref.some(r=>ruleTimeMatches(r,item.start,item.end));
+      notes.push(ok
+        ?"Бажаний час викладача."
+        :"Пара поза бажаним часом викладача.");
+    }
   }
-  const dayLessons=db.schedule.filter(x=>x.id!==ignoreId&&Number(x.teacherId)===Number(t.id)&&x.date===item.date);
-  if(t.maxPerDay&&dayLessons.length+1>Number(t.maxPerDay))warnings.push(`Перевищено максимум занять викладача на день: ${t.maxPerDay}.`);
+
+  const existing=db.schedule
+    .concat(extra||[])
+    .filter(x=>x.id!==ignoreId&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)&&x.date===item.date);
+
+  if(t.maxPerDay&&existing.length+1>Number(t.maxPerDay))
+    warnings.push(`Перевищено максимум пар викладача на день: ${t.maxPerDay}.`);
+
+  if(t.maxConsecutive&&item.pairId){
+    const ids=new Set(
+      existing
+        .map(x=>Number(x.pairId||pairIdForTimes(x.start,x.end)))
+        .filter(Number.isFinite)
+    );
+    ids.add(Number(item.pairId));
+    const sorted=[...ids].sort((a,b)=>a-b);
+    let longest=0,current=0,prev=null;
+    for(const id of sorted){
+      if(prev!==null&&id===prev+1)current++;
+      else current=1;
+      longest=Math.max(longest,current);
+      prev=id;
+    }
+    if(longest>Number(t.maxConsecutive))
+      warnings.push(`Перевищено максимум пар підряд: ${t.maxConsecutive}.`);
+  }
+
   return{warnings,notes};
+}
+function teacherPairAvailability(date,pairId,teacherId,extra=[]){
+  const pair=pairById(pairId);
+  const item={
+    date,
+    pairId,
+    start:pair?.start||"",
+    end:pair?.end||"",
+    teacherId:Number(teacherId)||null
+  };
+  return teacherAvailabilityInfo(item,null,extra);
 }
 function disciplineOptionsForGroup(group,selectedId=null,includeCustom=true){
   const rows=db.disciplines.filter(d=>d.status!=="archived"&&normIdentity(d.group)===normIdentity(group)).sort((a,b)=>(a.semester||0)-(b.semester||0)||a.name.localeCompare(b.name));
@@ -2301,7 +2467,24 @@ function plannerDayOccupancyHtml(d,t,date){
   </div>`;
 }
 function plannerPairBusyInfo(date,pairId,d,t){const teacher=plannerTeacherEvents(date,t.id).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)),group=plannerGroupEvents(date,d.group).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));return {teacher,group};}
-function plannerPairOptions(date,d,t,selected=null){return bellPairs().map(p=>{const b=plannerPairBusyInfo(date,p.id,d,t),why=[b.teacher?"викладач зайнятий":"",b.group?"група зайнята":""].filter(Boolean).join(", ");return `<option value="${esc(p.id)}" ${String(selected)===String(p.id)?"selected":""} ${why?"disabled":""}>${esc(p.id)} пара · ${esc(p.start)}–${esc(p.end)}${why?` · ${esc(why)}`:""}</option>`;}).join("");}
+function plannerPairOptions(date,d,t,selected=null){
+  return bellPairs().map(p=>{
+    const busy=plannerPairBusyInfo(date,p.id,d,t);
+    const availability=teacherPairAvailability(date,p.id,t.id);
+    const hard=[
+      busy.teacher?"викладач зайнятий":"",
+      busy.group?"група зайнята":"",
+      ...availability.warnings
+    ].filter(Boolean);
+    const note=availability.notes[0]||"";
+    const suffix=hard.length
+      ? ` · ${hard.join("; ")}`
+      : note
+        ? ` · ${note.includes("Бажаний")?"бажано":"поза бажаним"}`
+        : "";
+    return `<option value="${esc(p.id)}" ${String(selected)===String(p.id)?"selected":""} ${hard.length?"disabled":""}>${esc(p.id)} пара · ${esc(p.start)}–${esc(p.end)}${esc(suffix)}</option>`;
+  }).join("");
+}
 function plannerRoomBusy(date,pairId,room){return db.schedule.some(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))||db.roomBookings.some(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
 function plannerRoomOptions(date,pairId,selected=""){const rooms=(typeof gridRooms==="function"?gridRooms():db.rooms.filter(r=>r.status!=="archived"));return `<option value="">— обери аудиторію —</option>`+rooms.map(r=>{const busy=plannerRoomBusy(date,pairId,r.name);return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(r.name)}${busy?" · зайнята":""}</option>`;}).join("");}
 function plannerAvailableTypeOptions(d,t,selected=null){return plannerTypes(d,t.id).map(x=>`<option value="${esc(x.lt.name)}" ${x.lt.name===selected?"selected":""} ${x.remaining<=0?"disabled":""}>${esc(x.lt.name)} · залишок ${fmtHours(x.remaining)} год</option>`).join("");}
@@ -2461,88 +2644,106 @@ function plannerSeriesPanelHtml(d,t){
   const defaultPair=plannerSeriesDefaultPair(d,t);
 
   return `<div id="plannerSeriesMode" class="planner-series-mode hidden">
-    <div class="planner-series-methods">
-      <div class="planner-series-method">
-        <h4>Конкретні дати</h4>
-        <div class="small">Коли ти вже знаєш точні дати — встав їх списком.</div>
-        <div class="planner-series-paste">
-          <label>Дати
-            <input id="plannerSeriesDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09">
-          </label>
-          <button type="button" class="secondary" id="plannerSeriesAddDates">Додати дати</button>
+    <div class="series-method-switch">
+      <button type="button" id="plannerSeriesMethodDates" onclick="setPlannerSeriesMethod('dates')">
+        <b>Конкретні дати</b>
+        <span>коли список дат уже відомий</span>
+      </button>
+      <button type="button" id="plannerSeriesMethodRule" onclick="setPlannerSeriesMethod('rule')">
+        <b>За правилом</b>
+        <span>щотижня або через тиждень</span>
+      </button>
+    </div>
+
+    <div id="plannerSeriesMethodHint" class="series-method-hint">
+      Обери, як сформувати дати серії.
+    </div>
+
+    <div id="plannerSeriesDatesMethod" class="series-method-body hidden">
+      <label>Конкретні дати
+        <input id="plannerSeriesDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09">
+      </label>
+      <button type="button" class="primary-inline" id="plannerSeriesAddDates">Додати дати</button>
+    </div>
+
+    <div id="plannerSeriesRuleMethod" class="series-method-body hidden">
+      <div class="planner-series-rule-clean">
+        <label>Повторення
+          <select id="plannerSeriesPattern">
+            <option value="weekly">Щотижня</option>
+            <option value="biweekly">Через тиждень</option>
+          </select>
+        </label>
+        <label>День
+          <select id="plannerSeriesWeekday">${db.weekDays.map(x=>`<option value="${x.id}" ${Number(x.id)===Number(plannerSeriesWeekdayDefault())?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+        </label>
+        <label>Від
+          <input id="plannerSeriesFrom" type="date" min="${b.start}" max="${b.end}" value="${plannerSeriesDefaultFrom(d)}">
+        </label>
+        <label>До
+          <input id="plannerSeriesTo" type="date" min="${b.start}" max="${b.end}" value="${plannerSeriesDefaultTo(d)}">
+        </label>
+        <button type="button" class="primary-inline" id="plannerSeriesGenerate">Згенерувати дати</button>
+      </div>
+    </div>
+
+    <div id="plannerSeriesWorkArea" class="hidden">
+      <div class="planner-series-defaults">
+        <label>Вид для всіх
+          <select id="plannerSeriesBulkType"><option value="">— не змінювати —</option>${plannerTypes(d,t.id).filter(x=>x.remaining>0).map(x=>`<option value="${esc(x.lt.name)}">${esc(x.lt.name)}</option>`).join("")}</select>
+        </label>
+        <label>Пара для всіх
+          <select id="plannerSeriesBulkPair"><option value="">— не змінювати —</option>${pairOptions(defaultPair,false)}</select>
+        </label>
+        <label>Аудиторія для всіх
+          <select id="plannerSeriesBulkRoom"><option value="">— не змінювати —</option>${gridRooms().map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")}</select>
+        </label>
+        <div class="planner-series-default-actions">
+          <button type="button" class="secondary" id="plannerSeriesApplyDefaults">Застосувати до всіх</button>
+          <button type="button" class="secondary" id="plannerSeriesAutofill">Автозаповнити види</button>
         </div>
       </div>
 
-      <div class="planner-series-or">або</div>
-
-      <div class="planner-series-method">
-        <h4>Згенерувати за правилом</h4>
-        <div class="small">Наприклад: щовівторка протягом семестру.</div>
-        <div class="planner-series-rule-clean">
-          <label>Повторення
-            <select id="plannerSeriesPattern">
-              <option value="weekly">Щотижня</option>
-              <option value="biweekly">Через тиждень</option>
-            </select>
-          </label>
-          <label>День
-            <select id="plannerSeriesWeekday">${db.weekDays.map(x=>`<option value="${x.id}" ${Number(x.id)===Number(plannerSeriesWeekdayDefault())?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
-          </label>
-          <label>Від
-            <input id="plannerSeriesFrom" type="date" min="${b.start}" max="${b.end}" value="${plannerSeriesDefaultFrom(d)}">
-          </label>
-          <label>До
-            <input id="plannerSeriesTo" type="date" min="${b.start}" max="${b.end}" value="${plannerSeriesDefaultTo(d)}">
-          </label>
-          <button type="button" class="secondary" id="plannerSeriesGenerate">Згенерувати дати</button>
+      <div class="section-head compact planner-series-rows-head">
+        <div>
+          <b>Дати серії</b>
+          <div class="small">Кожну дату можна змінити окремо.</div>
         </div>
+        <button type="button" class="secondary" id="plannerSeriesAddRow">+ Додати дату</button>
       </div>
-    </div>
 
-    <div class="planner-series-defaults">
-      <label>Вид для всіх
-        <select id="plannerSeriesBulkType"><option value="">— не змінювати —</option>${plannerTypes(d,t.id).filter(x=>x.remaining>0).map(x=>`<option value="${esc(x.lt.name)}">${esc(x.lt.name)}</option>`).join("")}</select>
-      </label>
-      <label>Пара для всіх
-        <select id="plannerSeriesBulkPair"><option value="">— не змінювати —</option>${pairOptions(defaultPair,false)}</select>
-      </label>
-      <label>Аудиторія для всіх
-        <select id="plannerSeriesBulkRoom"><option value="">— не змінювати —</option>${gridRooms().map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")}</select>
-      </label>
-      <div class="planner-series-default-actions">
-        <button type="button" class="secondary" id="plannerSeriesApplyDefaults">Застосувати до всіх</button>
-        <button type="button" class="secondary" id="plannerSeriesAutofill">Автозаповнити види за залишком</button>
+      <div id="plannerSeriesSummary" class="planner-series-summary"></div>
+      <div id="plannerSeriesRows" class="planner-series-rows"></div>
+
+      <div class="planner-extra planner-series-extra">
+        <label>Охоплення
+          <select id="plannerSeriesCoverage">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select>
+        </label>
+        <label>Примітка
+          <input id="plannerSeriesNote" placeholder="необов’язково">
+        </label>
       </div>
-    </div>
 
-    <div class="section-head compact planner-series-rows-head">
-      <div>
-        <b>Дати серії</b>
-        <div class="small">Кожну дату можна окремо змінити: вид, пару або аудиторію.</div>
+      <div id="plannerSeriesMessage"></div>
+      <div class="planner-save-row">
+        <button type="button" class="primary" id="plannerSeriesSave">Зберегти серію</button>
       </div>
-      <button type="button" class="secondary" id="plannerSeriesAddRow">+ Додати дату вручну</button>
-    </div>
-
-    <div id="plannerSeriesSummary" class="planner-series-summary"></div>
-    <div id="plannerSeriesRows" class="planner-series-rows"></div>
-    <div id="plannerSeriesEmpty" class="planner-series-empty">
-      Додай конкретні дати або згенеруй їх за правилом.
-    </div>
-
-    <div class="planner-extra planner-series-extra">
-      <label>Охоплення
-        <select id="plannerSeriesCoverage">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select>
-      </label>
-      <label>Примітка
-        <input id="plannerSeriesNote" placeholder="необов’язково">
-      </label>
-    </div>
-
-    <div id="plannerSeriesMessage"></div>
-    <div class="planner-save-row">
-      <button type="button" class="primary" id="plannerSeriesSave">Зберегти серію</button>
     </div>
   </div>`;
+}
+let plannerSeriesMethod=null;
+function setPlannerSeriesMethod(method){
+  plannerSeriesMethod=method==="rule"?"rule":method==="dates"?"dates":null;
+  const datesBtn=$("#plannerSeriesMethodDates");
+  const ruleBtn=$("#plannerSeriesMethodRule");
+  const datesBody=$("#plannerSeriesDatesMethod");
+  const ruleBody=$("#plannerSeriesRuleMethod");
+  const hint=$("#plannerSeriesMethodHint");
+  if(datesBtn)datesBtn.classList.toggle("active",plannerSeriesMethod==="dates");
+  if(ruleBtn)ruleBtn.classList.toggle("active",plannerSeriesMethod==="rule");
+  if(datesBody)datesBody.classList.toggle("hidden",plannerSeriesMethod!=="dates");
+  if(ruleBody)ruleBody.classList.toggle("hidden",plannerSeriesMethod!=="rule");
+  if(hint)hint.classList.toggle("hidden",!!plannerSeriesMethod);
 }
 function setPlannerEntryMode(mode){
   disciplinePlannerState.entryMode=mode==="series"?"series":mode==="single"?"single":null;
@@ -2556,10 +2757,12 @@ function setPlannerEntryMode(mode){
   if(singleBtn)singleBtn.classList.toggle("active",disciplinePlannerState.entryMode==="single");
   if(seriesBtn)seriesBtn.classList.toggle("active",disciplinePlannerState.entryMode==="series");
   if(hint)hint.classList.toggle("hidden",!!disciplinePlannerState.entryMode);
+  if(disciplinePlannerState.entryMode==="series"&&!plannerSeriesMethod)setPlannerSeriesMethod(null);
 }
 function plannerSeriesUpdateEmpty(){
-  const empty=$("#plannerSeriesEmpty");
-  if(empty)empty.classList.toggle("hidden",$$("[data-series-row]").length>0);
+  const hasRows=$$("[data-series-row]").length>0;
+  const work=$("#plannerSeriesWorkArea");
+  if(work)work.classList.toggle("hidden",!hasRows);
 }
 function plannerSeriesRefreshRow(row,d,t){
   const use=row.querySelector("[data-series-use]");
@@ -2584,14 +2787,17 @@ function plannerSeriesRefreshRow(row,d,t){
   }
 
   const busy=plannerSeriesPairBusy(date,pairId,d,t);
-  const blocked=!!busy.teacher||!!busy.group;
+  const availability=teacherPairAvailability(date,pairId,t.id);
+  const blocked=!!busy.teacher||!!busy.group||availability.warnings.length>0;
   row.classList.toggle("blocked",blocked);
 
   if(status){
     status.innerHTML=`
-      ${busy.teacher?`<span class="bad">Викладач: ${esc(busy.teacher.group||busy.teacher.discipline||"зайнятий")}</span>`:""}
-      ${busy.group?`<span class="bad">Група: ${esc(busy.group.teacher||busy.group.discipline||"зайнята")}</span>`:""}
-      ${!blocked?`<span class="ok">вільно</span>`:""}
+      ${busy.teacher?`<span class="bad">Викладач зайнятий</span>`:""}
+      ${busy.group?`<span class="bad">Група зайнята</span>`:""}
+      ${availability.warnings.map(w=>`<span class="bad">${esc(w)}</span>`).join("")}
+      ${!blocked&&availability.notes.length?availability.notes.map(n=>`<span class="${n.includes("Бажаний")?"preferred":"warn"}">${esc(n)}</span>`).join(""):""}
+      ${!blocked&&!availability.notes.length?`<span class="ok">можна ставити</span>`:""}
     `;
   }
   plannerUpdateSeriesSummary(d,t);
@@ -2831,7 +3037,7 @@ function savePlannerSeries(d,t){
     });
 
     const cs=conflictsFor(item,null,draft);
-    const info=teacherAvailabilityInfo(item,null);
+    const info=teacherAvailabilityInfo(item,null,draft);
     if(cs.length){
       problems.push(`${formatDate(x.date)} · ${pairDisplay(item)}: конфлікт із уже внесеним розкладом.`);
       continue;
@@ -3034,7 +3240,7 @@ function selectDisciplinePlannerDate(date){
   renderDisciplinePlannerModal();
   requestAnimationFrame(()=>$("#schedulerDayWorkspace")?.scrollIntoView({behavior:"smooth",block:"nearest"}));
 }
-function savePlannerDateEntries(e,d,t){e.preventDefault();const rows=$$("[data-planner-entry]");if(!rows.length)return alert("Додай хоча б одну пару.");const date=disciplinePlannerState.date,byType={},draft=[],problems=[];rows.forEach((row,i)=>{const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}byType[type]=used+hours;const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`}),cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null);if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: конфлікт.`);return;}if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}draft.push(item);});if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));const keep={month:disciplinePlannerState.month,date:disciplinePlannerState.date};save();openDisciplineTeacherScheduler(d.id,t.id,keep);}
+function savePlannerDateEntries(e,d,t){e.preventDefault();const rows=$$("[data-planner-entry]");if(!rows.length)return alert("Додай хоча б одну пару.");const date=disciplinePlannerState.date,byType={},draft=[],problems=[];rows.forEach((row,i)=>{const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}byType[type]=used+hours;const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`}),cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: конфлікт.`);return;}if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}draft.push(item);});if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));const keep={month:disciplinePlannerState.month,date:disciplinePlannerState.date};save();openDisciplineTeacherScheduler(d.id,t.id,keep);}
 function openAllocationScheduler(disciplineId,typeName,teacherId){openDisciplineTeacherScheduler(disciplineId,teacherId);}
 function addDays(dateStr,days){const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
 function datesForPattern(pattern,from,to,weekday,specific,bounds=academicYearBounds()){if(pattern==="dates")return [...new Set((specific||"").split(/[\s,;]+/).map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&dateInBounds(x,bounds)))].sort();const result=[];if(!from||!to)return result;let d=from;while(d<=to){if(dateInBounds(d,bounds)&&weekdayId(d)===Number(weekday))result.push(d);d=addDays(d,1);}return pattern==="biweekly"?result.filter((_,i)=>i%2===0):result;}

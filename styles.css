@@ -1774,3 +1774,143 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     grid-row:1;
   }
 }
+
+/* v1.0.23 · progressive disclosure + teacher availability */
+
+.teacher-availability-summary{
+  margin-top:7px;
+  font-size:9px;
+  color:var(--muted);
+}
+.availability-action{
+  border-color:#d7c5eb!important;
+  color:#5f2c92!important;
+  background:#faf7fd!important;
+}
+
+.teacher-availability-modal{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.teacher-availability-modal form{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.availability-section{
+  padding:11px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+}
+.availability-section.unavailable{
+  border-left:4px solid #c65353;
+}
+.availability-section.preferred{
+  border-left:4px solid #58a36d;
+}
+.availability-empty{
+  padding:10px;
+  border:1px dashed #ddd5e4;
+  border-radius:9px;
+  color:var(--muted);
+  font-size:9px;
+  text-align:center;
+}
+.availability-limits{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.availability-legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+.availability-legend span{
+  padding:5px 8px;
+  border-radius:999px;
+  font-size:8px;
+}
+.availability-legend .preferred{background:#edf8f0;color:#347348}
+.availability-legend .neutral{background:#f3f1f5;color:#706879}
+.availability-legend .blocked{background:#fff0f0;color:#a13e3e}
+
+/* Secondary choice inside "Series dates" */
+.series-method-switch{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+}
+.series-method-switch button{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:3px;
+  min-height:60px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#f8f5fb;
+  color:var(--ink);
+  text-align:left;
+}
+.series-method-switch button b{
+  font-size:12px;
+  color:var(--purple2);
+}
+.series-method-switch button span{
+  font-size:8px;
+  color:var(--muted);
+}
+.series-method-switch button.active{
+  background:#fff;
+  border-color:var(--purple2);
+  box-shadow:inset 0 0 0 1px var(--purple2);
+}
+.series-method-hint{
+  margin-top:7px;
+  padding:9px;
+  border:1px dashed #d9d1e3;
+  border-radius:9px;
+  color:var(--muted);
+  font-size:9px;
+  text-align:center;
+}
+.series-method-body{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  align-items:end;
+  margin-top:8px;
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#faf8fc;
+}
+.series-method-body .planner-series-rule-clean,
+.series-method-body .ready-series-rule{
+  grid-column:1/-1;
+}
+#plannerSeriesWorkArea,
+#readySeriesWorkArea{
+  margin-top:10px;
+}
+.planner-series-status .preferred{
+  color:#3f8656;
+  font-weight:700;
+}
+.planner-series-status .warn{
+  color:#a86a19;
+}
+
+@media(max-width:700px){
+  .series-method-switch,
+  .availability-limits{
+    grid-template-columns:1fr;
+  }
+  .series-method-body{
+    grid-template-columns:1fr;
+  }
+}
