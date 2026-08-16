@@ -1342,7 +1342,10 @@ function renderDisciplines(){
   if(!rows.length){
     $("#page-disciplines").innerHTML=`<div class="card section">
       <div class="section-head">
-        <div><h2>Навантаження</h2><div class="small">Активуй дисципліни з навчальних планів — після цього вони з’являться тут за групами.</div></div>
+        <div>
+          <h2>Навантаження</h2>
+          <div class="small">Після активації дисциплін із навчальних планів вони з’являться тут за групами.</div>
+        </div>
         <button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button>
       </div>
       <div class="empty">Активованих дисциплін ще немає.</div>
@@ -1357,28 +1360,51 @@ function renderDisciplines(){
   const totalAttention=groups.reduce((sum,g)=>sum+g.attention,0);
   const totalDone=groups.reduce((sum,g)=>sum+g.done,0);
 
-  $("#page-disciplines").innerHTML=`<div class="card section load-page-card">
-    <div class="section-head">
+  const byCourse=[...new Set(groups.map(g=>Number(g.course)||99))]
+    .sort((a,b)=>a-b)
+    .map(course=>({
+      course,
+      groups:groups.filter(g=>(Number(g.course)||99)===course)
+    }));
+
+  $("#page-disciplines").innerHTML=`<div class="load-workspace">
+    <div class="load-workspace-head">
       <div>
-        <h2>Навантаження</h2>
-        <div class="small">Обери групу — нижче побачиш тільки її дисципліни та стан розподілу годин.</div>
+        <h1>Навантаження</h1>
+        <p>Спочатку обери групу. На сторінці одночасно показуються дисципліни тільки однієї групи.</p>
       </div>
       <button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button>
     </div>
 
-    <div class="load-page-summary">
-      <span><b>${groups.length}</b> груп</span>
-      <span><b>${rows.length}</b> активних дисциплін</span>
-      <span class="${totalAttention?"warn":""}"><b>${totalAttention}</b> потребують уваги</span>
-      <span class="ok"><b>${totalDone}</b> готово</span>
+    <div class="load-overview-strip">
+      <div><b>${groups.length}</b><span>груп</span></div>
+      <div><b>${rows.length}</b><span>активних дисциплін</span></div>
+      <div class="${totalAttention?"attention":""}"><b>${totalAttention}</b><span>потребують уваги</span></div>
+      <div class="done"><b>${totalDone}</b><span>розподілено</span></div>
     </div>
 
-    <div class="load-group-board-wrap">
-      <div class="load-board-title">
-        <b>Групи</b>
-        <span>Одночасно відкрита лише одна група — сторінка не перетворюється на довгий список.</span>
+    <div class="load-group-selector">
+      <div class="load-group-selector-head">
+        <div>
+          <span>КРОК 1</span>
+          <h2>Оберіть групу</h2>
+        </div>
+        <small>Групи автоматично розкладені за курсами.</small>
       </div>
-      ${loadGroupBoardHtml(groups,selected)}
+
+      <div class="load-course-groups">
+        ${byCourse.map(block=>`<section class="load-course-block">
+          <div class="load-course-block-title">${esc(block.course)} курс</div>
+          <div class="load-course-block-cards">
+            ${block.groups.map(g=>loadGroupCardHtml(g,selected)).join("")}
+          </div>
+        </section>`).join("")}
+      </div>
+    </div>
+
+    <div class="load-group-content-head">
+      <span>КРОК 2</span>
+      <h2>Дисципліни вибраної групи</h2>
     </div>
 
     <div id="loadDisciplinePanel" class="load-discipline-panel"></div>

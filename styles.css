@@ -2254,3 +2254,144 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     grid-template-columns:1fr;
   }
 }
+
+/* v1.0.25 · unmistakable group-first workload UI */
+.load-workspace{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+}
+.load-workspace-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:18px;
+  padding:4px 0 2px;
+}
+.load-workspace-head h1{
+  margin:0 0 4px;
+  font-size:26px;
+}
+.load-workspace-head p{
+  margin:0;
+  color:var(--muted);
+  font-size:11px;
+}
+.load-overview-strip{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+}
+.load-overview-strip>div{
+  min-height:58px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding:9px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+}
+.load-overview-strip b{
+  font-size:20px;
+  color:var(--purple2);
+}
+.load-overview-strip span{
+  margin-top:2px;
+  font-size:9px;
+  color:var(--muted);
+}
+.load-overview-strip .attention{
+  background:#fff8eb;
+  border-color:#efd7aa;
+}
+.load-overview-strip .attention b{color:#a06a16}
+.load-overview-strip .done{
+  background:#eef9f1;
+  border-color:#cfe8d6;
+}
+.load-overview-strip .done b{color:#34744b}
+
+.load-group-selector{
+  padding:15px;
+  border:1px solid #ded3e8;
+  border-radius:16px;
+  background:linear-gradient(180deg,#fcfaff 0%,#f8f4fc 100%);
+}
+.load-group-selector-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:12px;
+  margin-bottom:13px;
+}
+.load-group-selector-head span,
+.load-group-content-head span{
+  display:block;
+  margin-bottom:2px;
+  font-size:8px;
+  font-weight:850;
+  letter-spacing:.7px;
+  color:#8c72aa;
+}
+.load-group-selector-head h2,
+.load-group-content-head h2{
+  margin:0;
+  font-size:18px;
+}
+.load-group-selector-head small{
+  color:var(--muted);
+  font-size:9px;
+}
+.load-course-groups{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.load-course-block{
+  display:grid;
+  grid-template-columns:82px minmax(0,1fr);
+  gap:10px;
+  align-items:stretch;
+}
+.load-course-block-title{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:88px;
+  padding:8px;
+  border-radius:11px;
+  background:#ede6f5;
+  color:#5c347f;
+  font-size:11px;
+  font-weight:850;
+  text-align:center;
+}
+.load-course-block-cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:8px;
+}
+.load-group-card{
+  min-height:88px!important;
+}
+.load-group-card.active{
+  transform:translateY(-1px);
+  background:#fff!important;
+  border-color:#6f2bb4!important;
+  box-shadow:inset 0 0 0 2px #6f2bb4,0 6px 18px rgba(74,34,111,.11)!important;
+}
+.load-group-content-head{
+  padding:2px 2px 0;
+}
+.load-discipline-panel{
+  margin-top:0!important;
+}
+@media(max-width:800px){
+  .load-overview-strip{grid-template-columns:1fr 1fr}
+  .load-course-block{grid-template-columns:1fr}
+  .load-course-block-title{
+    min-height:auto;
+    justify-content:flex-start;
+  }
+}
