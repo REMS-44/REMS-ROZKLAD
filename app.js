@@ -3157,7 +3157,22 @@ function plannerNewRowHtml(d,t,index,typeName=null,pairId=null){
   const hours=plannerDefaultUnit(selectedType,remaining);
 
   return `<div class="planner-entry-row" data-planner-entry>
-    <div class="planner-entry-number">${index+1}</div>
+    <div class="planner-entry-head">
+      <div class="planner-entry-number">${index+1}</div>
+
+      <div class="planner-entry-head-copy">
+        <b>Заняття</b>
+        <span>обери вид, пару та аудиторію</span>
+      </div>
+
+      <div class="planner-entry-hours">
+        <span>спишеться</span>
+        <b data-planner-hours>−${fmtHours(hours)} год</b>
+      </div>
+
+      <button type="button" class="planner-entry-remove" data-planner-remove title="Прибрати заняття" aria-label="Прибрати заняття">×</button>
+    </div>
+
     <div class="planner-entry-fields">
       <label>Вид заняття
         <select data-planner-type>${plannerAvailableTypeOptions(d,t,selectedType)}</select>
@@ -3165,16 +3180,9 @@ function plannerNewRowHtml(d,t,index,typeName=null,pairId=null){
       <label>Пара
         <select data-planner-pair>${plannerPairOptions(disciplinePlannerState.date,d,t,selectedPair)}</select>
       </label>
-      <label class="planner-room-field">Аудиторія
+      <label>Аудиторія
         <select data-planner-room>${plannerRoomOptions(disciplinePlannerState.date,selectedPair)}</select>
       </label>
-    </div>
-    <div class="planner-entry-side">
-      <div class="planner-entry-hours">
-        <span>списується</span>
-        <b data-planner-hours>${fmtHours(hours)} год</b>
-      </div>
-      <button type="button" class="danger small-btn" data-planner-remove title="Прибрати">×</button>
     </div>
   </div>`;
 }
@@ -3186,7 +3194,7 @@ function bindPlannerEntryRow(row,d,t){
 
   const refreshHours=()=>{
     const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type.value);
-    hours.textContent=`${fmtHours(plannerDefaultUnit(type.value,stat?.remaining||0))} год`;
+    hours.textContent=`−${fmtHours(plannerDefaultUnit(type.value,stat?.remaining||0))} год`;
   };
   const refreshRoom=()=>{
     const old=room.value;
