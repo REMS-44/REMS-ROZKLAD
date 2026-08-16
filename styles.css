@@ -5775,3 +5775,106 @@ td .small{font-size:12px}
   .student-load-popup-tools{grid-template-columns:1fr 1fr}
   .special-discipline-tabs{grid-template-columns:1fr}
 }
+
+
+/* ================================================================
+   v1.4.1 · EXPLICIT STUDENT ASSIGNMENT
+   ================================================================ */
+
+.student-load-target{
+  display:grid;
+  grid-template-columns:minmax(210px,.7fr) minmax(300px,1.3fr);
+  gap:10px;
+  align-items:center;
+  padding:11px 12px;
+  border:1px solid #e1c98b;
+  border-left:5px solid #d49a37;
+  border-radius:11px;
+  background:#fff8e8;
+}
+.student-load-target>div{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.student-load-target span{
+  font-size:8px;
+  font-weight:900;
+  letter-spacing:.75px;
+  color:#936b20;
+}
+.student-load-target b{
+  font-size:14px;
+  color:#6f5019;
+}
+.student-load-target p{
+  margin:0;
+  font-size:11px;
+  line-height:1.4;
+  color:#725f39;
+}
+
+.per-student-assigned-preview{
+  padding:8px 9px;
+  border-radius:9px;
+  background:#f3f8f6;
+}
+.per-student-assigned-preview>span{
+  display:block;
+  margin-bottom:5px;
+  font-size:8px;
+  font-weight:900;
+  letter-spacing:.65px;
+  color:#55806f;
+}
+.per-student-assigned-preview>div{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.per-student-assigned-preview b,
+.per-student-assigned-preview strong{
+  padding:4px 6px;
+  border-radius:7px;
+  background:#fff;
+  border:1px solid #d9e8e1;
+  font-size:9px;
+  color:#315f4e;
+}
+.per-student-assigned-preview strong{
+  background:#34896d;
+  color:#fff;
+}
+
+.special-load-card.needs-students{
+  border-left-color:#d59b38!important;
+  background:linear-gradient(135deg,#fff9eb,#fff 72%)!important;
+}
+.special-load-card-head>strong.warn{
+  background:#fff0cc;
+  color:#8e6116;
+}
+.special-assignment-warning{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  margin:6px 0 9px;
+  padding:9px 10px;
+  border-radius:9px;
+  background:#fff4d9;
+}
+.special-assignment-warning b{
+  font-size:12px;
+  color:#7d5513;
+}
+.special-assignment-warning span{
+  font-size:10px;
+  line-height:1.35;
+  color:#7a663d;
+}
+
+@media(max-width:760px){
+  .student-load-target{
+    grid-template-columns:1fr;
+  }
+}

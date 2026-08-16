@@ -1379,15 +1379,16 @@ function studentAssignmentKeyExists(d,teacherId,typeId){
   const byTeacher=source?.[String(teacherId)]||source?.[Number(teacherId)];
   return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
 }
-function assignedStudentIds(d,teacherId,typeId){
-  const source=studentAllocationSource(d);
-  const byTeacher=source?.[String(teacherId)]||source?.[Number(teacherId)]||{};
-  if(Object.prototype.hasOwnProperty.call(byTeacher,String(typeId))){
-    return [...new Set((byTeacher[String(typeId)]||[]).map(Number).filter(Boolean))];
-  }
-
-  // Compatibility with already-created individual entries:
-  // old schedule entries reveal which student was already attached to this teacher.
+function persistedStudentAssignmentExists(d,teacherId,typeId){
+  const byTeacher=d?.teacherStudentLoads?.[String(teacherId)]||d?.teacherStudentLoads?.[Number(teacherId)];
+  return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
+}
+function persistedAssignedStudentIds(d,teacherId,typeId){
+  const byTeacher=d?.teacherStudentLoads?.[String(teacherId)]||d?.teacherStudentLoads?.[Number(teacherId)]||{};
+  if(!Object.prototype.hasOwnProperty.call(byTeacher,String(typeId)))return [];
+  return [...new Set((byTeacher[String(typeId)]||[]).map(Number).filter(Boolean))];
+}
+function scheduledHintStudentIds(d,teacherId,typeId){
   const lt=lessonTypeById(typeId);
   if(!lt)return [];
   return [...new Set(
@@ -1399,6 +1400,30 @@ function assignedStudentIds(d,teacherId,typeId){
         &&x.studentId)
       .map(x=>Number(x.studentId))
   )];
+}
+function legacyPerStudentTarget(d,teacherId,typeId){
+  const unit=perStudentUnitHours(d,typeId);
+  const load=explicitTeacherLoad(d,teacherId);
+  const hours=num(load?.[typeId]);
+  if(unit<=0||hours<=0)return {hours,count:0};
+  return {hours,count:Math.max(0,Math.round(hours/unit))};
+}
+
+function assignedStudentIds(d,teacherId,typeId){
+  if(window.__disciplineDraft===d&&disciplineStudentAllocationDraft!==null){
+    const byTeacher=disciplineStudentAllocationDraft?.[String(teacherId)]||{};
+    if(Object.prototype.hasOwnProperty.call(byTeacher,String(typeId))){
+      return [...new Set((byTeacher[String(typeId)]||[]).map(Number).filter(Boolean))];
+    }
+  }
+
+  if(persistedStudentAssignmentExists(d,teacherId,typeId)){
+    return persistedAssignedStudentIds(d,teacherId,typeId);
+  }
+
+  // Legacy entries are NOT a completed assignment.
+  // They are only preselected hints when the administrator opens the picker.
+  return scheduledHintStudentIds(d,teacherId,typeId);
 }
 function assignedStudents(d,teacherId,typeId){
   const ids=new Set(assignedStudentIds(d,teacherId,typeId));
@@ -1734,6 +1759,8 @@ let disciplineAllocationDraft={};
 let disciplineAllocationId=null;
 function cloneStudentAllocationLoads(d){
   const out={};
+
+  // Only explicitly saved assignments create real draft keys.
   Object.entries(d?.teacherStudentLoads||{}).forEach(([tid,byType])=>{
     out[String(tid)]={};
     Object.entries(byType||{}).forEach(([typeId,ids])=>{
@@ -1741,19 +1768,6 @@ function cloneStudentAllocationLoads(d){
     });
   });
 
-  // Preserve already-created individual appointments made before v1.4.
-  (db.schedule||[])
-    .filter(x=>x.specialSchedule&&x.studentId&&Number(x.disciplineId)===Number(d?.id))
-    .forEach(x=>{
-      const typeId=lessonTypeIdByName(x.type);
-      if(!typeId||!isPerStudentTypeId(typeId)||!x.teacherId)return;
-      const tid=String(x.teacherId),typeKey=String(typeId);
-      out[tid]=out[tid]||{};
-      out[tid][typeKey]=out[tid][typeKey]||[];
-      if(!out[tid][typeKey].map(Number).includes(Number(x.studentId))){
-        out[tid][typeKey].push(Number(x.studentId));
-      }
-    });
   return out;
 }
 function draftStudentKeyExists(teacherId,typeId){
@@ -1819,11 +1833,17 @@ function perStudentAllocationStatus(d,tid,lt){
   const ids=assignedStudentIds(d,tid,lt.id);
   const unit=perStudentUnitHours(d,lt.id);
   const legacyHours=num(disciplineAllocationDraft?.[String(tid)]?.[lt.id]);
+  const legacyTarget=legacyPerStudentTarget(d,tid,lt.id);
+  const explicit=persistedStudentAssignmentExists(d,tid,lt.id)||draftStudentKeyExists(tid,lt.id);
+  const hints=scheduledHintStudentIds(d,tid,lt.id);
   return {
     ids,count:ids.length,unit,total:ids.length*unit,
     groupCount:groupStudentCount(d.group),
-    unresolved:!draftStudentKeyExists(tid,lt.id)&&legacyHours>0,
-    legacyHours
+    unresolved:!explicit&&legacyHours>0,
+    legacyHours,
+    targetCount:legacyTarget.count,
+    hintCount:hints.length,
+    missing:Math.max(0,legacyTarget.count-ids.length)
   };
 }
 function perStudentAllocationPickerHtml(d,tid,lt){
@@ -1858,9 +1878,10 @@ function openPerStudentAllocationPopup(tid,typeId){
   disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
   disciplineStudentAllocationDraft[String(tid)]=disciplineStudentAllocationDraft[String(tid)]||{};
 
-  // From this moment this type is explicitly managed by student selection.
+  // First opening: existing appointments are only a useful preselection.
+  // The administrator still sees the ENTIRE group and completes the assignment.
   if(!Object.prototype.hasOwnProperty.call(disciplineStudentAllocationDraft[String(tid)],String(typeId))){
-    disciplineStudentAllocationDraft[String(tid)][String(typeId)]=assignedStudentIds(d,tid,typeId);
+    disciplineStudentAllocationDraft[String(tid)][String(typeId)]=scheduledHintStudentIds(d,tid,typeId);
   }
 
   const s=perStudentAllocationStatus(d,tid,lt);
@@ -1884,10 +1905,22 @@ function openPerStudentAllocationPopup(tid,typeId){
       <button type="button" class="secondary" onclick="clearPerStudentAllocation(${tid},${typeId})">Очистити</button>
     </div>
 
+    ${s.legacyHours>0?`<div class="student-load-target" id="studentLoadTarget">
+      <div>
+        <span>ПОПЕРЕДНЄ НАВАНТАЖЕННЯ</span>
+        <b>${fmtHours(s.legacyHours)} год = приблизно ${s.targetCount} студент(ів)</b>
+      </div>
+      <p>${s.hintCount
+        ?`Із уже створеного розкладу я знайшов ${s.hintCount} студент(ів) і попередньо відмітив їх. Це <b>не весь список</b> — перевір і закріпи всіх потрібних.`
+        :`Тепер ці години треба розкласти на конкретних студентів. Вибери тих, за кого відповідає цей викладач.`}</p>
+    </div>`:""}
+
     <div id="studentLoadPicker">${perStudentAllocationPickerHtml(d,tid,lt)}</div>
 
     <div class="planner-popup-footer">
-      <button type="button" class="primary" onclick="applyPerStudentAllocation(${tid},${typeId})">Застосувати розподіл</button>
+      <button type="button" class="primary" onclick="${window.__directStudentAssignment?`saveDirectStudentAssignment(${tid},${typeId})`:`applyPerStudentAllocation(${tid},${typeId})`}">
+        ${window.__directStudentAssignment?"Зберегти закріплення":"Застосувати розподіл"}
+      </button>
     </div>
   </div>`,true);
 }
@@ -1898,6 +1931,13 @@ function refreshPerStudentPopup(tid,typeId){
   if($("#studentLoadPicker"))$("#studentLoadPicker").innerHTML=perStudentAllocationPickerHtml(d,tid,lt);
   if($("#studentLoadSelectedCount"))$("#studentLoadSelectedCount").textContent=s.count;
   if($("#studentLoadTotalHours"))$("#studentLoadTotalHours").textContent=`${fmtHours(s.total)} год`;
+  const target=$("#studentLoadTarget");
+  if(target&&s.legacyHours>0){
+    const p=target.querySelector("p");
+    if(p)p.innerHTML=s.missing
+      ?`За старим розподілом орієнтир — ${s.targetCount} студент(ів). Зараз обрано ${s.count}; залишилось вибрати ще <b>${s.missing}</b>.`
+      :`Зараз обрано ${s.count} студент(ів) = <b>${fmtHours(s.total)} год</b>. Можна зберігати або змінити склад.`;
+  }
 }
 function togglePerStudentAllocation(tid,typeId,studentId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
@@ -1950,15 +1990,26 @@ function applyPerStudentAllocation(tid,typeId){
 }
 function perStudentAllocationFieldHtml(d,tid,lt){
   const s=perStudentAllocationStatus(d,tid,lt);
+  const persisted=persistedAssignedStudentIds(d,tid,lt.id);
+  const names=persisted
+    .map(id=>db.students.find(x=>Number(x.id)===Number(id))?.name)
+    .filter(Boolean);
+
   return `<div class="per-student-allocation-card ${s.unresolved?"unresolved":""}">
     <div class="per-student-allocation-copy">
       <b>${esc(lt.name)}</b>
       ${s.unresolved
-        ?`<span><strong>${fmtHours(s.legacyHours)} год</strong> зі старого розподілу</span><small>Тепер треба вказати, яким саме студентам належать ці години.</small>`
+        ?`<span><strong>${fmtHours(s.legacyHours)} год</strong> зі старого розподілу ≈ ${s.targetCount} студент(ів)</span><small>Потрібно один раз закріпити конкретних студентів за цим викладачем.</small>`
         :`<span>${fmtHours(s.unit)} год × ${s.count} студентів = <strong>${fmtHours(s.total)} год</strong></span><small>${s.count?`${s.count} із ${s.groupCount} студентів закріплено`:"Студентів ще не закріплено"}</small>`}
     </div>
-    <button type="button" class="secondary" onclick="openPerStudentAllocationPopup(${tid},${lt.id})">
-      ${s.count?"Змінити студентів":"Обрати студентів"}
+
+    ${names.length?`<div class="per-student-assigned-preview">
+      <span>ЗАКРІПЛЕНІ</span>
+      <div>${names.slice(0,5).map(n=>`<b>${esc(n)}</b>`).join("")}${names.length>5?`<strong>+${names.length-5}</strong>`:""}</div>
+    </div>`:""}
+
+    <button type="button" class="${s.unresolved?"primary":"secondary"}" onclick="openPerStudentAllocationPopup(${tid},${lt.id})">
+      ${s.unresolved?"Закріпити студентів":s.count?"Змінити студентів":"Обрати студентів"}
     </button>
   </div>`;
 }
@@ -2207,16 +2258,98 @@ function specialHalfTimes(pairId,half){const p=pairById(pairId);if(!p||!p.start|
 function specialSlotLabel(x){const p=pairById(x.pairId),half=Number(x.specialHalf)===2?"ІІ половина":"І половина";return `${p?.id||x.pairId||"—"} пара · ${half}${x.start&&x.end?` · ${x.start}–${x.end}`:""}`;}
 function specialStudentName(x){const s=db.students.find(s=>Number(s.id)===Number(x.studentId));return s?.name||x.students||"Студент";}
 function specialKindTabsHtml(){return `<div class="special-kind-tabs">${SPECIAL_SCHEDULE_KINDS.map(k=>{const remaining=specialLoadRows(k.id).reduce((a,x)=>a+x.remaining,0);return `<button class="${specialScheduleState.kind===k.id?"active":""}" onclick="setSpecialKind('${k.id}')"><span>${esc(k.short)}</span><b>${fmtHours(remaining)} год</b></button>`;}).join("")}</div>`;}
+function beginDirectStudentAssignment(disciplineId,teacherId,typeId){
+  const d=disciplineById(disciplineId);
+  if(!d)return;
+
+  disciplineAllocationId=d.id;
+  window.__disciplineDraft=d;
+  disciplineAllocationDraft=cloneAllocationLoads(d);
+  disciplineStudentAllocationDraft=cloneStudentAllocationLoads(d);
+  disciplineExtraDraft=clone(d.extraHours||{});
+
+  window.__directStudentAssignment={
+    disciplineId:Number(disciplineId),
+    teacherId:Number(teacherId),
+    typeId:Number(typeId),
+    returnPage:"specialSchedule"
+  };
+
+  openPerStudentAllocationPopup(teacherId,typeId);
+}
+function saveDirectStudentAssignment(tid,typeId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
+  if(!d)return;
+
+  syncPerStudentAllocationLoads(d);
+
+  const ids=Object.keys(disciplineAllocationDraft||{}).map(Number).filter(Boolean);
+  const teacherLoads={...clone(d.teacherLoads||{})};
+  ids.forEach(teacherId=>{
+    teacherLoads[String(teacherId)]=teacherLoads[String(teacherId)]||{};
+    db.lessonTypes.forEach(lt=>{
+      teacherLoads[String(teacherId)][lt.id]=num(disciplineAllocationDraft[String(teacherId)]?.[lt.id]);
+    });
+  });
+
+  const teacherStudentLoads={...clone(d.teacherStudentLoads||{})};
+  Object.entries(disciplineStudentAllocationDraft||{}).forEach(([teacherId,byType])=>{
+    teacherStudentLoads[String(teacherId)]=teacherStudentLoads[String(teacherId)]||{};
+    Object.entries(byType||{}).forEach(([ltId,studentIds])=>{
+      teacherStudentLoads[String(teacherId)][String(ltId)]=[...new Set((studentIds||[]).map(Number).filter(Boolean))];
+    });
+  });
+
+  d.teacherLoads=teacherLoads;
+  d.teacherStudentLoads=teacherStudentLoads;
+  d.teacherIds=[...new Set([...(d.teacherIds||[]).map(Number),...ids])];
+
+  disciplineAllocationId=null;
+  disciplineAllocationDraft={};
+  disciplineStudentAllocationDraft=null;
+  disciplineExtraDraft=null;
+  delete window.__disciplineDraft;
+  delete window.__directStudentAssignment;
+
+  closePlannerActionModal();
+  save();
+  go("specialSchedule",{focusCurrentCalendar:false});
+}
+
 function specialLoadCardHtml(x){
   const done=x.remaining<=.001;
-  const assigned=x.lt.countMode==="per_student"?assignedStudentIds(x.d,x.t.id,x.lt.id).length:0;
-  const unit=x.lt.countMode==="per_student"?perStudentUnitHours(x.d,x.lt.id):0;
-  return `<article class="special-load-card ${done?"done":""}" style="${scheduleColorVars({group:x.d.group,discipline:x.d.name})}">
-    <div class="special-load-card-head"><div><span>${esc(x.d.group)} · ${esc(x.d.course||groupCourse(x.d.group))} курс</span><h4>${esc(x.d.name)}</h4></div><strong class="${done?"done":""}">${done?"ГОТОВО":`${fmtHours(x.remaining)} год`}</strong></div>
+  const perStudent=x.lt.countMode==="per_student";
+  const resolved=!perStudent||persistedStudentAssignmentExists(x.d,x.t.id,x.lt.id);
+  const assigned=perStudent?persistedAssignedStudentIds(x.d,x.t.id,x.lt.id).length:0;
+  const hintCount=perStudent?scheduledHintStudentIds(x.d,x.t.id,x.lt.id).length:0;
+  const legacyTarget=perStudent?legacyPerStudentTarget(x.d,x.t.id,x.lt.id):{count:0,hours:0};
+  const unit=perStudent?perStudentUnitHours(x.d,x.lt.id):0;
+
+  return `<article class="special-load-card ${done?"done":""} ${!resolved?"needs-students":""}" style="${scheduleColorVars({group:x.d.group,discipline:x.d.name})}">
+    <div class="special-load-card-head">
+      <div><span>${esc(x.d.group)} · ${esc(x.d.course||groupCourse(x.d.group))} курс</span><h4>${esc(x.d.name)}</h4></div>
+      <strong class="${done?"done":!resolved?"warn":""}">${!resolved?"ПОТРІБНІ СТУДЕНТИ":done?"ГОТОВО":`${fmtHours(x.remaining)} год`}</strong>
+    </div>
+
     <div class="special-load-teacher"><span>Викладач</span><b>${esc(teacherDisplay(x.t))}</b></div>
-    ${x.lt.countMode==="per_student"?`<div class="special-student-formula"><b>${assigned} студентів</b><span>× ${fmtHours(unit)} год = ${fmtHours(x.planned)} год навантаження</span></div>`:""}
-    <div class="special-load-progress"><div><span>${esc(x.lt.name)}</span><b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</b></div><i><em style="width:${x.planned?Math.min(100,x.scheduled/x.planned*100):0}%"></em></i></div>
-    <button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати студенту"}</button>
+
+    ${perStudent
+      ?resolved
+        ?`<div class="special-student-formula"><b>${assigned} студентів</b><span>× ${fmtHours(unit)} год = ${fmtHours(x.planned)} год навантаження</span></div>`
+        :`<div class="special-assignment-warning">
+            <b>Спочатку закріпи студентів</b>
+            <span>${legacyTarget.hours?`Попереднє навантаження ${fmtHours(legacyTarget.hours)} год ≈ ${legacyTarget.count} студент(ів).`:""} ${hintCount?`У старому розкладі вже знайдено ${hintCount} студент(ів) — вони будуть попередньо відмічені.`:""}</span>
+          </div>`
+      :""}
+
+    <div class="special-load-progress">
+      <div><span>${esc(x.lt.name)}</span><b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</b></div>
+      <i><em style="width:${x.planned?Math.min(100,x.scheduled/x.planned*100):0}%"></em></i>
+    </div>
+
+    ${!resolved
+      ?`<button class="primary" onclick="beginDirectStudentAssignment(${x.d.id},${x.t.id},${x.lt.id})">Закріпити студентів</button>`
+      :`<button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати студенту"}</button>`}
   </article>`;
 }
 function specialDisciplineTabsHtml(){
@@ -2307,7 +2440,10 @@ function renderSpecialSchedule(){
   </div>`;
 }
 function specialStudentsForLoad(d,t,lt){
-  return lt.countMode==="per_student"?assignedStudents(d,t.id,lt.id):studentsForGroup(d.group);
+  if(lt.countMode!=="per_student")return studentsForGroup(d.group);
+  if(!persistedStudentAssignmentExists(d,t.id,lt.id))return [];
+  const ids=new Set(persistedAssignedStudentIds(d,t.id,lt.id));
+  return studentsForGroup(d.group).filter(s=>ids.has(Number(s.id)));
 }
 function specialStudentProgress(d,t,lt,studentId){
   const plan=lt.countMode==="per_student"
@@ -2360,9 +2496,11 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId){
   const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=db.lessonTypes.find(x=>Number(x.id)===Number(typeId));if(!d||!t||!lt)return;
   const students=specialStudentsForLoad(d,t,lt);
   if(!students.length){
-    return alert(lt.countMode==="per_student"
-      ?"За цим викладачем ще не закріплено жодного студента. Відкрий «Навантаження» → дисципліну → цього викладача → «Обрати студентів»."
-      :"У цій групі немає студентів.");
+    if(lt.countMode==="per_student"){
+      beginDirectStudentAssignment(d.id,t.id,lt.id);
+      return;
+    }
+    return alert("У цій групі немає студентів.");
   }
   const availableStudents=students.filter(s=>!specialStudentProgress(d,t,lt,s.id).done);
   if(!availableStudents.length)return alert("Усі закріплені за цим викладачем студенти вже використали свої години.");
