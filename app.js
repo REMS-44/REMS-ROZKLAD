@@ -6,11 +6,18 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 const UI_PAGE_KEY="remsUiPage_v1";
 const UI_TIMETABLE_GROUP_KEY="remsUiTimetableGroup_v1";
 const UI_WORKLOAD_GROUP_KEY="remsUiWorkloadGroup_v1";
+const UI_TEACHER_VIEW_KEY="remsUiTeacherView_v1";
 function rememberWorkloadGroup(group){
   try{if(group)sessionStorage.setItem(UI_WORKLOAD_GROUP_KEY,group);else sessionStorage.removeItem(UI_WORKLOAD_GROUP_KEY);}catch(e){}
 }
 function rememberedWorkloadGroup(){
   try{return sessionStorage.getItem(UI_WORKLOAD_GROUP_KEY)||"";}catch(e){return"";}
+}
+function rememberTeacherView(id){
+  try{if(id)sessionStorage.setItem(UI_TEACHER_VIEW_KEY,String(id));else sessionStorage.removeItem(UI_TEACHER_VIEW_KEY);}catch(e){}
+}
+function rememberedTeacherView(){
+  try{return Number(sessionStorage.getItem(UI_TEACHER_VIEW_KEY))||null;}catch(e){return null;}
 }
 function localTodayISO(){
   const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");
@@ -296,6 +303,7 @@ function focusCalendarOnCurrentDate(page){
 function go(p,options={}){
   const cloudRole=window.REMS_CLOUD?.role?.();
   if(cloudRole==="teacher"&&p!=="mySchedule")p="mySchedule";
+  if(cloudRole&&cloudRole!=="teacher"&&p==="mySchedule"&&!teacherPortalTeacherId())p="teachers";
   if(!meta[p]||!$("#page-"+p))p=cloudRole==="teacher"?"mySchedule":"home";
   const enteringDifferentPage=p!==currentPage;
   if(options.focusCurrentCalendar===true||(enteringDifferentPage&&["timetable","roomGrid"].includes(p))){
@@ -2231,7 +2239,7 @@ function renderTimetable(){
 }
 /* Individual teacher schedule — monthly view */
 let teacherScheduleFeed={teacherId:null,schedule:[],roomBookings:[],academicYear:"",bellSchedule:[]};
-let teacherScheduleState={teacherId:null,month:null};
+let teacherScheduleState={teacherId:rememberedTeacherView(),month:null};
 
 function calendarMonthDays(month){
   const [y,m]=month.split("-").map(Number),first=new Date(y,m-1,1,12,0,0),last=new Date(y,m,0,12,0,0);
@@ -2261,7 +2269,8 @@ function teacherScheduleTeacherName(id){
 }
 function teacherPortalTeacherId(){
   if(window.REMS_CLOUD?.role?.()==="teacher")return Number(window.REMS_CLOUD?.teacherId?.()||teacherScheduleFeed.teacherId)||null;
-  return Number(teacherScheduleState.teacherId)||null;
+  const current=Number(teacherScheduleState.teacherId)||rememberedTeacherView();
+  return current&&teacherById(current)?current:null;
 }
 function teacherScheduleSource(){
   const role=window.REMS_CLOUD?.role?.();
@@ -2407,6 +2416,7 @@ function teacherMonthToday(){
 }
 function openTeacherSchedule(id){
   teacherScheduleState.teacherId=Number(id);
+  rememberTeacherView(teacherScheduleState.teacherId);
   teacherScheduleState.month=teacherCurrentMonth();
   go("mySchedule",{focusCurrentCalendar:false});
 }
@@ -2429,7 +2439,20 @@ function renderMySchedule(){
   const source=teacherScheduleSource(),teacherId=source.teacherId;
 
   if(!teacherId){
-    $("#page-mySchedule").innerHTML=`<div class="card section"><div class="empty"><b>Акаунт ще не прив’язаний до викладача.</b><br>Адміністратор має відкрити «Налаштування → Користувачі та доступ» і вибрати викладача для цього акаунта.</div>${role==="teacher"?`<div class="actions" style="justify-content:center;margin-top:16px"><button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button></div>`:""}</div>`;
+    if(role==="teacher"){
+      $("#pageTitle").textContent="Мій розклад";
+      $("#pageSubtitle").textContent=window.REMS_CLOUD?.email?.()||"";
+      $("#page-mySchedule").innerHTML=`<div class="card section"><div class="empty"><b>Ваш акаунт ще не прив’язаний до профілю викладача.</b><br>Зверніться до адміністратора системи.</div><div class="actions" style="justify-content:center;margin-top:16px"><button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button></div></div>`;
+      return;
+    }
+    if(role){
+      rememberTeacherView(null);
+      go("teachers");
+      return;
+    }
+    $("#pageTitle").textContent="Розклад викладача";
+    $("#pageSubtitle").textContent="";
+    $("#page-mySchedule").innerHTML=`<div class="card section"><div class="empty">Завантаження доступу…</div></div>`;
     return;
   }
 
@@ -2506,11 +2529,25 @@ window.REMS_APPLY_ROLE_ACCESS=()=>{
   document.body.classList.toggle("teacher-portal-mode",role==="teacher");
   const nav=$("#teacherScheduleNav");
   if(nav)nav.style.display=role==="teacher"?"":"none";
+
   if(role==="teacher"){
     teacherScheduleState.teacherId=teacherPortalTeacherId();
     if(!teacherScheduleState.month)teacherScheduleState.month=teacherCurrentMonth();
     if(currentPage!=="mySchedule")go("mySchedule",{focusCurrentCalendar:false});
     else renderMySchedule();
+    return;
+  }
+
+  if(role&&currentPage==="mySchedule"){
+    const saved=teacherPortalTeacherId();
+    if(saved){
+      teacherScheduleState.teacherId=saved;
+      if(!teacherScheduleState.month)teacherScheduleState.month=teacherCurrentMonth();
+      renderMySchedule();
+    }else{
+      rememberTeacherView(null);
+      go("teachers");
+    }
   }
 };
 
