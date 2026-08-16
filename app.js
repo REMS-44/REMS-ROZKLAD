@@ -149,8 +149,21 @@ function repairScheduleLinks(state){
     if(item.pairId!==null&&item.pairId!==undefined&&String(item.pairId)!==""){
       const pair=(state.bellSchedule||[]).find(p=>String(p.id)===String(item.pairId));
       if(pair){
-        if(pair.start&&item.start!==pair.start){item.start=pair.start;changed++;}
-        if(pair.end&&item.end!==pair.end){item.end=pair.end;changed++;}
+        let desiredStart=pair.start||"",desiredEnd=pair.end||"";
+        if(item.specialSchedule&&item.specialHalf&&pair.start&&pair.end){
+          const toMin=v=>{const [h,m]=String(v).split(":").map(Number);return h*60+m;};
+          const toTime=v=>`${String(Math.floor(v/60)).padStart(2,"0")}:${String(v%60).padStart(2,"0")}`;
+          const a=toMin(pair.start),b=toMin(pair.end),mid=Math.round((a+b)/2);
+          if(Number(item.specialHalf)===2){
+            desiredStart=toTime(mid);
+            desiredEnd=toTime(b);
+          }else{
+            desiredStart=toTime(a);
+            desiredEnd=toTime(mid);
+          }
+        }
+        if(desiredStart&&item.start!==desiredStart){item.start=desiredStart;changed++;}
+        if(desiredEnd&&item.end!==desiredEnd){item.end=desiredEnd;changed++;}
       }
     }
   });
@@ -250,14 +263,14 @@ function migrate(old){
     ...d,
     id:d.id||i+1,name:d.name||"",course:d.course||"",group:d.group||"",
     semester:d.semester||fresh.semester,academicYear:d.academicYear||fresh.academicYear,
-    teacherIds:d.teacherIds||[],teacherLoads:d.teacherLoads||{},
+    teacherIds:d.teacherIds||[],teacherLoads:d.teacherLoads||{},teacherStudentLoads:d.teacherStudentLoads||{},
     controlForm:d.controlForm||"Немає",color:d.color||"#8b5cf6",
     hours:d.hours||{},extraHours:d.extraHours||{},note:d.note||"",status:d.status||"active",
     sourceCurriculumId:d.sourceCurriculumId||null,sourceComponentId:d.sourceComponentId||null,
     planMeta:d.planMeta||{}
   }));
   fresh.curricula=mergeSeedCurricula(old.curricula||[],fresh.curricula||[]);
-  fresh.schemaVersion=14;
+  fresh.schemaVersion=15;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     let teacherId=s.teacherId||null;
     if(!teacherId && s.teacher){
@@ -302,7 +315,7 @@ let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
   repairScheduleLinks(db);
-  db.schemaVersion=14;
+  db.schemaVersion=15;
   localStorage.setItem(KEY,JSON.stringify(db));
   renderCurrent();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
@@ -1330,20 +1343,92 @@ function deleteCurriculumComponent(curriculumId,componentId){
 function createLoadFromPlan(curriculumId,componentId,rowId){
   const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);ensureCurriculumShape(c);const r=comp?.rows?.find(x=>Number(x.id)===Number(rowId));if(!c||!comp||!r)return;const availableGroups=(c.applicableGroups||[]).filter(g=>db.groups.some(x=>x.code===g));
   openModal(`<h2>Створити дисципліну з робочого плану</h2><div class="notice"><b>${esc(comp.name)}</b> · ${r.semester} семестр · ${esc(r.control)}</div><form id="planLoadForm" class="form-grid"><label class="wide">Для яких груп<select id="plGroups" multiple size="${Math.max(2,availableGroups.length)}">${availableGroups.map(g=>`<option value="${esc(g)}" selected>${esc(g)} · ${groupStudentCount(g)} студентів</option>`).join("")}</select><span class="small">Ctrl/⌘ + клік — вибір окремих груп.</span></label><div class="wide"><b>З плану буде перенесено</b><div class="plan-summary" style="margin-top:8px"><span>Лекції ${fmtHours(r.lecture)}</span><span>Семінари ${fmtHours(r.seminar)}</span><span>Практичні ${fmtHours(r.practical)}</span><span>Лабораторні ${fmtHours(r.laboratory)}</span><span>Індивідуальні ${fmtHours(r.individual)}</span></div></div><div class="wide"><button class="primary">Створити в «Дисципліни / навантаження»</button></div></form>`);
-  $("#planLoadForm").onsubmit=e=>{e.preventDefault();const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);if(!groups.length)return alert("Оберіть хоча б одну групу.");const created=[],skipped=[];groups.forEach(group=>{const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(r.id)&&d.group===group);if(exists){skipped.push(group);return;}db.disciplines.push({id:uid(db.disciplines),name:comp.name,course:c.course,group,semester:Number(r.semester),academicYear:c.academicYear,teacherIds:[],teacherLoads:{},controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,sourceRowId:r.id,planMeta:{credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly}});created.push(group);});save();closeModal();alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);go("disciplines");};
+  $("#planLoadForm").onsubmit=e=>{e.preventDefault();const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);if(!groups.length)return alert("Оберіть хоча б одну групу.");const created=[],skipped=[];groups.forEach(group=>{const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(r.id)&&d.group===group);if(exists){skipped.push(group);return;}db.disciplines.push({id:uid(db.disciplines),name:comp.name,course:c.course,group,semester:Number(r.semester),academicYear:c.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,sourceRowId:r.id,planMeta:{credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly}});created.push(group);});save();closeModal();alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);go("disciplines");};
 }
 
 let disciplineExtraDraft=null;
+let disciplineStudentAllocationDraft=null;
 function disciplineBaseHoursById(d,typeId){return num(d?.hours?.[typeId]);}
 function disciplineExtraHoursById(d,typeId){
   const source=(window.__disciplineDraft===d&&disciplineExtraDraft!==null)?disciplineExtraDraft:(d?.extraHours||{});
   return num(source?.[typeId]);
 }
-function disciplineTotalHoursById(d,typeId){return disciplineBaseHoursById(d,typeId)+disciplineExtraHoursById(d,typeId);}
+function lessonTypeById(typeId){
+  return db.lessonTypes.find(lt=>String(lt.id)===String(typeId))||null;
+}
+function isPerStudentTypeId(typeId){
+  return lessonTypeById(typeId)?.countMode==="per_student";
+}
+function disciplineUnitHoursById(d,typeId){
+  return disciplineBaseHoursById(d,typeId)+disciplineExtraHoursById(d,typeId);
+}
+function disciplineTotalHoursById(d,typeId){
+  const unit=disciplineUnitHoursById(d,typeId);
+  return isPerStudentTypeId(typeId)?unit*groupStudentCount(d?.group):unit;
+}
+function perStudentUnitHours(d,typeId){
+  return isPerStudentTypeId(typeId)?disciplineUnitHoursById(d,typeId):0;
+}
+function studentAllocationSource(d){
+  return (window.__disciplineDraft===d&&disciplineStudentAllocationDraft!==null)
+    ?disciplineStudentAllocationDraft
+    :(d?.teacherStudentLoads||{});
+}
+function studentAssignmentKeyExists(d,teacherId,typeId){
+  const source=studentAllocationSource(d);
+  const byTeacher=source?.[String(teacherId)]||source?.[Number(teacherId)];
+  return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
+}
+function assignedStudentIds(d,teacherId,typeId){
+  const source=studentAllocationSource(d);
+  const byTeacher=source?.[String(teacherId)]||source?.[Number(teacherId)]||{};
+  if(Object.prototype.hasOwnProperty.call(byTeacher,String(typeId))){
+    return [...new Set((byTeacher[String(typeId)]||[]).map(Number).filter(Boolean))];
+  }
+
+  // Compatibility with already-created individual entries:
+  // old schedule entries reveal which student was already attached to this teacher.
+  const lt=lessonTypeById(typeId);
+  if(!lt)return [];
+  return [...new Set(
+    db.schedule
+      .filter(x=>x.specialSchedule
+        &&Number(x.disciplineId)===Number(d?.id)
+        &&Number(x.teacherId)===Number(teacherId)
+        &&x.type===lt.name
+        &&x.studentId)
+      .map(x=>Number(x.studentId))
+  )];
+}
+function assignedStudents(d,teacherId,typeId){
+  const ids=new Set(assignedStudentIds(d,teacherId,typeId));
+  return studentsForGroup(d.group).filter(s=>ids.has(Number(s.id)));
+}
+function assignedStudentTeacherId(d,typeId,studentId,excludeTeacherId=null){
+  const source=studentAllocationSource(d);
+  const teacherIds=new Set([
+    ...Object.keys(source||{}).map(Number),
+    ...(d?.teacherIds||[]).map(Number)
+  ]);
+  for(const tid of teacherIds){
+    if(excludeTeacherId!==null&&Number(tid)===Number(excludeTeacherId))continue;
+    if(assignedStudentIds(d,tid,typeId).includes(Number(studentId)))return Number(tid);
+  }
+  return null;
+}
+function scheduledStudentLoad(disciplineId,teacherId,typeName,studentId,ignoreId=null){
+  return db.schedule
+    .filter(s=>s.id!==ignoreId
+      &&Number(s.disciplineId)===Number(disciplineId)
+      &&Number(s.teacherId)===Number(teacherId)
+      &&s.type===typeName
+      &&Number(s.studentId)===Number(studentId))
+    .reduce((a,s)=>a+num(s.workloadHours),0);
+}
 function disciplineExtraHoursRowsHtml(d){
   const extra=disciplineExtraDraft||{},ids=Object.keys(extra).filter(id=>num(extra[id])>0&&db.lessonTypes.some(lt=>String(lt.id)===String(id)));
   if(!ids.length)return `<div class="extra-hours-empty">Додаткових видів занять ще немає.</div>`;
-  return ids.map(id=>{const lt=db.lessonTypes.find(x=>String(x.id)===String(id)),base=disciplineBaseHoursById(d,id);return `<div class="extra-hour-row" data-extra-type="${esc(id)}"><div class="extra-hour-name"><b>${esc(lt?.name||"Вид занять")}</b><span>${base?`у плані вже ${fmtHours(base)} год · додаємо окремо`:"додатково до робочого плану"}</span></div><label>Додатково, год<input data-extra-hours type="number" min="0" step="0.01" value="${esc(extra[id])}"></label><button type="button" class="extra-hour-remove" onclick="removeDisciplineExtraType('${String(id).replaceAll("'","\\'")}')">×</button></div>`;}).join("");
+  return ids.map(id=>{const lt=db.lessonTypes.find(x=>String(x.id)===String(id)),base=disciplineBaseHoursById(d,id);return `<div class="extra-hour-row" data-extra-type="${esc(id)}"><div class="extra-hour-name"><b>${esc(lt?.name||"Вид занять")}</b><span>${isPerStudentTypeId(id)?`${fmtHours(disciplineUnitHoursById(d,id))} год на одного студента · повний контингент ${groupStudentCount(d.group)} = ${fmtHours(disciplineTotalHoursById(d,id))} год навантаження`:(base?`у плані вже ${fmtHours(base)} год · додаємо окремо`:"додатково до робочого плану")}</span></div><label>Додатково, год<input data-extra-hours type="number" min="0" step="0.01" value="${esc(extra[id])}"></label><button type="button" class="extra-hour-remove" onclick="removeDisciplineExtraType('${String(id).replaceAll("'","\\'")}')">×</button></div>`;}).join("");
 }
 function renderDisciplineExtraHours(d){const box=$("#disciplineExtraHours");if(box)box.innerHTML=disciplineExtraHoursRowsHtml(d);$$('#disciplineExtraHours [data-extra-hours]').forEach(inp=>{inp.oninput=()=>{const row=inp.closest("[data-extra-type]");if(row)disciplineExtraDraft[row.dataset.extraType]=num(inp.value);renderAllocationEditor(d);};});}
 function addDisciplineExtraType(){const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;if(!d)return;const typeId=$("#disciplineExtraTypePicker")?.value,hours=num($("#disciplineExtraTypeHours")?.value);if(!typeId)return alert("Оберіть вид занять.");if(hours<=0)return alert("Вкажіть кількість годин.");disciplineExtraDraft=disciplineExtraDraft||{};disciplineExtraDraft[typeId]=num(disciplineExtraDraft[typeId])+hours;renderDisciplineExtraHours(d);renderAllocationEditor(d);if($("#disciplineExtraTypeHours"))$("#disciplineExtraTypeHours").value="";}
@@ -1647,6 +1732,48 @@ function renderDisciplines(){
 }
 let disciplineAllocationDraft={};
 let disciplineAllocationId=null;
+function cloneStudentAllocationLoads(d){
+  const out={};
+  Object.entries(d?.teacherStudentLoads||{}).forEach(([tid,byType])=>{
+    out[String(tid)]={};
+    Object.entries(byType||{}).forEach(([typeId,ids])=>{
+      out[String(tid)][String(typeId)]=[...new Set((ids||[]).map(Number).filter(Boolean))];
+    });
+  });
+
+  // Preserve already-created individual appointments made before v1.4.
+  (db.schedule||[])
+    .filter(x=>x.specialSchedule&&x.studentId&&Number(x.disciplineId)===Number(d?.id))
+    .forEach(x=>{
+      const typeId=lessonTypeIdByName(x.type);
+      if(!typeId||!isPerStudentTypeId(typeId)||!x.teacherId)return;
+      const tid=String(x.teacherId),typeKey=String(typeId);
+      out[tid]=out[tid]||{};
+      out[tid][typeKey]=out[tid][typeKey]||[];
+      if(!out[tid][typeKey].map(Number).includes(Number(x.studentId))){
+        out[tid][typeKey].push(Number(x.studentId));
+      }
+    });
+  return out;
+}
+function draftStudentKeyExists(teacherId,typeId){
+  const byTeacher=disciplineStudentAllocationDraft?.[String(teacherId)];
+  return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
+}
+function syncPerStudentAllocationLoads(d){
+  if(!disciplineStudentAllocationDraft)return;
+  Object.keys(disciplineAllocationDraft||{}).forEach(tid=>{
+    disciplineAllocationDraft[tid]=disciplineAllocationDraft[tid]||{};
+    db.lessonTypes.filter(lt=>lt.countMode==="per_student").forEach(lt=>{
+      // Old numeric distributions are kept until the administrator explicitly opens
+      // the student picker and chooses concrete students.
+      if(!draftStudentKeyExists(tid,lt.id))return;
+      const ids=disciplineStudentAllocationDraft[String(tid)][String(lt.id)]||[];
+      disciplineAllocationDraft[tid][lt.id]=ids.length*perStudentUnitHours(d,lt.id);
+    });
+  });
+}
+
 function cloneAllocationLoads(d){
   const out={};
   const ids=new Set([...(d?.teacherIds||[]).map(String),...Object.keys(d?.teacherLoads||{})]);
@@ -1663,6 +1790,8 @@ function captureAllocationDraft(){
     disciplineAllocationDraft[tid]=disciplineAllocationDraft[tid]||{};
     card.querySelectorAll('[data-allocation-hour]').forEach(inp=>disciplineAllocationDraft[tid][inp.dataset.type]=num(inp.value));
   });
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
+  if(d)syncPerStudentAllocationLoads(d);
 }
 function allocationDraftTotal(typeId,excludeTid=null){
   return Object.entries(disciplineAllocationDraft||{}).reduce((sum,[tid,load])=>String(tid)===String(excludeTid)?sum:sum+num(load?.[typeId]),0);
@@ -1673,7 +1802,8 @@ function allocationSummaryHtml(d){
   return `<div class="allocation-summary-grid">${types.map(lt=>{
     const plan=disciplineTotalHoursById(d,lt.id),allocated=allocationDraftTotal(lt.id),remaining=plan-allocated;
     const cls=remaining<-.001?"bad":Math.abs(remaining)<=.001?"ok":"warn";
-    return `<div class="allocation-summary-item"><span>${esc(lt.name)}</span><b>${fmtHours(allocated)} / ${fmtHours(plan)}</b><small class="${cls}">${remaining<-.001?`перевищено ${fmtHours(-remaining)}`:`залишилось ${fmtHours(Math.max(0,remaining))}`} год</small></div>`;
+    const formula=lt.countMode==="per_student"?`${fmtHours(perStudentUnitHours(d,lt.id))} год × ${groupStudentCount(d.group)} студентів`:"";
+    return `<div class="allocation-summary-item"><span>${esc(lt.name)}</span><b>${fmtHours(allocated)} / ${fmtHours(plan)}</b>${formula?`<em>${esc(formula)}</em>`:""}<small class="${cls}">${remaining<-.001?`перевищено ${fmtHours(-remaining)}`:`залишилось ${fmtHours(Math.max(0,remaining))}`} год</small></div>`;
   }).join("")}</div>`;
 }
 function refreshAllocationSummary(d){
@@ -1685,6 +1815,154 @@ function allocationTeacherPickerHtml(){
   const rows=departmentTeachers().filter(t=>!used.has(String(t.id)));
   return `<option value="">— обрати викладача —</option>${rows.map(t=>`<option value="${t.id}">${esc(teacherDisplay(t))}</option>`).join("")}`;
 }
+function perStudentAllocationStatus(d,tid,lt){
+  const ids=assignedStudentIds(d,tid,lt.id);
+  const unit=perStudentUnitHours(d,lt.id);
+  const legacyHours=num(disciplineAllocationDraft?.[String(tid)]?.[lt.id]);
+  return {
+    ids,count:ids.length,unit,total:ids.length*unit,
+    groupCount:groupStudentCount(d.group),
+    unresolved:!draftStudentKeyExists(tid,lt.id)&&legacyHours>0,
+    legacyHours
+  };
+}
+function perStudentAllocationPickerHtml(d,tid,lt){
+  const current=new Set(assignedStudentIds(d,tid,lt.id));
+  return `<div class="student-load-picker">${studentsForGroup(d.group).map(s=>{
+    const otherTid=assignedStudentTeacherId(d,lt.id,s.id,tid);
+    const other=otherTid?teacherById(otherTid):null;
+    const checked=current.has(Number(s.id));
+    const used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);
+    return `<button type="button"
+      class="student-load-option ${checked?"active":""} ${other?"taken":""}"
+      ${other?"disabled":""}
+      onclick="togglePerStudentAllocation(${tid},${lt.id},${s.id})">
+      <div>
+        <b>${esc(s.name)}</b>
+        <span>${other
+          ?`уже закріплено: ${esc(teacherDisplay(other))}`
+          :checked
+            ?`${fmtHours(perStudentUnitHours(d,lt.id))} год на студента${used?` · уже виставлено ${fmtHours(used)} год`:""}`
+            :"вільний для розподілу"}</span>
+      </div>
+      <strong>${other?"—":checked?"✓":"+"}</strong>
+    </button>`;
+  }).join("")}</div>`;
+}
+function openPerStudentAllocationPopup(tid,typeId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
+  const lt=lessonTypeById(typeId),t=teacherById(Number(tid));
+  if(!d||!lt||!t)return;
+  captureAllocationDraft();
+
+  disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
+  disciplineStudentAllocationDraft[String(tid)]=disciplineStudentAllocationDraft[String(tid)]||{};
+
+  // From this moment this type is explicitly managed by student selection.
+  if(!Object.prototype.hasOwnProperty.call(disciplineStudentAllocationDraft[String(tid)],String(typeId))){
+    disciplineStudentAllocationDraft[String(tid)][String(typeId)]=assignedStudentIds(d,tid,typeId);
+  }
+
+  const s=perStudentAllocationStatus(d,tid,lt);
+  openPlannerActionModal(`<div class="student-load-popup">
+    <div class="student-load-popup-head">
+      <div>
+        <span>ІНДИВІДУАЛЬНЕ НАВАНТАЖЕННЯ</span>
+        <h2>${esc(teacherDisplay(t))}</h2>
+        <p>${esc(d.name)} · ${esc(d.group)} · ${esc(lt.name)}</p>
+      </div>
+      <div class="student-load-formula">
+        <b>${fmtHours(s.unit)} год</b>
+        <span>на одного студента</span>
+      </div>
+    </div>
+
+    <div class="student-load-popup-tools">
+      <div><b id="studentLoadSelectedCount">${s.count}</b><span>обрано з ${s.groupCount}</span></div>
+      <div><b id="studentLoadTotalHours">${fmtHours(s.total)} год</b><span>навантаження викладача</span></div>
+      <button type="button" class="secondary" onclick="selectAllAvailablePerStudent(${tid},${typeId})">Обрати всіх вільних</button>
+      <button type="button" class="secondary" onclick="clearPerStudentAllocation(${tid},${typeId})">Очистити</button>
+    </div>
+
+    <div id="studentLoadPicker">${perStudentAllocationPickerHtml(d,tid,lt)}</div>
+
+    <div class="planner-popup-footer">
+      <button type="button" class="primary" onclick="applyPerStudentAllocation(${tid},${typeId})">Застосувати розподіл</button>
+    </div>
+  </div>`,true);
+}
+function refreshPerStudentPopup(tid,typeId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
+  if(!d||!lt)return;
+  const s=perStudentAllocationStatus(d,tid,lt);
+  if($("#studentLoadPicker"))$("#studentLoadPicker").innerHTML=perStudentAllocationPickerHtml(d,tid,lt);
+  if($("#studentLoadSelectedCount"))$("#studentLoadSelectedCount").textContent=s.count;
+  if($("#studentLoadTotalHours"))$("#studentLoadTotalHours").textContent=`${fmtHours(s.total)} год`;
+}
+function togglePerStudentAllocation(tid,typeId,studentId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
+  if(!d||!lt)return;
+  const key=String(tid),typeKey=String(typeId);
+  const arr=disciplineStudentAllocationDraft[key][typeKey];
+  const pos=arr.map(Number).indexOf(Number(studentId));
+
+  if(pos>=0){
+    const used=scheduledStudentLoad(d.id,Number(tid),lt.name,studentId);
+    if(used>0)return alert(`Цьому студенту вже виставлено ${fmtHours(used)} год. Спочатку перенеси або видали ці заняття.`);
+    arr.splice(pos,1);
+  }else{
+    const other=assignedStudentTeacherId(d,typeId,studentId,tid);
+    if(other)return alert(`Студент уже закріплений за ${teacherDisplay(teacherById(other))}.`);
+    arr.push(Number(studentId));
+  }
+
+  syncPerStudentAllocationLoads(d);
+  refreshPerStudentPopup(tid,typeId);
+}
+function selectAllAvailablePerStudent(tid,typeId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
+  if(!d)return;
+  const key=String(tid),typeKey=String(typeId);
+  const arr=new Set(disciplineStudentAllocationDraft[key][typeKey]||[]);
+  studentsForGroup(d.group).forEach(s=>{
+    if(!assignedStudentTeacherId(d,typeId,s.id,tid))arr.add(Number(s.id));
+  });
+  disciplineStudentAllocationDraft[key][typeKey]=[...arr];
+  syncPerStudentAllocationLoads(d);
+  refreshPerStudentPopup(tid,typeId);
+}
+function clearPerStudentAllocation(tid,typeId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
+  if(!d||!lt)return;
+  const locked=assignedStudentIds(d,tid,typeId)
+    .filter(sid=>scheduledStudentLoad(d.id,Number(tid),lt.name,sid)>0);
+  disciplineStudentAllocationDraft[String(tid)][String(typeId)]=locked;
+  syncPerStudentAllocationLoads(d);
+  refreshPerStudentPopup(tid,typeId);
+  if(locked.length)alert(`${locked.length} студент(ів) залишено, бо для них уже є заняття в розкладі.`);
+}
+function applyPerStudentAllocation(tid,typeId){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
+  if(!d)return;
+  syncPerStudentAllocationLoads(d);
+  closePlannerActionModal();
+  renderAllocationEditor(d);
+}
+function perStudentAllocationFieldHtml(d,tid,lt){
+  const s=perStudentAllocationStatus(d,tid,lt);
+  return `<div class="per-student-allocation-card ${s.unresolved?"unresolved":""}">
+    <div class="per-student-allocation-copy">
+      <b>${esc(lt.name)}</b>
+      ${s.unresolved
+        ?`<span><strong>${fmtHours(s.legacyHours)} год</strong> зі старого розподілу</span><small>Тепер треба вказати, яким саме студентам належать ці години.</small>`
+        :`<span>${fmtHours(s.unit)} год × ${s.count} студентів = <strong>${fmtHours(s.total)} год</strong></span><small>${s.count?`${s.count} із ${s.groupCount} студентів закріплено`:"Студентів ще не закріплено"}</small>`}
+    </div>
+    <button type="button" class="secondary" onclick="openPerStudentAllocationPopup(${tid},${lt.id})">
+      ${s.count?"Змінити студентів":"Обрати студентів"}
+    </button>
+  </div>`;
+}
+
 function renderAllocationEditor(d){
   const box=$("#teacherAllocation");if(!box)return;
   const ids=Object.keys(disciplineAllocationDraft||{}).filter(tid=>teacherById(Number(tid))).sort((a,b)=>teacherDisplay(teacherById(Number(a))).localeCompare(teacherDisplay(teacherById(Number(b))),"uk"));
@@ -1694,7 +1972,11 @@ function renderAllocationEditor(d){
     const scheduledTotal=types.reduce((a,lt)=>a+scheduledLoad(d.id,Number(tid),lt.name),0);
     return `<div class="allocation-card progressive-allocation" data-allocation-teacher="${tid}">
       <div class="allocation-card-head"><div><b>${esc(teacherDisplay(t))}</b><div class="small">${scheduledTotal?`У розкладі вже ${fmtHours(scheduledTotal)} год`:`Ще немає виставлених занять`}</div></div><div class="actions"><button type="button" class="secondary" onclick="fillTeacherWithRemaining(${tid})">Заповнити залишком</button><button type="button" class="danger" onclick="removeAllocationTeacher(${tid})">Прибрати</button></div></div>
-      <div class="hours-grid">${types.map(lt=>{const used=scheduledLoad(d.id,Number(tid),lt.name);return `<label>${esc(lt.name)}<input data-allocation-hour data-type="${lt.id}" type="number" min="${fmtHours(used)}" step="0.01" value="${esc(load[lt.id]||0)}"><span class="small">план дисципліни ${fmtHours(disciplineTotalHoursById(d,lt.id))}${disciplineExtraHoursById(d,lt.id)?` · з них додатково ${fmtHours(disciplineExtraHoursById(d,lt.id))}`:""}${used?` · вже в розкладі ${fmtHours(used)}`:""}</span></label>`;}).join("")}</div>
+      <div class="hours-grid allocation-hours-grid">${types.map(lt=>{
+        const used=scheduledLoad(d.id,Number(tid),lt.name);
+        if(lt.countMode==="per_student")return perStudentAllocationFieldHtml(d,tid,lt);
+        return `<label>${esc(lt.name)}<input data-allocation-hour data-type="${lt.id}" type="number" min="${fmtHours(used)}" step="0.01" value="${esc(load[lt.id]||0)}"><span class="small">план дисципліни ${fmtHours(disciplineTotalHoursById(d,lt.id))}${disciplineExtraHoursById(d,lt.id)?` · з них додатково ${fmtHours(disciplineExtraHoursById(d,lt.id))}`:""}${used?` · вже в розкладі ${fmtHours(used)}`:""}</span></label>`;
+      }).join("")}</div>
     </div>`;
   }).join(""):`<div class="empty">Викладачів ще не додано. Обери першого викладача нижче.</div>`;
   const picker=$("#allocationTeacherPicker");if(picker)picker.innerHTML=allocationTeacherPickerHtml();
@@ -1706,6 +1988,8 @@ function addAllocationTeacher(){
   const tid=Number($("#allocationTeacherPicker")?.value);if(!tid)return alert("Оберіть викладача.");
   if(disciplineAllocationDraft[String(tid)])return;
   disciplineAllocationDraft[String(tid)]={};db.lessonTypes.forEach(lt=>disciplineAllocationDraft[String(tid)][lt.id]=0);
+  disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
+  disciplineStudentAllocationDraft[String(tid)]=disciplineStudentAllocationDraft[String(tid)]||{};
   renderAllocationEditor(disciplineById(disciplineAllocationId)||window.__disciplineDraft);
 }
 function removeAllocationTeacher(tid){
@@ -1713,21 +1997,54 @@ function removeAllocationTeacher(tid){
   captureAllocationDraft();
   const scheduled=db.lessonTypes.reduce((a,lt)=>a+scheduledLoad(d.id,Number(tid),lt.name),0);
   if(scheduled>0)return alert(`Цього викладача не можна прибрати: у розкладі вже виставлено ${fmtHours(scheduled)} год. Спочатку перенеси або видали ці заняття.`);
-  delete disciplineAllocationDraft[String(tid)];renderAllocationEditor(d);
+  delete disciplineAllocationDraft[String(tid)];if(disciplineStudentAllocationDraft)delete disciplineStudentAllocationDraft[String(tid)];renderAllocationEditor(d);
 }
 function fillTeacherWithRemaining(tid){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;if(!d)return;
   captureAllocationDraft();
   const key=String(tid);disciplineAllocationDraft[key]=disciplineAllocationDraft[key]||{};
   disciplinePlannedTypes(d).forEach(lt=>{
+    if(lt.countMode==="per_student"){
+      disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
+      disciplineStudentAllocationDraft[key]=disciplineStudentAllocationDraft[key]||{};
+      const selected=new Set(disciplineStudentAllocationDraft[key][String(lt.id)]||[]);
+      studentsForGroup(d.group).forEach(s=>{
+        if(!assignedStudentTeacherId(d,lt.id,s.id,tid))selected.add(Number(s.id));
+      });
+      disciplineStudentAllocationDraft[key][String(lt.id)]=[...selected];
+      return;
+    }
     const other=allocationDraftTotal(lt.id,key),plan=disciplineTotalHoursById(d,lt.id),alreadyScheduled=scheduledLoad(d.id,Number(tid),lt.name);
     disciplineAllocationDraft[key][lt.id]=Math.max(alreadyScheduled,Math.max(0,plan-other));
   });
+  syncPerStudentAllocationLoads(d);
   renderAllocationEditor(d);
 }
 function validateAllocationDraft(d){
   captureAllocationDraft();
   const errors=[];
+
+  db.lessonTypes.filter(lt=>lt.countMode==="per_student").forEach(lt=>{
+    const seen=new Map();
+
+    Object.entries(disciplineAllocationDraft||{}).forEach(([tid,load])=>{
+      if(num(load?.[lt.id])>0&&!draftStudentKeyExists(tid,lt.id)){
+        errors.push(`${teacherDisplay(teacherById(Number(tid)))} · ${lt.name}: години розподілені, але не вказані конкретні студенти.`);
+      }
+    });
+
+    Object.entries(disciplineStudentAllocationDraft||{}).forEach(([tid,byType])=>{
+      (byType?.[String(lt.id)]||[]).forEach(studentId=>{
+        const old=seen.get(Number(studentId));
+        if(old&&Number(old)!==Number(tid)){
+          const s=db.students.find(x=>Number(x.id)===Number(studentId));
+          errors.push(`${lt.name}: студент ${s?.name||studentId} закріплений одразу за двома викладачами.`);
+        }else{
+          seen.set(Number(studentId),Number(tid));
+        }
+      });
+    });
+  });
   disciplinePlannedTypes(d).forEach(lt=>{
     const plan=disciplineTotalHoursById(d,lt.id),allocated=allocationDraftTotal(lt.id);
     if(allocated>plan+.001)errors.push(`${lt.name}: розподілено ${fmtHours(allocated)} год при плані ${fmtHours(plan)}.`);
@@ -1741,10 +2058,12 @@ function validateAllocationDraft(d){
   return errors;
 }
 function openDisciplineModal(id=null){
-  const d=id?disciplineById(id):{id:null,name:"",course:"",group:"",semester:db.semester,academicYear:db.academicYear,teacherIds:[],teacherLoads:{},controlForm:"Немає",color:"#8b5cf6",hours:{},note:"",status:"active"};
+  const d=id?disciplineById(id):{id:null,name:"",course:"",group:"",semester:db.semester,academicYear:db.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},controlForm:"Немає",color:"#8b5cf6",hours:{},note:"",status:"active"};
   const fromPlan=!!d.sourceCurriculumId,lock=fromPlan?'disabled':'',ro=fromPlan?'readonly':'';
   disciplineAllocationId=id;window.__disciplineDraft=d;disciplineAllocationDraft=cloneAllocationLoads(d);
+  disciplineStudentAllocationDraft=cloneStudentAllocationLoads(d);
   disciplineExtraDraft=clone(d.extraHours||{});
+  syncPerStudentAllocationLoads(d);
   const hours=db.lessonTypes.map(t=>`<label>${esc(t.name)}<input class="dh" data-type="${t.id}" type="number" min="0" step="0.01" value="${esc(d.hours?.[t.id]||0)}" ${ro}></label>`).join("");
   openModal(`<h2>${id?"Навантаження дисципліни":"Нова дисципліна кафедри"}</h2>${fromPlan?`<div class="notice success-notice"><b>${esc(d.name)}</b> створена з робочого плану. Базові години плану не змінюються; додаткові види занять можна додати окремо нижче.</div>`:""}<form id="df" class="form-grid">
     <label class="wide">Назва дисципліни<input id="dn" value="${esc(d.name)}" required ${ro}></label>
@@ -1780,11 +2099,25 @@ function openDisciplineModal(id=null){
       const load=disciplineAllocationDraft[String(id)]||{};
       return Object.values(load).some(v=>num(v)>0);
     });
+    syncPerStudentAllocationLoads(d);
     const teacherLoads={};ids.forEach(tid=>{teacherLoads[tid]={};db.lessonTypes.forEach(lt=>teacherLoads[tid][lt.id]=num(disciplineAllocationDraft[String(tid)]?.[lt.id]));});
+
+    const teacherStudentLoads={};
+    Object.entries(disciplineStudentAllocationDraft||{}).forEach(([tid,byType])=>{
+      const clean={};
+      Object.entries(byType||{}).forEach(([typeId,studentIds])=>{
+        const arr=[...new Set((studentIds||[]).map(Number).filter(Boolean))];
+        if(arr.length||draftStudentKeyExists(tid,typeId))clean[typeId]=arr;
+      });
+      if(Object.keys(clean).length)teacherStudentLoads[tid]=clean;
+    });
+
     const extraHours={};Object.entries(disciplineExtraDraft||{}).forEach(([k,v])=>{if(num(v)>0)extraHours[k]=num(v);});
-    const obj=fromPlan?{teacherIds:ids,teacherLoads,extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}:{name:$("#dn").value.trim(),group:$("#dg").value,course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
+    const obj=fromPlan
+      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
+      :{name:$("#dn").value.trim(),group:$("#dg").value,course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
     if(id)Object.assign(d,obj);else db.disciplines.push({id:uid(db.disciplines),...obj});
-    disciplineAllocationId=null;disciplineAllocationDraft={};disciplineExtraDraft=null;delete window.__disciplineDraft;closeModal();save();
+    disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineExtraDraft=null;delete window.__disciplineDraft;closeModal();save();
   };
 }
 
@@ -1798,7 +2131,7 @@ const SPECIAL_SCHEDULE_KINDS=[
   {id:"consult_bachelor",label:"Консультації бакалаврів",short:"Бакалаври",description:"Консультації студентів 1–4 курсів"},
   {id:"consult_master",label:"Консультації магістрів",short:"Магістри",description:"Консультації студентів 5+ курсів"}
 ];
-let specialScheduleState={kind:"individual",group:"",month:clampAcademicMonth(currentAcademicDate().slice(0,7))};
+let specialScheduleState={kind:"individual",group:"",disciplineId:null,month:clampAcademicMonth(currentAcademicDate().slice(0,7))};
 function specialKindMeta(id){return SPECIAL_SCHEDULE_KINDS.find(x=>x.id===id)||SPECIAL_SCHEDULE_KINDS[0];}
 function studentsForGroup(group){return db.students.filter(s=>s.status!=="archived"&&normIdentity(s.group)===normIdentity(group)).slice().sort((a,b)=>a.name.localeCompare(b.name,"uk"));}
 function isConsultationType(lt){return normIdentity(lt?.name||"").includes("консультац");}
@@ -1827,8 +2160,46 @@ function specialLoadRows(kind=specialScheduleState.kind){
 }
 function specialEventRows(kind=specialScheduleState.kind){return db.schedule.filter(x=>x.specialSchedule===true&&x.specialKind===kind&&dateInBounds(x.date)).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.pairId||99)-Number(b.pairId||99)||Number(a.specialHalf||1)-Number(b.specialHalf||1));}
 function specialGroups(kind=specialScheduleState.kind){const set=new Set([...specialLoadRows(kind).map(x=>x.d.group),...specialEventRows(kind).map(x=>x.group)].filter(Boolean));return db.groups.filter(g=>set.has(g.code)).sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code,"uk"));}
-function setSpecialKind(kind){specialScheduleState.kind=kind;const groups=specialGroups(kind);if(!groups.some(g=>g.code===specialScheduleState.group))specialScheduleState.group=groups[0]?.code||"";renderSpecialSchedule();}
-function setSpecialGroup(group){specialScheduleState.group=group;renderSpecialSchedule();}
+function specialDisciplineChoices(kind=specialScheduleState.kind,group=specialScheduleState.group){
+  const byId=new Map();
+
+  specialLoadRows(kind)
+    .filter(x=>!group||normIdentity(x.d.group)===normIdentity(group))
+    .forEach(x=>byId.set(Number(x.d.id),x.d));
+
+  specialEventRows(kind)
+    .filter(x=>!group||normIdentity(x.group)===normIdentity(group))
+    .forEach(x=>{
+      const d=disciplineById(x.disciplineId);
+      if(d)byId.set(Number(d.id),d);
+    });
+
+  return [...byId.values()].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"uk"));
+}
+function ensureSpecialDiscipline(){
+  const choices=specialDisciplineChoices();
+  if(!choices.some(d=>Number(d.id)===Number(specialScheduleState.disciplineId))){
+    specialScheduleState.disciplineId=choices[0]?.id||null;
+  }
+}
+function setSpecialKind(kind){
+  specialScheduleState.kind=kind;
+  const groups=specialGroups(kind);
+  if(!groups.some(g=>g.code===specialScheduleState.group))specialScheduleState.group=groups[0]?.code||"";
+  specialScheduleState.disciplineId=null;
+  ensureSpecialDiscipline();
+  renderSpecialSchedule();
+}
+function setSpecialGroup(group){
+  specialScheduleState.group=group;
+  specialScheduleState.disciplineId=null;
+  ensureSpecialDiscipline();
+  renderSpecialSchedule();
+}
+function setSpecialDiscipline(id){
+  specialScheduleState.disciplineId=Number(id)||null;
+  renderSpecialSchedule();
+}
 function setSpecialMonth(month){specialScheduleState.month=month;renderSpecialSchedule();}
 function timeToMinutesValue(v){const [h,m]=String(v||"00:00").split(":").map(Number);return h*60+m;}
 function minutesToTimeValue(v){const h=Math.floor(v/60),m=v%60;return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;}
@@ -1836,20 +2207,128 @@ function specialHalfTimes(pairId,half){const p=pairById(pairId);if(!p||!p.start|
 function specialSlotLabel(x){const p=pairById(x.pairId),half=Number(x.specialHalf)===2?"ІІ половина":"І половина";return `${p?.id||x.pairId||"—"} пара · ${half}${x.start&&x.end?` · ${x.start}–${x.end}`:""}`;}
 function specialStudentName(x){const s=db.students.find(s=>Number(s.id)===Number(x.studentId));return s?.name||x.students||"Студент";}
 function specialKindTabsHtml(){return `<div class="special-kind-tabs">${SPECIAL_SCHEDULE_KINDS.map(k=>{const remaining=specialLoadRows(k.id).reduce((a,x)=>a+x.remaining,0);return `<button class="${specialScheduleState.kind===k.id?"active":""}" onclick="setSpecialKind('${k.id}')"><span>${esc(k.short)}</span><b>${fmtHours(remaining)} год</b></button>`;}).join("")}</div>`;}
-function specialLoadCardHtml(x){const done=x.remaining<=.001;return `<article class="special-load-card ${done?"done":""}" style="${scheduleColorVars({group:x.d.group,discipline:x.d.name})}"><div class="special-load-card-head"><div><span>${esc(x.d.group)} · ${esc(x.d.course||groupCourse(x.d.group))} курс</span><h4>${esc(x.d.name)}</h4></div><strong class="${done?"done":""}">${done?"ГОТОВО":`${fmtHours(x.remaining)} год`}</strong></div><div class="special-load-teacher"><span>Викладач</span><b>${esc(teacherDisplay(x.t))}</b></div><div class="special-load-progress"><div><span>${esc(x.lt.name)}</span><b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</b></div><i><em style="width:${x.planned?Math.min(100,x.scheduled/x.planned*100):0}%"></em></i></div><button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати студенту"}</button></article>`;}
-function specialMonthTabsHtml(){return `<div class="teacher-month-tabs special-month-tabs">${academicMonthTabs().map(m=>{const count=specialEventRows().filter(x=>String(x.date||"").slice(0,7)===m.value&&(!specialScheduleState.group||x.group===specialScheduleState.group)).length;return `<button class="${specialScheduleState.month===m.value?"active":""}" onclick="setSpecialMonth('${m.value}')"><span>${esc(m.label)}</span>${count?`<b>${count}</b>`:""}</button>`;}).join("")}</div>`;}
+function specialLoadCardHtml(x){
+  const done=x.remaining<=.001;
+  const assigned=x.lt.countMode==="per_student"?assignedStudentIds(x.d,x.t.id,x.lt.id).length:0;
+  const unit=x.lt.countMode==="per_student"?perStudentUnitHours(x.d,x.lt.id):0;
+  return `<article class="special-load-card ${done?"done":""}" style="${scheduleColorVars({group:x.d.group,discipline:x.d.name})}">
+    <div class="special-load-card-head"><div><span>${esc(x.d.group)} · ${esc(x.d.course||groupCourse(x.d.group))} курс</span><h4>${esc(x.d.name)}</h4></div><strong class="${done?"done":""}">${done?"ГОТОВО":`${fmtHours(x.remaining)} год`}</strong></div>
+    <div class="special-load-teacher"><span>Викладач</span><b>${esc(teacherDisplay(x.t))}</b></div>
+    ${x.lt.countMode==="per_student"?`<div class="special-student-formula"><b>${assigned} студентів</b><span>× ${fmtHours(unit)} год = ${fmtHours(x.planned)} год навантаження</span></div>`:""}
+    <div class="special-load-progress"><div><span>${esc(x.lt.name)}</span><b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)} год</b></div><i><em style="width:${x.planned?Math.min(100,x.scheduled/x.planned*100):0}%"></em></i></div>
+    <button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати студенту"}</button>
+  </article>`;
+}
+function specialDisciplineTabsHtml(){
+  const choices=specialDisciplineChoices();
+  if(!choices.length)return `<div class="empty">Для цієї групи ще немає дисциплін у вибраному окремому розкладі.</div>`;
+  return `<div class="special-discipline-tabs">${choices.map(d=>{
+    const eventCount=specialEventRows()
+      .filter(x=>Number(x.disciplineId)===Number(d.id))
+      .filter(x=>!specialScheduleState.group||normIdentity(x.group)===normIdentity(specialScheduleState.group))
+      .length;
+    return `<button class="${Number(specialScheduleState.disciplineId)===Number(d.id)?"active":""}" onclick="setSpecialDiscipline(${d.id})" style="${scheduleColorVars({group:d.group,discipline:d.name})}">
+      <span>Дисципліна</span>
+      <b>${esc(d.name)}</b>
+      <small>${eventCount} записів</small>
+    </button>`;
+  }).join("")}</div>`;
+}
+function specialMonthTabsHtml(){
+  return `<div class="teacher-month-tabs special-month-tabs">${academicMonthTabs().map(m=>{
+    const count=specialEventRows()
+      .filter(x=>String(x.date||"").slice(0,7)===m.value)
+      .filter(x=>!specialScheduleState.group||normIdentity(x.group)===normIdentity(specialScheduleState.group))
+      .filter(x=>!specialScheduleState.disciplineId||Number(x.disciplineId)===Number(specialScheduleState.disciplineId))
+      .length;
+    return `<button class="${specialScheduleState.month===m.value?"active":""}" onclick="setSpecialMonth('${m.value}')"><span>${esc(m.label)}</span>${count?`<b>${count}</b>`:""}</button>`;
+  }).join("")}</div>`;
+}
 function specialScheduleListHtml(){
-  const rows=specialEventRows().filter(x=>String(x.date||"").slice(0,7)===specialScheduleState.month).filter(x=>!specialScheduleState.group||normIdentity(x.group)===normIdentity(specialScheduleState.group));
+  const rows=specialEventRows()
+    .filter(x=>String(x.date||"").slice(0,7)===specialScheduleState.month)
+    .filter(x=>!specialScheduleState.group||normIdentity(x.group)===normIdentity(specialScheduleState.group))
+    .filter(x=>!specialScheduleState.disciplineId||Number(x.disciplineId)===Number(specialScheduleState.disciplineId));
   if(!rows.length)return `<div class="empty">У цьому місяці ще немає записів цього спеціального розкладу.</div>`;
   const dates=[...new Set(rows.map(x=>x.date))];
   return `<div class="special-schedule-days">${dates.map(date=>{const dayRows=rows.filter(x=>x.date===date);return `<section class="special-day"><div class="special-day-date"><b>${formatDate(date)}</b><span>${esc(weekdayNameForDate(date))}</span><strong>${dayRows.length}</strong></div><div class="special-day-events">${dayRows.map(x=>`<div class="special-event-card" style="${scheduleColorVars(x)}"><div class="special-event-time"><b>${esc(specialSlotLabel(x))}</b><span>${esc(x.room||"без аудиторії")}</span></div><div class="special-event-student"><span>Студент</span><b>${esc(specialStudentName(x))}</b></div><div class="special-event-context"><b>${esc(x.discipline||"")}</b><span>${esc(x.teacher||"")}</span></div><button onclick="deleteSpecialScheduleEvent(${x.id})">×</button></div>`).join("")}</div></section>`;}).join("")}</div>`;
 }
 function renderSpecialSchedule(){
-  const kind=specialScheduleState.kind,groups=specialGroups(kind);if(!specialScheduleState.group&&groups.length)specialScheduleState.group=groups[0].code;
-  const rows=specialLoadRows(kind).filter(x=>!specialScheduleState.group||x.d.group===specialScheduleState.group),remaining=rows.reduce((a,x)=>a+x.remaining,0),events=specialEventRows(kind);
-  $("#page-specialSchedule").innerHTML=`<div class="special-schedule-page"><div class="special-hero"><div><span>ОКРЕМІ РОЗКЛАДИ</span><h2>Індивідуальні та консультації</h2><p>Тут працюємо не парами, а академічними годинами: <b>1 запис = половина пари = 1 академічна година на одного студента.</b></p></div><div class="special-hero-kpi"><b>${fmtHours(remaining)}</b><span>годин залишилось у вибраному режимі / групі</span></div></div>${specialKindTabsHtml()}<div class="special-group-bar"><div><span>Група</span><b>${esc(specialScheduleState.group||"—")}</b></div>${groups.length?groupSwitchRowHtml({selected:specialScheduleState.group,onclick:"setSpecialGroup",groups,badgeFn:g=>String(studentsForGroup(g.code).length),extraClass:"special-group-switch"}):`<div class="empty">Для цього режиму ще немає розподіленого навантаження.</div>`}</div><div class="special-two-column"><section class="card section special-load-section"><div class="section-head"><div><h2>Навантаження для розстановки</h2><div class="small">${esc(specialKindMeta(kind).description)}</div></div></div>${rows.length?`<div class="special-load-grid">${rows.map(specialLoadCardHtml).join("")}</div>`:`<div class="empty">У ${esc(specialScheduleState.group||"цій групі")} немає розподілених годин цього типу. Додай вид занять у «Навантаженні» та розподіли його викладачу.</div>`}</section><section class="card section special-ready-section"><div class="section-head"><div><h2>Готовий окремий розклад</h2><div class="small">${events.length} записів у базі для режиму «${esc(specialKindMeta(kind).label)}».</div></div></div>${specialMonthTabsHtml()}${specialScheduleListHtml()}</section></div></div>`;
+  const kind=specialScheduleState.kind,groups=specialGroups(kind);
+  if(!specialScheduleState.group&&groups.length)specialScheduleState.group=groups[0].code;
+  ensureSpecialDiscipline();
+
+  const rows=specialLoadRows(kind)
+    .filter(x=>!specialScheduleState.group||x.d.group===specialScheduleState.group);
+  const remaining=rows.reduce((a,x)=>a+x.remaining,0);
+  const selectedDiscipline=disciplineById(specialScheduleState.disciplineId);
+
+  $("#page-specialSchedule").innerHTML=`<div class="special-schedule-page">
+    <div class="special-hero">
+      <div><span>ОКРЕМІ РОЗКЛАДИ</span><h2>Індивідуальні та консультації</h2><p>Тут працюємо не парами, а академічними годинами: <b>1 запис = половина пари = 1 академічна година на одного студента.</b></p></div>
+      <div class="special-hero-kpi"><b>${fmtHours(remaining)}</b><span>годин залишилось у вибраному режимі / групі</span></div>
+    </div>
+
+    ${specialKindTabsHtml()}
+
+    <div class="special-group-bar">
+      <div><span>Група</span><b>${esc(specialScheduleState.group||"—")}</b></div>
+      ${groups.length?groupSwitchRowHtml({selected:specialScheduleState.group,onclick:"setSpecialGroup",groups,badgeFn:g=>String(studentsForGroup(g.code).length),extraClass:"special-group-switch"}):`<div class="empty">Для цього режиму ще немає розподіленого навантаження.</div>`}
+    </div>
+
+    <div class="special-two-column">
+      <section class="card section special-load-section">
+        <div class="section-head"><div><h2>Навантаження для розстановки</h2><div class="small">${esc(specialKindMeta(kind).description)}</div></div></div>
+        ${rows.length?`<div class="special-load-grid">${rows.map(specialLoadCardHtml).join("")}</div>`:`<div class="empty">У ${esc(specialScheduleState.group||"цій групі")} немає розподілених годин цього типу. Додай вид занять у «Навантаженні» та розподіли його викладачу.</div>`}
+      </section>
+
+      <section class="card section special-ready-section">
+        <div class="section-head">
+          <div>
+            <h2>Готовий окремий розклад</h2>
+            <div class="small">${selectedDiscipline?`Зараз показано тільки: ${esc(selectedDiscipline.name)}`:"Спочатку обери дисципліну."}</div>
+          </div>
+        </div>
+
+        <div class="special-ready-step">
+          <span>1</span>
+          <div><b>Оберіть дисципліну</b><small>Режисура, драматургія та інші дисципліни більше не змішуються в одному розкладі.</small></div>
+        </div>
+        ${specialDisciplineTabsHtml()}
+
+        <div class="special-ready-step">
+          <span>2</span>
+          <div><b>Оберіть місяць</b><small>Місяці рахуються тільки для вибраної дисципліни.</small></div>
+        </div>
+        ${specialMonthTabsHtml()}
+        ${specialScheduleListHtml()}
+      </section>
+    </div>
+  </div>`;
 }
-function specialStudentButtonsHtml(group,selected=null){return `<div class="special-student-picker">${studentsForGroup(group).map(s=>`<button type="button" class="${Number(selected)===Number(s.id)?"active":""}" data-student-id="${s.id}" onclick="selectSpecialStudent(${s.id})"><span>${esc(s.name)}</span></button>`).join("")}</div>`;}
+function specialStudentsForLoad(d,t,lt){
+  return lt.countMode==="per_student"?assignedStudents(d,t.id,lt.id):studentsForGroup(d.group);
+}
+function specialStudentProgress(d,t,lt,studentId){
+  const plan=lt.countMode==="per_student"
+    ?perStudentUnitHours(d,lt.id)
+    :teacherTypePlan(d,t.id,lt.name);
+  const used=scheduledStudentLoad(d.id,t.id,lt.name,studentId);
+  return {plan,used,remaining:Math.max(0,plan-used),done:used>=plan-.001};
+}
+function specialStudentButtonsHtml(d,t,lt,selected=null){
+  return `<div class="special-student-picker">${specialStudentsForLoad(d,t,lt).map(s=>{
+    const p=specialStudentProgress(d,t,lt,s.id);
+    return `<button type="button"
+      class="${Number(selected)===Number(s.id)?"active":""} ${p.done?"done":""}"
+      data-student-id="${s.id}"
+      ${p.done?"disabled":""}
+      onclick="selectSpecialStudent(${s.id})">
+        <span>${esc(s.name)}</span>
+        ${lt.countMode==="per_student"?`<small>${fmtHours(p.used)} / ${fmtHours(p.plan)} год${p.done?" · ГОТОВО":` · залишок ${fmtHours(p.remaining)}`}</small>`:""}
+    </button>`;
+  }).join("")}</div>`;
+}
 function selectSpecialStudent(id){const hidden=$("#specialStudentId");if(hidden)hidden.value=id;$$('[data-student-id]').forEach(b=>b.classList.toggle("active",Number(b.dataset.studentId)===Number(id)));}
 function specialHalfOptionsHtml(pairId,selected=1){return [1,2].map(h=>{const times=specialHalfTimes(pairId,h);return `<button type="button" class="special-half-btn ${Number(selected)===h?"active":""}" data-half="${h}" onclick="selectSpecialHalf(${h})"><b>${h===1?"І половина":"ІІ половина"}</b><span>${esc(times.start)}–${esc(times.end)}</span></button>`;}).join("");}
 function selectSpecialHalf(half){const hidden=$("#specialHalf");if(hidden)hidden.value=half;$$('[data-half]').forEach(b=>b.classList.toggle("active",Number(b.dataset.half)===Number(half)));refreshSpecialRoomOptions();}
@@ -1879,9 +2358,17 @@ function refreshSpecialHalfButtons(){
 }
 function openSpecialScheduleModal(disciplineId,teacherId,typeId){
   const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=db.lessonTypes.find(x=>Number(x.id)===Number(typeId));if(!d||!t||!lt)return;
-  const students=studentsForGroup(d.group);if(!students.length)return alert("У цій групі немає студентів.");const remaining=remainingLoad(d,t.id,lt.name);if(remaining<1-.001)return alert("Для цього виду занять уже немає щонайменше 1 години залишку.");
+  const students=specialStudentsForLoad(d,t,lt);
+  if(!students.length){
+    return alert(lt.countMode==="per_student"
+      ?"За цим викладачем ще не закріплено жодного студента. Відкрий «Навантаження» → дисципліну → цього викладача → «Обрати студентів»."
+      :"У цій групі немає студентів.");
+  }
+  const availableStudents=students.filter(s=>!specialStudentProgress(d,t,lt,s.id).done);
+  if(!availableStudents.length)return alert("Усі закріплені за цим викладачем студенти вже використали свої години.");
+  const remaining=remainingLoad(d,t.id,lt.name);if(remaining<1-.001)return alert("Для цього виду занять уже немає щонайменше 1 години залишку.");
   const bounds=semesterDateBounds(d.semester),defaultDate=clampDate(currentAcademicDate(),bounds),firstPair=bellPairs()[0]?.id||1;
-  openModal(`<div class="special-modal"><div class="special-modal-head"><div><span>${esc(specialKindMeta(specialScheduleState.kind).label)}</span><h2>${esc(d.name)}</h2><strong>${esc(teacherDisplay(t))}</strong><p>${esc(d.group)} · ${esc(lt.name)} · залишок ${fmtHours(remaining)} год</p></div><div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div></div><form id="specialScheduleForm"><input id="specialStudentId" type="hidden" value="${students[0].id}"><input id="specialHalf" type="hidden" value="1"><div class="special-form-section"><div class="special-form-title"><span>1</span><div><b>Студент</b><small>кожен запис належить конкретному студенту</small></div></div>${specialStudentButtonsHtml(d.group,students[0].id)}</div><div class="special-form-section"><div class="special-form-title"><span>2</span><div><b>Дата і половина пари</b><small>повної пари тут немає — тільки одна академічна година</small></div></div><div class="special-time-grid"><label>Дата<input id="specialDate" type="date" min="${bounds.start}" max="${bounds.end}" value="${defaultDate}"></label><label>Пара<select id="specialPair">${bellPairs().map(p=>`<option value="${p.id}">${p.id} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("")}</select></label></div><div id="specialHalfButtons" class="special-half-buttons">${specialHalfOptionsHtml(firstPair,1)}</div></div><div class="special-form-section"><div class="special-form-title"><span>3</span><div><b>Місце</b><small>аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій</small></div></div><div class="special-time-grid"><label>Аудиторія<select id="specialRoom">${specialRoomOptions(defaultDate,firstPair,1,"")}</select></label><label>Примітка<input id="specialNote" placeholder="необов’язково"></label></div></div><div id="specialConflictMessage"></div><div class="special-modal-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button class="primary">Зберегти 1 академічну годину</button></div></form></div>`,true);
+  openModal(`<div class="special-modal"><div class="special-modal-head"><div><span>${esc(specialKindMeta(specialScheduleState.kind).label)}</span><h2>${esc(d.name)}</h2><strong>${esc(teacherDisplay(t))}</strong><p>${esc(d.group)} · ${esc(lt.name)} · залишок ${fmtHours(remaining)} год</p></div><div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div></div><form id="specialScheduleForm"><input id="specialStudentId" type="hidden" value="${availableStudents[0].id}"><input id="specialHalf" type="hidden" value="1"><div class="special-form-section"><div class="special-form-title"><span>1</span><div><b>Студент</b><small>кожен запис належить конкретному студенту</small></div></div>${specialStudentButtonsHtml(d,t,lt,availableStudents[0].id)}</div><div class="special-form-section"><div class="special-form-title"><span>2</span><div><b>Дата і половина пари</b><small>повної пари тут немає — тільки одна академічна година</small></div></div><div class="special-time-grid"><label>Дата<input id="specialDate" type="date" min="${bounds.start}" max="${bounds.end}" value="${defaultDate}"></label><label>Пара<select id="specialPair">${bellPairs().map(p=>`<option value="${p.id}">${p.id} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("")}</select></label></div><div id="specialHalfButtons" class="special-half-buttons">${specialHalfOptionsHtml(firstPair,1)}</div></div><div class="special-form-section"><div class="special-form-title"><span>3</span><div><b>Місце</b><small>аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій</small></div></div><div class="special-time-grid"><label>Аудиторія<select id="specialRoom">${specialRoomOptions(defaultDate,firstPair,1,"")}</select></label><label>Примітка<input id="specialNote" placeholder="необов’язково"></label></div></div><div id="specialConflictMessage"></div><div class="special-modal-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button class="primary">Зберегти 1 академічну годину</button></div></form></div>`,true);
   $("#specialPair").onchange=refreshSpecialHalfButtons;
   $("#specialDate").onchange=refreshSpecialRoomOptions;
   $("#specialScheduleForm").onsubmit=e=>saveSpecialScheduleEvent(e,d,t,lt);
@@ -1891,14 +2378,26 @@ function saveSpecialScheduleEvent(e,d,t,lt){
   const date=$("#specialDate").value,pairId=$("#specialPair").value,half=Number($("#specialHalf").value||1),times=specialHalfTimes(pairId,half),room=$("#specialRoom").value;
   const item={id:uid(db.schedule),date,start:times.start,end:times.end,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type:lt.name,coverage:student.name,students:student.name,studentId,teacherId:t.id,teacher:teacherDisplay(t),room,workloadHours:1,note:$("#specialNote").value.trim(),repeatBatchId:null,specialSchedule:true,specialKind:specialScheduleState.kind,specialHalf:half,scheduleSource:"special"};
   const rem=remainingLoad(d,t.id,lt.name);if(rem<1-.001)return alert(`Залишок навантаження лише ${fmtHours(rem)} год.`);
+
+  if(lt.countMode==="per_student"){
+    if(!assignedStudentIds(d,t.id,lt.id).includes(Number(studentId))){
+      return alert("Цей студент не закріплений за цим викладачем у навантаженні.");
+    }
+    const planForStudent=perStudentUnitHours(d,lt.id);
+    const usedForStudent=scheduledStudentLoad(d.id,t.id,lt.name,studentId);
+    if(usedForStudent+1>planForStudent+.001){
+      return alert(`У цього студента залишилось лише ${fmtHours(Math.max(0,planForStudent-usedForStudent))} год.`);
+    }
+  }
+
   const cs=conflictsFor(item,null),info=teacherAvailabilityInfo(item,null),studentConflict=db.schedule.some(x=>x.date===date&&Number(x.studentId)===studentId&&((x.specialSchedule||item.specialSchedule)?timeOverlap(item.start,item.end,x.start,x.end):(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))));if(studentConflict)cs.push({discipline:"Студент уже зайнятий у цей час"});
   if(cs.length||info.warnings.length){
     $("#specialConflictMessage").innerHTML=conflictDetailsHtml(item,cs,info.warnings);
     return;
   }
-  db.schedule.push(item);closeModal();save();go("specialSchedule",{focusCurrentCalendar:false});
+  db.schedule.push(item);specialScheduleState.disciplineId=d.id;specialScheduleState.group=d.group;closeModal();save();go("specialSchedule",{focusCurrentCalendar:false});
 }
-function openSpecialEventFromRoom(id){const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x||!x.specialSchedule)return;specialScheduleState.kind=x.specialKind||"individual";specialScheduleState.group=x.group||"";specialScheduleState.month=String(x.date||"").slice(0,7)||specialScheduleState.month;go("specialSchedule",{focusCurrentCalendar:false});}
+function openSpecialEventFromRoom(id){const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x||!x.specialSchedule)return;specialScheduleState.kind=x.specialKind||"individual";specialScheduleState.group=x.group||"";specialScheduleState.disciplineId=x.disciplineId||null;specialScheduleState.month=String(x.date||"").slice(0,7)||specialScheduleState.month;go("specialSchedule",{focusCurrentCalendar:false});}
 function deleteSpecialScheduleEvent(id){const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x)return;if(!confirm(`Видалити ${specialKindMeta(x.specialKind).short.toLowerCase()} · ${specialStudentName(x)} · ${formatDate(x.date)}?`))return;db.schedule=db.schedule.filter(s=>Number(s.id)!==Number(id));save();}
 
 /* Schedule */
@@ -1907,6 +2406,11 @@ function disciplineTypePlan(d,typeName){const id=lessonTypeIdByName(typeName);re
 function teacherTypePlan(d,teacherId,typeName){
   if(!d||!teacherId)return 0;
   const id=lessonTypeIdByName(typeName);if(!id)return 0;
+
+  if(isPerStudentTypeId(id)&&studentAssignmentKeyExists(d,teacherId,id)){
+    return assignedStudentIds(d,teacherId,id).length*perStudentUnitHours(d,id);
+  }
+
   const load=explicitTeacherLoad(d,teacherId);
   return load?num(load[id]):0;
 }

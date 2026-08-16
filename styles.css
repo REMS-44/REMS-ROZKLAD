@@ -5537,3 +5537,241 @@ td .small{font-size:12px}
   line-height:1.3;
   color:#7a6b81;
 }
+
+
+/* ================================================================
+   v1.4.0 · INDIVIDUAL LOAD PER STUDENT + READY SCHEDULE BY DISCIPLINE
+   ================================================================ */
+
+.allocation-hours-grid{
+  grid-template-columns:repeat(auto-fit,minmax(245px,1fr))!important;
+}
+.per-student-allocation-card{
+  min-height:112px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  gap:10px;
+  padding:11px;
+  border:1px solid #d7ddd9;
+  border-left:5px solid #34896d;
+  border-radius:11px;
+  background:linear-gradient(135deg,#edf8f3,#fff 74%);
+}
+.per-student-allocation-card.unresolved{
+  border-left-color:#d49a37;
+  background:linear-gradient(135deg,#fff8e9,#fff 74%);
+}
+.per-student-allocation-copy{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.per-student-allocation-copy>b{font-size:14px}
+.per-student-allocation-copy>span{font-size:12px;color:#4c6c60}
+.per-student-allocation-copy>span strong{color:#276b55}
+.per-student-allocation-copy>small{font-size:10px;color:#776c7e}
+.per-student-allocation-card button{width:100%}
+
+.allocation-summary-item em{
+  display:block;
+  margin-top:3px;
+  font-size:10px;
+  font-style:normal;
+  color:#34765f;
+}
+
+/* student assignment popup */
+.student-load-popup{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.student-load-popup-head{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 180px;
+  gap:12px;
+}
+.student-load-popup-head>div:first-child{
+  padding:13px 15px;
+  border-left:5px solid #34896d;
+  border-radius:12px;
+  background:#f8fbfa;
+}
+.student-load-popup-head>div:first-child>span{
+  display:block;
+  font-size:9px;
+  font-weight:900;
+  letter-spacing:.9px;
+  color:#46816d;
+}
+.student-load-popup-head h2{margin:3px 0!important;font-size:23px!important}
+.student-load-popup-head p{margin:0;font-size:11px;color:#74677b}
+.student-load-formula{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  border-radius:12px;
+  background:linear-gradient(145deg,#2d8066,#42a280);
+  color:#fff;
+}
+.student-load-formula b{font-size:25px}
+.student-load-formula span{font-size:10px;color:#dcf2ea}
+
+.student-load-popup-tools{
+  display:grid;
+  grid-template-columns:150px 190px 1fr 1fr;
+  gap:8px;
+}
+.student-load-popup-tools>div{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding:9px 11px;
+  border-radius:10px;
+  background:#f1f7f4;
+}
+.student-load-popup-tools>div b{font-size:19px;color:#2d765f}
+.student-load-popup-tools>div span{font-size:9px;color:#6f7e77}
+.student-load-popup-tools button{min-height:52px}
+
+.student-load-picker{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+  gap:7px;
+  max-height:55vh;
+  overflow:auto;
+  padding:2px;
+}
+.student-load-option{
+  min-height:64px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 30px;
+  gap:8px;
+  align-items:center;
+  padding:9px 10px;
+  border:1px solid #ded7e2;
+  border-radius:10px;
+  background:#fff;
+  text-align:left;
+  color:#44364c;
+}
+.student-load-option>div{display:flex;flex-direction:column;gap:3px}
+.student-load-option b{font-size:12px}
+.student-load-option span{font-size:9px;color:#7a6f80}
+.student-load-option strong{
+  width:28px;height:28px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:8px;background:#f0ebf3;color:#6b5479;
+}
+.student-load-option.active{
+  border-color:#34896d;
+  background:#eaf7f1;
+  box-shadow:inset 0 0 0 1px #34896d;
+}
+.student-load-option.active strong{background:#34896d;color:#fff}
+.student-load-option.taken{opacity:.58;background:#f3f0f4}
+
+/* Progress per specific student */
+.special-student-picker button{
+  display:flex!important;
+  flex-direction:column;
+  justify-content:center;
+  gap:3px;
+}
+.special-student-picker button small{
+  font-size:9px;
+  color:#6e6275;
+}
+.special-student-picker button.done{
+  opacity:.55;
+  background:#edf6f0;
+}
+.special-student-formula{
+  display:flex;
+  align-items:baseline;
+  gap:7px;
+  margin:5px 0 8px;
+  padding:7px 8px;
+  border-radius:9px;
+  background:#eaf6f0;
+}
+.special-student-formula b{font-size:12px;color:#2f735c}
+.special-student-formula span{font-size:10px;color:#507365}
+
+/* Ready schedule is split by discipline */
+.special-ready-step{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  margin:10px 0 7px;
+}
+.special-ready-step>span{
+  width:28px;height:28px;
+  flex:0 0 28px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:8px;
+  background:#eee5f7;
+  color:#65299c;
+  font-size:11px;
+  font-weight:900;
+}
+.special-ready-step>div{
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+}
+.special-ready-step b{font-size:13px}
+.special-ready-step small{font-size:10px;color:#776a7e}
+
+.special-discipline-tabs{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+  gap:7px;
+  margin-bottom:12px;
+}
+.special-discipline-tabs button{
+  min-height:82px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:3px;
+  padding:10px 12px;
+  border:1px solid #dfd7e4;
+  border-left:5px solid var(--subject-border);
+  border-radius:11px;
+  background:linear-gradient(135deg,var(--subject-bg),#fff 74%);
+  color:var(--subject-text);
+  text-align:left;
+}
+.special-discipline-tabs button>span{
+  font-size:8px;
+  font-weight:900;
+  letter-spacing:.6px;
+  text-transform:uppercase;
+  color:var(--subject-muted);
+}
+.special-discipline-tabs button>b{
+  font-size:13px;
+  line-height:1.2;
+}
+.special-discipline-tabs button>small{
+  font-size:9px;
+  color:var(--subject-muted);
+}
+.special-discipline-tabs button.active{
+  border-color:var(--subject-border);
+  box-shadow:
+    inset 0 0 0 2px var(--subject-border),
+    0 7px 17px color-mix(in srgb,var(--subject-border) 15%,transparent);
+  transform:translateY(-1px);
+}
+
+@media(max-width:800px){
+  .student-load-popup-head{grid-template-columns:1fr}
+  .student-load-formula{min-height:90px}
+  .student-load-popup-tools{grid-template-columns:1fr 1fr}
+  .special-discipline-tabs{grid-template-columns:1fr}
+}
