@@ -177,11 +177,42 @@ function mergeSeedCurricula(existing=[],seed=[]){
   return result;
 }
 
+function groupSeedKey(g){
+  return normIdentity(g?.code||"");
+}
+function studentSeedKey(s){
+  return [normIdentity(s?.group||""),normIdentity(s?.name||"")].join("|");
+}
+function mergeSeedGroups(existing=[],seed=[]){
+  const result=clone(existing||[]);
+  const keys=new Set(result.map(groupSeedKey));
+  (seed||[]).forEach(g=>{
+    const key=groupSeedKey(g);
+    if(key&&!keys.has(key)){
+      result.push(clone(g));
+      keys.add(key);
+    }
+  });
+  return result;
+}
+function mergeSeedStudents(existing=[],seed=[]){
+  const result=clone(existing||[]);
+  const keys=new Set(result.map(studentSeedKey));
+  (seed||[]).forEach(s=>{
+    const key=studentSeedKey(s);
+    if(key&&!keys.has(key)){
+      result.push(clone(s));
+      keys.add(key);
+    }
+  });
+  return result;
+}
+
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
   if(!old||typeof old!=="object") return fresh;
-  fresh.groups=old.groups||fresh.groups;
-  fresh.students=old.students||fresh.students;
+  fresh.groups=mergeSeedGroups(old.groups||[],fresh.groups||[]);
+  fresh.students=mergeSeedStudents(old.students||[],fresh.students||[]);
   fresh.rooms=(old.rooms||fresh.rooms||[]).map((r,i)=>({id:r.id||i+1,name:r.name||"",status:r.status||"active",note:r.note||"",showInGrid:r.showInGrid!==false,gridOrder:Number.isFinite(Number(r.gridOrder))?Number(r.gridOrder):i+1}));
   fresh.roomBookings=(old.roomBookings||[]).map((b,i)=>({...b,id:b.id||i+1,kind:b.kind||"Бронювання",title:b.title||"",date:b.date||"",pairId:b.pairId||null,start:b.start||"",end:b.end||"",room:b.room||"",group:b.group||"",teacherId:b.teacherId||null,teacher:b.teacher||"",showInTimetable:b.showInTimetable===true,note:b.note||""}));
   fresh.academicYear=old.academicYear||fresh.academicYear;
@@ -284,10 +315,14 @@ window.REMS_CURRENT_PAGE=()=>currentPage;
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
   const rawSchedule=new Map((remote?.schedule||[]).map(x=>[String(x.id),x]));
   const remoteCurriculumKeys=new Set((remote?.curricula||[]).map(curriculumSeedKey));
+  const remoteGroupKeys=new Set((remote?.groups||[]).map(groupSeedKey));
+  const remoteStudentKeys=new Set((remote?.students||[]).map(studentSeedKey));
   db=migrate(remote);
   const addedSeedCurriculum=(db.curricula||[]).some(c=>!remoteCurriculumKeys.has(curriculumSeedKey(c)));
+  const addedSeedGroup=(db.groups||[]).some(g=>!remoteGroupKeys.has(groupSeedKey(g)));
+  const addedSeedStudent=(db.students||[]).some(s=>!remoteStudentKeys.has(studentSeedKey(s)));
   const repaired=repairScheduleLinks(db);
-  const needsCloudRepair=addedSeedCurriculum||repaired>0||db.schedule.some(x=>{
+  const needsCloudRepair=addedSeedCurriculum||addedSeedGroup||addedSeedStudent||repaired>0||db.schedule.some(x=>{
     const raw=rawSchedule.get(String(x.id));
     return raw&&(String(raw.group||"")!==String(x.group||"")||Number(raw.teacherId||0)!==Number(x.teacherId||0)||Number(raw.disciplineId||0)!==Number(x.disciplineId||0));
   });
