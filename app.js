@@ -1831,6 +1831,8 @@ function setWorkloadScheduleGroup(code){
   rememberWorkloadGroup(code);
   const label=$("#workloadGroupLabel");
   if(label)label.textContent=code;
+  const courseLabel=$("#workloadGroupCourse");
+  if(courseLabel)courseLabel.textContent=`${groupCourse(code)} курс`;
   const wrap=$("#workloadGroupButtons");
   if(wrap){
     const loaded=groupsWithDistributedAuditoriumLoad();
@@ -2666,9 +2668,21 @@ function renderSchedule(){
       <div><h2>Складання розкладу</h2><div class="small">Кафедральні пари йдуть із «Навантаження». Пари інших кафедр можна внести одразу кнопкою «Внести готові пари» — без активації та розподілу годин.</div></div>
       <div class="actions"><button class="ready-import-btn" onclick="openReadyScheduleModal()">+ Внести готові пари</button><button class="secondary" onclick="openLessonModal(null,{group:currentWorkloadGroup()})">+ Одне заняття</button></div>
     </div>
-    <div class="workflow-status-strip">
-      <div><span>Груп із розподіленим аудиторним навантаженням</span><b>${loadedGroups.length}</b></div>
-      <div><span>Вибрана група</span><b id="workloadGroupLabel">${esc(defaultGroup)}</b></div>
+    <div class="workflow-status-strip workflow-context-strip">
+      <div class="workflow-load-count">
+        <span>Груп із розподіленим навантаженням</span>
+        <b>${loadedGroups.length}</b>
+      </div>
+      <div class="workflow-selected-group">
+        <div class="workflow-selected-group-label">
+          <span>Вибрана група</span>
+          <small>зараз працюємо з її навантаженням</small>
+        </div>
+        <div class="workflow-selected-group-value">
+          <b id="workloadGroupLabel">${esc(defaultGroup)}</b>
+          <strong id="workloadGroupCourse">${esc(groupCourse(defaultGroup))} курс</strong>
+        </div>
+      </div>
     </div>
     <input id="workloadGroup" type="hidden" value="${esc(defaultGroup)}">
     <div id="workloadGroupButtons">
