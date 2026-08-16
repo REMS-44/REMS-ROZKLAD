@@ -181,7 +181,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=11;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=12;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
@@ -235,7 +235,7 @@ async function commitOps(ops){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:11,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
+function settingsPart(st){return clean({schemaVersion:12,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;

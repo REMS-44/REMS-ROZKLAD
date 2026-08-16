@@ -53,6 +53,48 @@ function academicMonthAllowed(month){const b=academicYearBounds();return !!month
 function clampAcademicMonth(month){const b=academicYearBounds();if(!month||month<b.minMonth)return b.minMonth;if(month>b.maxMonth)return b.maxMonth;return month;}
 function academicDateMessage(bounds=academicYearBounds()){return `${formatDate(bounds.start)} — ${formatDate(bounds.end)}`;}
 function timeOverlap(aStart,aEnd,bStart,bEnd){return aStart<bEnd&&aEnd>bStart}
+function normIdentity(v){return String(v||"").trim().replace(/\s+/g," ").toLowerCase();}
+function resolvedScheduleGroup(item,state=db){
+  const direct=normIdentity(item?.group);
+  if(direct){
+    const g=(state?.groups||[]).find(x=>normIdentity(x.code)===direct);
+    return g?.code||String(item.group||"").trim();
+  }
+  const d=(state?.disciplines||[]).find(x=>Number(x.id)===Number(item?.disciplineId));
+  return d?.group||"";
+}
+function resolvedScheduleTeacherId(item,state=db){
+  if(item?.teacherId!==null&&item?.teacherId!==undefined&&String(item.teacherId)!==""){
+    const exact=(state?.teachers||[]).find(t=>Number(t.id)===Number(item.teacherId));
+    if(exact)return exact.id;
+  }
+  const key=normIdentity(item?.teacher);
+  if(!key)return null;
+  const matches=(state?.teachers||[]).filter(t=>{
+    const variants=[t.name,t.shortName,[t.shortName,t.name].filter(Boolean).join(" ")].map(normIdentity).filter(Boolean);
+    return variants.includes(key);
+  });
+  return matches.length===1?matches[0].id:null;
+}
+function repairScheduleLinks(state){
+  let changed=0;
+  (state?.schedule||[]).forEach(item=>{
+    const g=resolvedScheduleGroup(item,state);
+    if(g&&g!==item.group){item.group=g;changed++;}
+    const tid=resolvedScheduleTeacherId(item,state);
+    if(tid&&Number(item.teacherId)!==Number(tid)){item.teacherId=tid;changed++;}
+    if(tid){
+      const t=(state.teachers||[]).find(x=>Number(x.id)===Number(tid));
+      const label=t?(t.shortName||t.name||""):"";
+      if(label&&!item.teacher){item.teacher=label;changed++;}
+    }
+    if(!item.disciplineId&&item.discipline){
+      const candidates=(state.disciplines||[]).filter(d=>normIdentity(d.name)===normIdentity(item.discipline)&&(!g||normIdentity(d.group)===normIdentity(g)));
+      if(candidates.length===1){item.disciplineId=candidates[0].id;changed++;}
+    }
+  });
+  return changed;
+}
 
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
@@ -122,6 +164,7 @@ function migrate(old){
       workloadHours:s.workloadHours??lt?.defaultUnit??1,note:s.note||"",repeatBatchId:s.repeatBatchId||null
     };
   });
+  repairScheduleLinks(fresh);
   return fresh;
 }
 function loadData(){
@@ -142,7 +185,7 @@ function loadData(){
 let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
-  db.schemaVersion=11;
+  db.schemaVersion=12;
   localStorage.setItem(KEY,JSON.stringify(db));
   renderCurrent();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
@@ -155,12 +198,21 @@ window.REMS_GET_STATE=()=>clone(db);
 window.REMS_MIGRATE_STATE=(state)=>migrate(state);
 window.REMS_CURRENT_PAGE=()=>currentPage;
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
+  const rawSchedule=new Map((remote?.schedule||[]).map(x=>[String(x.id),x]));
   db=migrate(remote);
-  db.schemaVersion=11;
+  const repaired=repairScheduleLinks(db);
+  const needsCloudRepair=repaired>0||db.schedule.some(x=>{
+    const raw=rawSchedule.get(String(x.id));
+    return raw&&(String(raw.group||"")!==String(x.group||"")||Number(raw.teacherId||0)!==Number(x.teacherId||0)||Number(raw.disciplineId||0)!==Number(x.disciplineId||0));
+  });
+  db.schemaVersion=12;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
   renderCurrent();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
+  if(needsCloudRepair&&window.REMS_CLOUD?.canWrite?.()){
+    setTimeout(()=>window.REMS_CLOUD?.schedulePush?.(clone(db)),350);
+  }
 };
 function groupStudentCount(code){return db.students.filter(s=>s.group===code&&s.status!=="archived").length;}
 function groupCourse(code){return db.groups.find(g=>g.code===code)?.course||"";}
@@ -200,9 +252,6 @@ function focusCalendarOnCurrentDate(page){
   const today=currentAcademicDate();
   if(page==="timetable"){
     timetableState.week=mondayOf(today);
-  }
-  if(page==="mySchedule"){
-    teacherScheduleState.week=mondayOf(today);
   }
   if(page==="roomGrid"){
     roomGridState.date=today;
@@ -1113,7 +1162,7 @@ function normGroup(v){
 }
 function scheduleLessonsForGroup(group){
   const key=normGroup(group);
-  return db.schedule.filter(x=>normGroup(x.group)===key&&dateInBounds(x.date));
+  return db.schedule.filter(x=>normGroup(resolvedScheduleGroup(x,db))===key&&dateInBounds(x.date));
 }
 function timetableBookingsForGroup(group){
   const key=normGroup(group);
@@ -1176,6 +1225,18 @@ function nearestTimetableDate(group,from=currentAcademicDate()){
   const dates=timetableDatesForGroup(group);
   if(!dates.length)return null;
   return dates.find(d=>d>=from)||dates.at(-1);
+}
+function relevantTimetableDate(group){
+  const today=localTodayISO(),bounds=academicYearBounds(),dates=timetableDatesForGroup(group);
+  if(!dates.length)return currentAcademicDate();
+  if(today<bounds.start)return dates.find(d=>d>=bounds.start)||dates[0];
+  if(today>bounds.end)return dates.at(-1);
+  const thisWeek=new Set(academicWeekDates(mondayOf(today)));
+  if(dates.some(d=>thisWeek.has(d)))return today;
+  return dates.find(d=>d>=today)||dates.at(-1);
+}
+function focusTimetableRelevant(group){
+  timetableState.week=mondayOf(relevantTimetableDate(group));
 }
 function bestTimetableGroup(){
   const remembered=rememberedTimetableGroup();
@@ -1243,11 +1304,11 @@ function renderTimetable(){
     timetableState.group=bestTimetableGroup();
     rememberTimetableGroup(timetableState.group);
   }
-  if(!timetableState.week)timetableState.week=mondayOf(currentAcademicDate());
+  if(!timetableState.week)focusTimetableRelevant(timetableState.group);
 
   let dates=academicWeekDates(timetableState.week);
   if(!dates.length){
-    timetableState.week=mondayOf(currentAcademicDate());
+    focusTimetableRelevant(timetableState.group);
     dates=academicWeekDates(timetableState.week);
   }
 
@@ -1277,6 +1338,7 @@ function renderTimetable(){
       <div class="toolbar timetable-toolbar">
         <label>Група<select id="timetableGroup">${groupOptions(timetableState.group)}</select></label>
         <label>Перейти до дати<input id="timetableDateJump" type="date" ${dateAttrs()} value="${esc(currentAcademicDate())}"></label>
+        <label>Тижні з заняттями<select id="timetableWeekJump">${(()=>{const weeks=[...new Set(timetableDatesForGroup(timetableState.group).map(mondayOf))];return weeks.map(w=>`<option value="${w}" ${w===timetableState.week?"selected":""}>${formatDate(academicWeekDates(w)[0]||w).slice(0,5)} · ${timetableWeekStats(timetableState.group,academicWeekDates(w)).weekLessons} зан.</option>`).join("")||`<option value="">—</option>`;})()}</select></label>
         <div class="ready-count"><b>${stats.totalLessons}</b><span>занять групи в базі</span></div>
         <div class="timetable-week-status"><b>${weekCount}</b><span>подій цього тижня</span></div>
       </div>
@@ -1335,10 +1397,11 @@ function renderTimetable(){
   $("#timetableGroup").onchange=e=>{
     timetableState.group=e.target.value;
     rememberTimetableGroup(timetableState.group);
-    timetableState.week=mondayOf(currentAcademicDate());
+    focusTimetableRelevant(timetableState.group);
     renderTimetable();
   };
   $("#timetableDateJump").onchange=e=>{if(e.target.value)jumpTimetableToDate(e.target.value);};
+  $("#timetableWeekJump").onchange=e=>{if(e.target.value){timetableState.week=e.target.value;renderTimetable();}};
 }
 function shiftTimetableWeek(days){
   const next=addDays(timetableState.week,days);
@@ -1358,11 +1421,17 @@ let teacherScheduleState={teacherId:null,week:null};
 window.REMS_SET_TEACHER_FEED=(feed)=>{
   teacherScheduleFeed={teacherId:feed?.teacherId??null,schedule:feed?.schedule||[],roomBookings:feed?.roomBookings||[],academicYear:feed?.academicYear||db.academicYear,bellSchedule:feed?.bellSchedule||[]};
   if(window.REMS_CLOUD?.role?.()==="teacher")teacherScheduleState.teacherId=teacherScheduleFeed.teacherId;
+  if(window.REMS_CLOUD?.role?.()==="teacher"&&teacherScheduleFeed.teacherId){
+    const src=teacherScheduleSource();
+    const currentDates=teacherScheduleState.week?teacherScheduleWeekDates(teacherScheduleState.week):[];
+    const hasCurrent=[...(src.schedule||[]),...(src.roomBookings||[])].some(x=>currentDates.includes(x.date));
+    if(!teacherScheduleState.week||!hasCurrent)focusTeacherRelevant(src);
+  }
   if(currentPage==="mySchedule")renderMySchedule();
 };
 function openTeacherSchedule(id){
   teacherScheduleState.teacherId=Number(id);
-  teacherScheduleState.week=mondayOf(currentAcademicDate());
+  teacherScheduleState.week=null;
   go("mySchedule",{focusCurrentCalendar:true});
 }
 function teacherPortalTeacherId(){
@@ -1383,7 +1452,7 @@ function teacherScheduleSource(){
   }
   return {
     teacherId,
-    schedule:db.schedule.filter(x=>Number(x.teacherId)===Number(teacherId)),
+    schedule:db.schedule.filter(x=>Number(resolvedScheduleTeacherId(x,db))===Number(teacherId)),
     roomBookings:db.roomBookings.filter(x=>Number(x.teacherId)===Number(teacherId)),
     bellSchedule:db.bellSchedule,
     academicYear:db.academicYear
@@ -1397,9 +1466,14 @@ function teacherScheduleTeacherName(id){
   if(local)return local.name||teacherDisplay(local);
   return window.REMS_CLOUD?.profile?.()?.displayName||window.REMS_CLOUD?.email?.()||"Викладач";
 }
+function teacherSourcePairId(x,source){
+  if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return String(x.pairId);
+  const p=(source.bellSchedule||[]).find(p=>p.start===x?.start&&p.end===x?.end);
+  return p?String(p.id):null;
+}
 function teacherScheduleEvents(source,date,pairId){
-  const lessons=(source.schedule||[]).filter(x=>x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)).map(x=>({source:"schedule",data:x}));
-  const bookings=(source.roomBookings||[]).filter(x=>x.date===date&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)).map(x=>({source:"booking",data:x}));
+  const lessons=(source.schedule||[]).filter(x=>x.date===date&&teacherSourcePairId(x,source)===String(pairId)).map(x=>({source:"schedule",data:x}));
+  const bookings=(source.roomBookings||[]).filter(x=>x.date===date&&teacherSourcePairId(x,source)===String(pairId)).map(x=>({source:"booking",data:x}));
   return [...lessons,...bookings];
 }
 function teacherScheduleEventCard(ev){
@@ -1420,6 +1494,17 @@ function teacherScheduleEventCard(ev){
   </div>`;
 }
 function teacherScheduleWeekDates(week){return academicWeekDates(week);}
+function teacherScheduleAllDates(source){return [...new Set([...(source.schedule||[]),...(source.roomBookings||[])].map(x=>x.date).filter(dateInBounds))].sort();}
+function relevantTeacherDate(source){
+  const dates=teacherScheduleAllDates(source),today=localTodayISO(),bounds=academicYearBounds();
+  if(!dates.length)return currentAcademicDate();
+  if(today<bounds.start)return dates.find(d=>d>=bounds.start)||dates[0];
+  if(today>bounds.end)return dates.at(-1);
+  const weekSet=new Set(academicWeekDates(mondayOf(today)));
+  if(dates.some(d=>weekSet.has(d)))return today;
+  return dates.find(d=>d>=today)||dates.at(-1);
+}
+function focusTeacherRelevant(source){teacherScheduleState.week=mondayOf(relevantTeacherDate(source));}
 function shiftMyTeacherWeek(days){
   const next=addDays(teacherScheduleState.week||mondayOf(currentAcademicDate()),days);
   if(teacherScheduleWeekDates(next).length){teacherScheduleState.week=next;renderMySchedule();}
@@ -1430,7 +1515,7 @@ function renderMySchedule(){
   const role=window.REMS_CLOUD?.role?.();
   if(role==="teacher")teacherScheduleState.teacherId=teacherPortalTeacherId();
   const source=teacherScheduleSource(),teacherId=source.teacherId;
-  if(!teacherScheduleState.week)teacherScheduleState.week=mondayOf(currentAcademicDate());
+  if(!teacherScheduleState.week)focusTeacherRelevant(source);
 
   if(!teacherId){
     $("#page-mySchedule").innerHTML=`<div class="card section"><div class="empty"><b>Акаунт ще не прив’язаний до викладача.</b><br>Адміністратор має відкрити «Налаштування → Користувачі та доступ» і вибрати викладача для цього акаунта.</div>${role==="teacher"?`<div class="actions" style="justify-content:center;margin-top:16px"><button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button></div>`:""}</div>`;
@@ -1438,11 +1523,11 @@ function renderMySchedule(){
   }
 
   let dates=teacherScheduleWeekDates(teacherScheduleState.week);
-  if(!dates.length){teacherScheduleState.week=mondayOf(currentAcademicDate());dates=teacherScheduleWeekDates(teacherScheduleState.week);}
+  if(!dates.length){focusTeacherRelevant(source);dates=teacherScheduleWeekDates(teacherScheduleState.week);}
   const pairs=teacherSchedulePairs(source);
   const name=teacherScheduleTeacherName(teacherId);
   const eventsCount=dates.reduce((n,d)=>n+pairs.reduce((a,p)=>a+teacherScheduleEvents(source,d,p.id).length,0),0);
-  const allDates=[...(source.schedule||[]),...(source.roomBookings||[])].map(x=>x.date).filter(dateInBounds).sort();
+  const allDates=teacherScheduleAllDates(source);
   const nearest=allDates.find(d=>d>=currentAcademicDate())||allDates.at(-1)||null;
   const nearestOutside=nearest&&!dates.includes(nearest);
 
@@ -1456,6 +1541,8 @@ function renderMySchedule(){
     </div>
     <div class="toolbar timetable-toolbar">
       <label>Перейти до дати<input id="myTeacherDateJump" type="date" ${dateAttrs()} value="${esc(currentAcademicDate())}"></label>
+      <label>Тижні з заняттями<select id="myTeacherWeekJump">${(()=>{const weeks=[...new Set(allDates.map(mondayOf))];return weeks.map(w=>{const wd=teacherScheduleWeekDates(w),cnt=wd.reduce((n,d)=>n+pairs.reduce((a,p)=>a+teacherScheduleEvents(source,d,p.id).length,0),0);return `<option value="${w}" ${w===teacherScheduleState.week?"selected":""}>${formatDate(wd[0]||w).slice(0,5)} · ${cnt} под.</option>`}).join("")||`<option value="">—</option>`;})()}</select></label>
+      <div class="ready-count"><b>${(source.schedule||[]).length}</b><span>занять викладача в базі</span></div>
       <div class="timetable-week-status"><b>${eventsCount}</b><span>подій цього тижня</span></div>
       ${role!=="teacher"?`<button class="secondary" onclick="go('teachers')">← До викладачів</button>`:""}
     </div>
@@ -1476,6 +1563,7 @@ function renderMySchedule(){
     <div class="notice teacher-live-note">Цей календар оновлюється автоматично, коли навчальна частина змінює загальний розклад.</div>
   </div>`;
   $("#myTeacherDateJump").onchange=e=>{if(e.target.value)myTeacherJump(e.target.value);};
+  $("#myTeacherWeekJump").onchange=e=>{if(e.target.value){teacherScheduleState.week=e.target.value;renderMySchedule();}};
 }
 window.REMS_APPLY_ROLE_ACCESS=()=>{
   const role=window.REMS_CLOUD?.role?.();
@@ -1484,7 +1572,7 @@ window.REMS_APPLY_ROLE_ACCESS=()=>{
   if(nav)nav.style.display=role==="teacher"?"":"none";
   if(role==="teacher"){
     teacherScheduleState.teacherId=teacherPortalTeacherId();
-    if(currentPage!=="mySchedule")go("mySchedule",{focusCurrentCalendar:true});
+    if(currentPage!=="mySchedule")go("mySchedule",{focusCurrentCalendar:false});
     else renderMySchedule();
   }
 };
