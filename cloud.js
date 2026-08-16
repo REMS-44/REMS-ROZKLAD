@@ -42,6 +42,8 @@ const config={...(window.REMS_FIREBASE_CONFIG||{}),...(configFromStorage()||{})}
 const configured=Boolean(config.apiKey&&config.projectId&&config.appId);
 let app=null,auth=null,fire=null,user=null,profile=null,remoteState=null;
 let unsubs=[],profileUnsub=null,pushTimer=null,pendingPush=null,pushing=false,rejecting=false;
+let cloudReconnectTimer=null,cloudReconnectPromise=null,lastCloudError=null,lastCloudErrorAt=0;
+let cloudWasOnline=false,cloudAuthGeneration=0;
 
 window.REMS_CLOUD={
   configured,
@@ -66,7 +68,8 @@ window.REMS_CLOUD={
   listUsers:listUserProfiles,
   createUser:createManagedUser,
   updateUser:updateManagedUser,
-  sendPasswordReset:sendManagedPasswordReset
+  sendPasswordReset:sendManagedPasswordReset,
+  reconnect:()=>manualCloudReconnect()
 };
 
 function roleLabel(r){return ({admin:"Адміністратор",dispatcher:"Диспетчер",teacher:"Викладач",viewer:"Перегляд"})[r]||r||"—";}
@@ -81,6 +84,93 @@ function toast(message,type="ok",timeout=4200){
   if(!wrap){wrap=document.createElement("div");wrap.id="cloudToasts";wrap.className="cloud-toasts";document.body.appendChild(wrap);}
   const el=document.createElement("div");el.className=`cloud-toast ${type}`;el.textContent=message;wrap.appendChild(el);
   setTimeout(()=>el.remove(),timeout);
+}
+
+function cloudErrorCode(e){
+  return String(e?.code||"unknown").replace(/^firestore\//,"");
+}
+function cloudErrorStep(e){
+  return e?.remsStep?String(e.remsStep):"";
+}
+function cloudErrorSummary(e){
+  const code=cloudErrorCode(e),step=cloudErrorStep(e);
+  return `${code}${step?` · ${step}`:""}`;
+}
+function markCloudStep(e,step){
+  try{e.remsStep=step;}catch(_){}
+  return e;
+}
+async function cloudReadStep(step,fn){
+  try{return await fn();}
+  catch(e){throw markCloudStep(e,step);}
+}
+function clearCloudReconnectTimer(){
+  if(cloudReconnectTimer){clearTimeout(cloudReconnectTimer);cloudReconnectTimer=null;}
+}
+function cloudStopDataListeners(){
+  unsubs.forEach(fn=>{try{fn();}catch(_){}});
+  unsubs=[];
+}
+function cloudRetryDelay(attempt){
+  return [0,700,1800,4000][Math.min(attempt,3)];
+}
+function cloudIsSignedInGeneration(generation){
+  return !!user&&generation===cloudAuthGeneration;
+}
+async function refreshOwnProfileAndToken(forceToken=false){
+  if(!user||!fire)throw new Error("Немає активного користувача Firebase.");
+  if(forceToken){
+    await user.getIdToken(true);
+  }
+  const snap=await cloudReadStep("профіль користувача",()=>getDoc(doc(fire,"users",user.uid)));
+  if(!snap.exists()){
+    const err=new Error("Профіль користувача не знайдено.");
+    err.code="REMS_ACCESS_NOT_PROVISIONED";
+    throw err;
+  }
+  const fresh=snap.data();
+  if(fresh.enabled===false){
+    const err=new Error("Доступ цього облікового запису заблоковано.");
+    err.code="REMS_ACCESS_DISABLED";
+    throw err;
+  }
+  profile=fresh;
+  updateAdminUi();
+  return fresh;
+}
+function scheduleCloudReconnect(error=null,source="connection",delayMs=12000){
+  if(error){
+    lastCloudError=error;
+    lastCloudErrorAt=Date.now();
+  }
+  if(!configured||!auth?.currentUser)return;
+  if(cloudReconnectPromise||cloudReconnectTimer)return;
+
+  const email=auth.currentUser.email||user?.email||"";
+  const detail=error?cloudErrorSummary(error):"";
+  setSidebar("error","Тимчасово офлайн",`${email}${detail?` · ${detail}`:""} · повторю автоматично`);
+
+  cloudReconnectTimer=setTimeout(()=>{
+    cloudReconnectTimer=null;
+    manualCloudReconnect(true);
+  },Math.max(500,delayMs));
+}
+async function manualCloudReconnect(silent=false){
+  if(!configured||!auth?.currentUser)return false;
+  clearCloudReconnectTimer();
+  if(cloudReconnectPromise)return cloudReconnectPromise;
+
+  const generation=cloudAuthGeneration;
+  cloudReconnectPromise=(async()=>{
+    setSidebar("syncing","Відновлення зв’язку…",auth.currentUser?.email||"Firebase");
+    try{
+      const ok=await connectCloudDataWithRetry(generation,{silent,maxAttempts:4,forceFirstRefresh:true});
+      return ok;
+    }finally{
+      cloudReconnectPromise=null;
+    }
+  })();
+  return cloudReconnectPromise;
 }
 function showLogin(){
   let o=document.querySelector("#cloudAuthOverlay");
@@ -159,18 +249,18 @@ function itemRef(name,id){return doc(fire,"workspaces",WORKSPACE,name,String(id)
 function settingsRef(){return doc(fire,"workspaces",WORKSPACE,"settings","main");}
 
 async function loadRemoteState(){
-  const settingsSnap=await getDoc(settingsRef());
+  const settingsSnap=await cloudReadStep("settings",()=>getDoc(settingsRef()));
   if(!settingsSnap.exists())return null;
   const base=clean(window.REMS_INITIAL_DATA||{});
   const settings=settingsSnap.data();
   Object.assign(base,settings);
   for(const name of ARRAY_COLLECTIONS){
-    const snap=await getDocs(collRef(name));
+    const snap=await cloudReadStep(name,()=>getDocs(collRef(name)));
     base[name]=snap.docs.map(d=>d.data()).sort(sortById);
   }
-  const ss=await getDocs(collRef(SCHEDULE_COLLECTION));
+  const ss=await cloudReadStep(SCHEDULE_COLLECTION,()=>getDocs(collRef(SCHEDULE_COLLECTION)));
   base.schedule=ss.docs.map(d=>d.data()).sort(sortById);
-  const bs=await getDocs(collRef(ROOM_BOOKINGS_COLLECTION));
+  const bs=await cloudReadStep(ROOM_BOOKINGS_COLLECTION,()=>getDocs(collRef(ROOM_BOOKINGS_COLLECTION)));
   base.roomBookings=bs.docs.map(d=>d.data()).sort(sortById);
   base.weekDays=clean(window.REMS_INITIAL_DATA?.weekDays||base.weekDays||[]);
   return base;
@@ -353,7 +443,13 @@ function subscribeTeacherPortal(){
   unsubs.forEach(f=>f());unsubs=[];
   const teacherId=profile?.teacherId??null;
   const feed={teacherId,schedule:[],roomBookings:[],academicYear:"",bellSchedule:[]};
-  const apply=()=>window.REMS_SET_TEACHER_FEED?.(clean(feed));
+  const apply=()=>{
+    window.REMS_SET_TEACHER_FEED?.(clean(feed));
+    cloudWasOnline=true;
+    lastCloudError=null;
+    clearCloudReconnectTimer();
+    setSidebar("online","Онлайн",`${user?.email||""} · ${roleLabel(profile?.role)}`);
+  };
   unsubs.push(onSnapshot(settingsRef(),snap=>{
     if(snap.exists()){const s=snap.data();feed.academicYear=s.academicYear||"";feed.bellSchedule=s.bellSchedule||[];}
     apply();
@@ -367,7 +463,14 @@ function subscribeTeacherPortal(){
 function subscribeRealtime(){
   unsubs.forEach(f=>f());unsubs=[];
   const state=remoteState||clean(window.REMS_INITIAL_DATA||{});
-  const apply=()=>{remoteState=clean(state);window.REMS_APPLY_REMOTE_STATE?.(remoteState);setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);};
+  const apply=()=>{
+    remoteState=clean(state);
+    window.REMS_APPLY_REMOTE_STATE?.(remoteState);
+    cloudWasOnline=true;
+    lastCloudError=null;
+    clearCloudReconnectTimer();
+    setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
+  };
   unsubs.push(onSnapshot(settingsRef(),snap=>{if(snap.exists()){Object.assign(state,snap.data());apply();}},cloudErr));
   for(const name of ARRAY_COLLECTIONS){
     unsubs.push(onSnapshot(collRef(name),snap=>{state[name]=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
@@ -375,7 +478,14 @@ function subscribeRealtime(){
   unsubs.push(onSnapshot(collRef(SCHEDULE_COLLECTION),snap=>{state.schedule=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
   unsubs.push(onSnapshot(collRef(ROOM_BOOKINGS_COLLECTION),snap=>{state.roomBookings=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
 }
-function cloudErr(e){console.error(e);setSidebar("error","Немає синхронізації",user?.email||"");toast("Втрачено зв’язок зі спільною базою.","error");}
+function cloudErr(e){
+  console.error("Firestore listener error",e);
+  const summary=cloudErrorSummary(e);
+  cloudStopDataListeners();
+  setSidebar("error","Немає синхронізації",`${user?.email||""} · ${summary}`);
+  toast(`Синхронізація зупинилась (${summary}). Пробую відновити автоматично…`,"error",7000);
+  scheduleCloudReconnect(e,"listener",1500);
+}
 async function reloadRemote(){
   if(!fire)return;const r=await loadRemoteState();if(r){remoteState=r;window.REMS_APPLY_REMOTE_STATE?.(r);}
 }
@@ -612,7 +722,10 @@ function subscribeOwnProfile(){
       toast("Права доступу оновлено. Перезавантажую…","ok",2500);
       setTimeout(()=>location.reload(),500);
     }
-  },e=>console.error("Profile listener",e));
+  },e=>{
+    console.error("Profile listener",e);
+    scheduleCloudReconnect(markCloudStep(e,"профіль користувача"),"profile-listener",1500);
+  });
 }
 
 
@@ -639,40 +752,190 @@ function renderCloudSettings(){
 function escapeHtml(v=""){return String(v).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
 document.addEventListener("rems-rendered",renderCloudSettings);
 
+
+async function connectCloudDataWithRetry(generation,{silent=false,maxAttempts=4,forceFirstRefresh=false}={}){
+  let lastError=null;
+
+  for(let attempt=0;attempt<maxAttempts;attempt++){
+    if(!cloudIsSignedInGeneration(generation))return false;
+    const delay=cloudRetryDelay(attempt);
+    if(delay)await sleep(delay);
+    if(!cloudIsSignedInGeneration(generation))return false;
+
+    try{
+      const forceToken=forceFirstRefresh||attempt>0;
+      await refreshOwnProfileAndToken(forceToken);
+
+      if(profile?.role==="teacher"){
+        cloudStopDataListeners();
+        subscribeTeacherPortal();
+        cloudWasOnline=true;
+        lastCloudError=null;
+        clearCloudReconnectTimer();
+        setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
+        renderCloudSettings();
+        if(!silent&&lastError)toast("З’єднання з Firebase відновлено.","ok",4500);
+        return true;
+      }
+
+      setSidebar(
+        "syncing",
+        attempt?`Повторне підключення ${attempt+1}/${maxAttempts}…`:"Завантаження…",
+        `${user.email} · ${roleLabel(profile.role)}`
+      );
+
+      const r=await loadRemoteState();
+      if(!cloudIsSignedInGeneration(generation))return false;
+
+      if(!r){
+        if(profile.role!=="admin"){
+          const err=new Error("Спільну базу ще не ініціалізовано.");
+          err.code="REMS_DATABASE_NOT_INITIALIZED";
+          throw err;
+        }
+        await uploadWholeState(window.REMS_GET_STATE?.());
+      }else{
+        remoteState=r;
+        window.REMS_APPLY_REMOTE_STATE?.(r);
+        cloudStopDataListeners();
+        subscribeRealtime();
+      }
+
+      cloudWasOnline=true;
+      lastCloudError=null;
+      clearCloudReconnectTimer();
+      setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
+      renderCloudSettings();
+      if(lastError||attempt>0)toast("З’єднання з Firebase відновлено.","ok",4500);
+      else if(!silent)toast("Спільну базу підключено.","ok",3500);
+      return true;
+    }catch(e){
+      lastError=e;
+      lastCloudError=e;
+      lastCloudErrorAt=Date.now();
+      console.error(`Firebase connect attempt ${attempt+1}/${maxAttempts}`,e);
+
+      if(e?.code==="REMS_ACCESS_NOT_PROVISIONED"||e?.code==="REMS_ACCESS_DISABLED"){
+        throw e;
+      }
+
+      const summary=cloudErrorSummary(e);
+      setSidebar(
+        "syncing",
+        attempt<maxAttempts-1?"Повторюю підключення…":"Тимчасово офлайн",
+        `${user?.email||""} · ${summary}`
+      );
+    }
+  }
+
+  if(lastError){
+    const summary=cloudErrorSummary(lastError);
+    setSidebar("error","Тимчасово офлайн",`${user?.email||""} · ${summary} · автоповтор`);
+    if(!silent){
+      toast(`Firebase не відповів (${summary}). Дані не видаляються — повторю підключення автоматично.`,"error",9000);
+    }
+    scheduleCloudReconnect(lastError,"initial-load",12000);
+  }
+  return false;
+}
+
 async function initialize(){
-  if(!configured){setSidebar("local","Локальний режим","Firebase не підключено");renderCloudSettings();return;}
+  if(!configured){
+    setSidebar("local","Локальний режим","Firebase не підключено");
+    renderCloudSettings();
+    return;
+  }
+
   try{
-    app=initializeApp(config);auth=getAuth(app);fire=getFirestore(app);
+    app=initializeApp(config);
+    auth=getAuth(app);
+    fire=getFirestore(app);
     setSidebar("syncing","Підключення…","Firebase");
+
+    const sidebar=document.querySelector("#cloudSidebar");
+    if(sidebar){
+      sidebar.title="Якщо синхронізація червона — натисніть тут для повторного підключення.";
+      sidebar.style.cursor="pointer";
+      sidebar.onclick=()=>{
+        if(user&&lastCloudError)manualCloudReconnect(false);
+      };
+    }
+
+    window.addEventListener("online",()=>{
+      if(user)manualCloudReconnect(true);
+    });
+
     onAuthStateChanged(auth,async u=>{
-      unsubs.forEach(f=>f());unsubs=[];if(profileUnsub){profileUnsub();profileUnsub=null;}user=u;profile=null;remoteState=null;updateAdminUi();
-      if(!u){setSidebar("offline","Потрібен вхід","Спільна база");showLogin();renderCloudSettings();return;}
+      cloudAuthGeneration++;
+      const generation=cloudAuthGeneration;
+
+      clearCloudReconnectTimer();
+      cloudStopDataListeners();
+      if(profileUnsub){try{profileUnsub();}catch(_){} profileUnsub=null;}
+
+      user=u;
+      profile=null;
+      remoteState=null;
+      lastCloudError=null;
+      cloudWasOnline=false;
+      updateAdminUi();
+
+      if(!u){
+        setSidebar("offline","Потрібен вхід","Спільна база");
+        showLogin();
+        renderCloudSettings();
+        return;
+      }
+
       hideLogin();
+
       try{
         profile=await ensureProfile(u);
-        if(profile.enabled===false){showAccessBlocked("Адміністратор заблокував доступ цього облікового запису.");setSidebar("offline","Доступ заблоковано",u.email||"");return;}
-        updateAdminUi();subscribeOwnProfile();
-        setSidebar("syncing","Завантаження…",`${u.email} · ${roleLabel(profile.role)}`);
-        if(profile.role==="teacher"){
-          subscribeTeacherPortal();
-          setSidebar("online","Онлайн",`${u.email} · ${roleLabel(profile.role)}`);
-          renderCloudSettings();
+        if(!cloudIsSignedInGeneration(generation))return;
+
+        if(profile.enabled===false){
+          showAccessBlocked("Адміністратор заблокував доступ цього облікового запису.");
+          setSidebar("offline","Доступ заблоковано",u.email||"");
           return;
         }
-        const r=await loadRemoteState();
-        if(!r){
-          if(profile.role!=="admin"){
-            toast("Спільну базу ще не ініціалізовано. Спочатку має увійти адміністратор.","error",9000);return;
-          }
-          await uploadWholeState(window.REMS_GET_STATE?.());
-        }else{
-          remoteState=r;window.REMS_APPLY_REMOTE_STATE?.(r);subscribeRealtime();
-          setSidebar("online","Онлайн",`${u.email} · ${roleLabel(profile.role)}`);
-          toast("Спільну базу підключено.","ok",3500);
+
+        updateAdminUi();
+        subscribeOwnProfile();
+
+        const ok=await connectCloudDataWithRetry(generation,{
+          silent:false,
+          maxAttempts:4,
+          forceFirstRefresh:false
+        });
+
+        if(!ok&&cloudIsSignedInGeneration(generation)){
+          renderCloudSettings();
         }
-        renderCloudSettings();
-      }catch(e){console.error(e);if(e?.code==="REMS_ACCESS_NOT_PROVISIONED"){setSidebar("offline","Немає доступу",u.email||"");showAccessBlocked(e.message);return;}setSidebar("error","Помилка Firebase",u.email||"");toast("Не вдалося відкрити спільну базу. Перевірте Firestore і правила доступу.","error",9000);}
+      }catch(e){
+        console.error("Firebase initialization for user failed",e);
+
+        if(e?.code==="REMS_ACCESS_NOT_PROVISIONED"){
+          setSidebar("offline","Немає доступу",u.email||"");
+          showAccessBlocked(e.message);
+          return;
+        }
+        if(e?.code==="REMS_ACCESS_DISABLED"){
+          setSidebar("offline","Доступ заблоковано",u.email||"");
+          showAccessBlocked(e.message);
+          return;
+        }
+
+        lastCloudError=e;
+        const summary=cloudErrorSummary(e);
+        setSidebar("error","Тимчасово офлайн",`${u.email||""} · ${summary}`);
+        toast(`Не вдалося підключитися (${summary}). Повторю автоматично.`,"error",8000);
+        scheduleCloudReconnect(e,"auth-initialize",12000);
+      }
     });
-  }catch(e){console.error(e);setSidebar("error","Помилка конфігурації","Firebase");toast("Firebase не вдалося ініціалізувати.","error",8000);}
+  }catch(e){
+    console.error(e);
+    setSidebar("error","Помилка конфігурації","Firebase");
+    toast("Firebase не вдалося ініціалізувати.","error",8000);
+  }
 }
 initialize();

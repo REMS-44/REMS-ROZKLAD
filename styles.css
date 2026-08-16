@@ -1289,3 +1289,151 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
   .planner-series-row>*{grid-column:2}
   .planner-series-use{grid-column:1}
 }
+
+/* v1.0.20 · clean mode choice + ready-made series */
+
+/* Internal planner: the choice is the only visible action until clicked */
+.planner-mode-switch-clean button{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:2px;
+  text-align:left;
+  padding:10px 12px;
+}
+.planner-mode-switch-clean button b{
+  font-size:12px;
+}
+.planner-mode-switch-clean button span{
+  font-size:8px;
+  font-weight:550;
+  color:var(--muted);
+}
+.planner-mode-switch-clean button.active span{
+  color:var(--purple2);
+  opacity:.75;
+}
+.planner-mode-hint,
+.ready-mode-hint{
+  padding:9px 10px;
+  border:1px dashed #d9d1e3;
+  border-radius:9px;
+  color:var(--muted);
+  font-size:9px;
+  text-align:center;
+}
+
+/* Ready-made lessons: same clean two-mode concept */
+.ready-mode-switch{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  margin-top:2px;
+}
+.ready-mode-switch button{
+  min-height:62px;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:center;
+  gap:3px;
+  padding:10px 13px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#f8f5fb;
+  color:var(--ink);
+  text-align:left;
+}
+.ready-mode-switch button:hover{
+  border-color:#bda9d5;
+  background:#f4eefb;
+}
+.ready-mode-switch button.active{
+  border-color:var(--purple2);
+  background:#fff;
+  box-shadow:inset 0 0 0 1px var(--purple2),0 3px 10px rgba(67,31,105,.08);
+}
+.ready-mode-switch button b{
+  font-size:13px;
+  color:var(--purple2);
+}
+.ready-mode-switch button span{
+  font-size:9px;
+  color:var(--muted);
+}
+.ready-mode-panel{
+  margin-top:2px;
+  padding-top:4px;
+}
+.ready-series-panel{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.ready-series-methods{
+  display:grid;
+  grid-template-columns:1fr 34px 1.15fr;
+  gap:9px;
+  align-items:stretch;
+}
+.ready-series-method{
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#faf8fc;
+}
+.ready-series-method h4{
+  margin:0 0 3px;
+}
+.ready-series-method>.small{
+  margin-bottom:8px;
+}
+.ready-series-or{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#aaa1b3;
+  font-size:9px;
+  font-weight:800;
+  text-transform:uppercase;
+}
+.ready-series-rule{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  align-items:end;
+}
+.ready-series-rule button{
+  grid-column:1/-1;
+}
+.ready-series-defaults{
+  grid-template-columns:minmax(150px,1fr) minmax(180px,1fr) minmax(150px,1fr) auto!important;
+}
+.ready-rows-empty{
+  padding:13px;
+  border:1px dashed #d9d1e3;
+  border-radius:10px;
+  text-align:center;
+  color:var(--muted);
+  font-size:9px;
+}
+@media(max-width:850px){
+  .ready-series-methods{
+    grid-template-columns:1fr;
+  }
+  .ready-series-or{
+    min-height:18px;
+  }
+  .ready-series-defaults{
+    grid-template-columns:1fr 1fr!important;
+  }
+}
+@media(max-width:600px){
+  .ready-mode-switch{
+    grid-template-columns:1fr;
+  }
+  .ready-series-rule,
+  .ready-series-defaults{
+    grid-template-columns:1fr!important;
+  }
+}

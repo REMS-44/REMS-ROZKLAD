@@ -1260,6 +1260,190 @@ function renderWorkloadToSchedule(group){
 }
 
 /* Ready-made schedule from other departments */
+let readyScheduleMode=null;
+
+function setReadyScheduleMode(mode,existing=null){
+  readyScheduleMode=mode==="series"?"series":mode==="single"?"single":null;
+
+  const singleBtn=$("#readyModeSingle");
+  const seriesBtn=$("#readyModeSeries");
+  const hint=$("#readyModeHint");
+  const body=$("#readyModeBody");
+
+  if(singleBtn)singleBtn.classList.toggle("active",readyScheduleMode==="single");
+  if(seriesBtn)seriesBtn.classList.toggle("active",readyScheduleMode==="series");
+  if(hint)hint.classList.toggle("hidden",!!readyScheduleMode);
+  if(!body)return;
+
+  if(!readyScheduleMode){
+    body.innerHTML="";
+    return;
+  }
+
+  body.innerHTML=readyScheduleMode==="single"
+    ? readySingleModeHtml(existing)
+    : readySeriesModeHtml();
+
+  bindReadyMode(existing);
+  readyRefreshPlanFields();
+}
+
+function readySingleModeHtml(existing=null){
+  const firstPair=bellPairs()[0]?.id||1;
+  return `<div class="ready-mode-panel">
+    <div class="section-head compact ready-rows-head">
+      <div><b>${existing?"Заняття":"Одна дата"}</b><div class="small" id="readyDateHint"></div></div>
+    </div>
+    <form id="readyScheduleForm">
+      <div id="readyRows">${readyRowHtml(existing?{
+        date:existing.date,
+        type:existing.type,
+        pairId:existing.pairId||firstPair,
+        room:existing.room
+      }:{})}</div>
+      <div id="readyConflictBox"></div>
+      <div class="modal-footer-actions">
+        <button class="primary">${existing?"Зберегти зміни":"Додати в розклад"}</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+function readySeriesModeHtml(){
+  const b=readyDateBounds($("#readyGroup")?.value||"",$("#readyDiscipline")?.value||"");
+  const firstPair=bellPairs()[0]?.id||1;
+  const defaultWeekday=weekdayId(clampDate(currentAcademicDate(),b));
+  return `<div class="ready-mode-panel ready-series-panel">
+    <div class="ready-series-methods">
+      <div class="ready-series-method">
+        <h4>Конкретні дати</h4>
+        <div class="small">Коли тобі вже прислали точний список дат.</div>
+        <div class="ready-paste-dates">
+          <label>Дати
+            <input id="readyDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09">
+          </label>
+          <button type="button" class="secondary" id="readyAddDates">Додати дати</button>
+        </div>
+      </div>
+
+      <div class="ready-series-or">або</div>
+
+      <div class="ready-series-method">
+        <h4>Згенерувати за правилом</h4>
+        <div class="small">Наприклад: щочетверга, 2 пара, упродовж семестру.</div>
+        <div class="ready-series-rule">
+          <label>Повторення
+            <select id="readyRulePattern">
+              <option value="weekly">Щотижня</option>
+              <option value="biweekly">Через тиждень</option>
+            </select>
+          </label>
+          <label>День
+            <select id="readyRuleWeekday">${db.weekDays.map(d=>`<option value="${d.id}" ${Number(d.id)===Number(defaultWeekday)?"selected":""}>${esc(d.name)}</option>`).join("")}</select>
+          </label>
+          <label>Від
+            <input id="readyRuleFrom" type="date" min="${b.start}" max="${b.end}" value="${b.start}">
+          </label>
+          <label>До
+            <input id="readyRuleTo" type="date" min="${b.start}" max="${b.end}" value="${b.end}">
+          </label>
+          <button type="button" class="secondary" id="readyGenerateRule">Згенерувати дати</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ready-defaults ready-series-defaults">
+      <label>Вид для всіх
+        <select id="readyDefaultType"><option value="">— не змінювати —</option>${readyTypeOptions()}</select>
+      </label>
+      <label>Пара для всіх
+        <select id="readyDefaultPair"><option value="">— не змінювати —</option>${readyPairOptions(firstPair)}</select>
+      </label>
+      <label>Аудиторія для всіх
+        <input id="readyDefaultRoom" list="readyRoomList" placeholder="наприклад 415">
+      </label>
+      <button type="button" class="secondary" id="readyApplyDefaults">Застосувати до всіх</button>
+    </div>
+
+    <div class="section-head compact ready-rows-head">
+      <div>
+        <b>Дати серії</b>
+        <div class="small" id="readyDateHint"></div>
+      </div>
+      <button type="button" class="secondary" id="readyAddRow">+ Додати дату вручну</button>
+    </div>
+
+    <form id="readyScheduleForm">
+      <div id="readyRows"></div>
+      <div id="readyRowsEmpty" class="ready-rows-empty">
+        Додай конкретні дати або згенеруй їх за правилом. Потім кожну дату можна змінити окремо.
+      </div>
+      <div id="readyConflictBox"></div>
+      <div class="modal-footer-actions">
+        <button class="primary">Додати серію в розклад</button>
+      </div>
+    </form>
+  </div>`;
+}
+
+function bindReadyMode(existing=null){
+  const row0=$("[data-ready-row]");
+  if(row0)bindReadyRow(row0);
+  renumberReadyRows();
+  readyUpdateEmptyState();
+
+  const form=$("#readyScheduleForm");
+  if(form)form.onsubmit=e=>saveReadySchedule(e,existing?.id||null);
+
+  if(readyScheduleMode==="series"){
+    $("#readyAddRow").onclick=()=>addReadyScheduleRow();
+    $("#readyAddDates").onclick=addReadyDatesFromText;
+    $("#readyApplyDefaults").onclick=applyReadyDefaults;
+    $("#readyGenerateRule").onclick=generateReadyDatesByRule;
+  }
+}
+
+function readyUpdateEmptyState(){
+  const empty=$("#readyRowsEmpty");
+  if(empty)empty.classList.toggle("hidden",$$("[data-ready-row]").length>0);
+}
+
+function generateReadyDatesByRule(){
+  const group=$("#readyGroup").value;
+  const ref=$("#readyDiscipline").value;
+  const b=readyDateBounds(group,ref);
+  const pattern=$("#readyRulePattern").value;
+  const weekday=$("#readyRuleWeekday").value;
+  const from=$("#readyRuleFrom").value;
+  const to=$("#readyRuleTo").value;
+
+  if(!from||!to)return alert("Вкажи період.");
+  if(from>to)return alert("Дата «Від» не може бути пізніше за «До».");
+
+  const dates=datesForPattern(pattern,from,to,weekday,"",b);
+  if(!dates.length)return alert("За цим правилом дат не знайдено.");
+
+  const pairId=$("#readyDefaultPair")?.value||bellPairs()[0]?.id||1;
+  const type=$("#readyDefaultType")?.value||"Лекція";
+  const room=$("#readyDefaultRoom")?.value.trim()||"";
+
+  const existingKeys=new Set($$("[data-ready-row]").map(row=>{
+    const date=row.querySelector("[data-ready-date]")?.value||"";
+    const pair=row.querySelector("[data-ready-pair]")?.value||"";
+    return `${date}|${pair}`;
+  }));
+
+  dates.forEach(date=>{
+    const key=`${date}|${pairId}`;
+    if(!existingKeys.has(key)){
+      addReadyScheduleRow({date,type,pairId,room});
+      existingKeys.add(key);
+    }
+  });
+  readyUpdateEmptyState();
+}
+
+
 function readyPlanRecords(group){
   const rows=[];
   (db.curricula||[]).forEach(c=>{
@@ -1367,6 +1551,7 @@ function bindReadyRow(row){
     }
     row.remove();
     renumberReadyRows();
+    readyUpdateEmptyState();
   };
 }
 function addReadyScheduleRow(preset={}){
@@ -1374,6 +1559,7 @@ function addReadyScheduleRow(preset={}){
   box.insertAdjacentHTML("beforeend",readyRowHtml(preset));
   bindReadyRow(box.lastElementChild);
   renumberReadyRows();
+  readyUpdateEmptyState();
   applyReadyDateBounds();
 }
 function applyReadyDateBounds(){
@@ -1421,6 +1607,7 @@ function addReadyDatesFromText(){
   }else{
     dates.forEach(d=>addReadyScheduleRow({date:d}));
   }
+  readyUpdateEmptyState();
   input.value="";
 }
 function applyReadyDefaults(){
@@ -1490,14 +1677,16 @@ function openReadyScheduleModal(editId=null){
   const existing=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
   const editing=!!existing;
   const defaultGroup=existing?.group||currentWorkloadGroup()||db.groups[0]?.code||"";
+
   let selectedRef="__custom__";
   if(existing?.sourceCurriculumId&&existing?.sourceComponentId&&existing?.sourceSemester){
     selectedRef=`plan:${existing.sourceCurriculumId}:${existing.sourceComponentId}:${existing.sourceSemester}`;
   }else if(!existing){
     selectedRef="";
   }
+
   const teacherText=existing?.teacher||"";
-  const firstPair=bellPairs()[0]?.id||1;
+  readyScheduleMode=editing?"single":null;
 
   openModal(`<div class="ready-schedule-modal">
     <div class="allocation-scheduler-head">
@@ -1509,17 +1698,25 @@ function openReadyScheduleModal(editId=null){
     </div>
 
     <div class="ready-common-grid">
-      <label>Група<select id="readyGroup">${groupOptions(defaultGroup)}</select></label>
+      <label>Група
+        <select id="readyGroup">${groupOptions(defaultGroup)}</select>
+      </label>
       <label class="ready-discipline-field">Дисципліна
         <select id="readyDiscipline">${readyPlanOptions(defaultGroup,selectedRef)}</select>
-        <input id="readyCustomDiscipline" placeholder="Назва дисципліни" value="${esc(existing&&!existing.sourceComponentId?(existing.discipline||""):"")}" style="display:${selectedRef==="__custom__"?"":"none"}">
+        <input id="readyCustomDiscipline" placeholder="Назва дисципліни"
+          value="${esc(existing&&!existing.sourceComponentId?(existing.discipline||""):"")}"
+          style="display:${selectedRef==="__custom__"?"":"none"}">
       </label>
       <label>Викладач
         <input id="readyTeacher" list="readyTeacherList" placeholder="ПІБ або вибери з довідника" value="${esc(teacherText)}">
         <small>Якщо ПІБ збігається з викладачем у довіднику, заняття автоматично потрапить і в його індивідуальний розклад.</small>
       </label>
-      <label>Охоплення<select id="readyCoverage">${db.coverageTypes.map(v=>`<option ${v===(existing?.coverage||"Вся група")?"selected":""}>${esc(v)}</option>`).join("")}</select></label>
-      <label class="wide">Примітка<input id="readyNote" placeholder="необов’язково" value="${esc(existing?.note||"")}"></label>
+      <label>Охоплення
+        <select id="readyCoverage">${db.coverageTypes.map(v=>`<option ${v===(existing?.coverage||"Вся група")?"selected":""}>${esc(v)}</option>`).join("")}</select>
+      </label>
+      <label class="wide">Примітка
+        <input id="readyNote" placeholder="необов’язково" value="${esc(existing?.note||"")}">
+      </label>
     </div>
 
     <datalist id="readyTeacherList">${readyTeacherDatalist()}</datalist>
@@ -1527,56 +1724,43 @@ function openReadyScheduleModal(editId=null){
     <div id="readyPlanInfo"></div>
 
     ${editing?"":`
-      <div class="ready-bulk-tools">
-        <div class="ready-paste-dates">
-          <label>Швидко додати дати<input id="readyDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09"></label>
-          <button type="button" class="secondary" id="readyAddDates">Додати дати</button>
-        </div>
-        <div class="ready-defaults">
-          <label>Вид для всіх<select id="readyDefaultType"><option value="">— не змінювати —</option>${readyTypeOptions()}</select></label>
-          <label>Пара для всіх<select id="readyDefaultPair"><option value="">— не змінювати —</option>${readyPairOptions()}</select></label>
-          <label>Аудиторія для всіх<input id="readyDefaultRoom" list="readyRoomList" placeholder="наприклад 415"></label>
-          <button type="button" class="secondary" id="readyApplyDefaults">Застосувати до всіх</button>
-        </div>
+      <div class="ready-mode-switch">
+        <button type="button" id="readyModeSingle" onclick="setReadyScheduleMode('single')">
+          <b>Одна дата</b>
+          <span>внести одну конкретну пару</span>
+        </button>
+        <button type="button" id="readyModeSeries" onclick="setReadyScheduleMode('series')">
+          <b>Серія дат</b>
+          <span>конкретний список або повторення за правилом</span>
+        </button>
+      </div>
+      <div id="readyModeHint" class="ready-mode-hint">
+        Обери спосіб внесення — зайві поля не показуватимуться.
       </div>
     `}
 
-    <div class="section-head compact ready-rows-head">
-      <div><b>${editing?"Заняття":"Дати та пари"}</b><div class="small" id="readyDateHint"></div></div>
-      ${editing?"":`<button type="button" class="secondary" id="readyAddRow">+ Рядок</button>`}
-    </div>
-
-    <form id="readyScheduleForm">
-      <div id="readyRows">${readyRowHtml(existing?{
-        date:existing.date,
-        type:existing.type,
-        pairId:existing.pairId||firstPair,
-        room:existing.room
-      }:{})}</div>
-      <div id="readyConflictBox"></div>
-      <div class="modal-footer-actions"><button class="primary">${editing?"Зберегти зміни":"Додати в розклад"}</button></div>
-    </form>
+    <div id="readyModeBody"></div>
   </div>`,true);
 
-  const row0=$("[data-ready-row]");
-  if(row0)bindReadyRow(row0);
-  renumberReadyRows();
   readyRefreshPlanFields();
 
   $("#readyGroup").onchange=()=>{
     $("#readyDiscipline").innerHTML=readyPlanOptions($("#readyGroup").value,"");
     $("#readyDiscipline").value="";
     readyRefreshPlanFields();
+    if(readyScheduleMode)setReadyScheduleMode(readyScheduleMode,editing?existing:null);
   };
-  $("#readyDiscipline").onchange=readyRefreshPlanFields;
 
-  if(!editing){
-    $("#readyAddRow").onclick=()=>addReadyScheduleRow();
-    $("#readyAddDates").onclick=addReadyDatesFromText;
-    $("#readyApplyDefaults").onclick=applyReadyDefaults;
+  $("#readyDiscipline").onchange=()=>{
+    readyRefreshPlanFields();
+    if(readyScheduleMode==="series")setReadyScheduleMode("series");
+  };
+
+  if(editing){
+    setReadyScheduleMode("single",existing);
+  }else{
+    setReadyScheduleMode(null);
   }
-
-  $("#readyScheduleForm").onsubmit=e=>saveReadySchedule(e,editId);
 }
 function saveReadySchedule(e,editId=null){
   e.preventDefault();
@@ -1933,7 +2117,7 @@ function openLessonModal(id=null,preset={}){
   $("#lf").onsubmit=e=>{e.preventDefault();const item=readLesson();if(!item.discipline)return alert("Вкажіть дисципліну.");const d0=item.disciplineId?disciplineById(item.disciplineId):null,b0=d0?semesterDateBounds(d0.semester):academicYearBounds();if(!dateInBounds(item.date,b0))return alert(`Дата має бути в межах ${d0?`${d0.semester} семестру`:`навчального року`}: ${academicDateMessage(b0)}.`);if(!item.pairId&&(!item.start||!item.end||item.end<=item.start))return alert("Оберіть пару або коректний час.");const d=item.disciplineId?disciplineById(item.disciplineId):null;if(d){if(!item.teacherId)return alert("Потрібно вибрати викладача з розподіленого навантаження.");const rem=remainingLoad(d,item.teacherId,item.type,id);if(item.workloadHours>rem+0.0001)return alert(`Недостатньо розподілених годин. Залишок у ${teacherDisplay(teacherById(item.teacherId))}: ${fmtHours(rem)} год. Зміни розподіл у «Навантаженні» або зменш години цього заняття.`);}const cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);if((cs.length||info.warnings.length)&&!confirm("Є конфлікт або обмеження викладача. Все одно зберегти?"))return;if(id)Object.assign(db.schedule.find(s=>s.id===id),item);else db.schedule.push({id:uid(db.schedule),...item});currentEditingLessonId=null;closeModal();save();};
 }
 /* Integrated calendar planner */
-let disciplinePlannerState={disciplineId:null,teacherId:null,month:null,date:null,entryMode:"single"};
+let disciplinePlannerState={disciplineId:null,teacherId:null,month:null,date:null,entryMode:null};
 function schedulerMonthBounds(month){const [y,m]=month.split("-").map(Number),last=String(new Date(y,m,0,12,0,0).getDate()).padStart(2,"0");return {start:`${y}-${String(m).padStart(2,"0")}-01`,end:`${y}-${String(m).padStart(2,"0")}-${last}`};}
 function schedulerMonthsForDiscipline(d){const b=semesterDateBounds(d.semester);return academicMonthTabs().filter(m=>{const mb=schedulerMonthBounds(m.value);return mb.end>=b.start&&mb.start<=b.end;});}
 function schedulerCurrentMonth(d){return clampDate(currentAcademicDate(),semesterDateBounds(d.semester)).slice(0,7);}
@@ -2128,6 +2312,7 @@ function addPlannerEntry(pairId=null){
   renumberPlannerEntries();
 }
 function plannerAddForPair(pairId){
+  if(disciplinePlannerState.entryMode!=="single")setPlannerEntryMode("single");
   addPlannerEntry(pairId);
   const box=$("#plannerEntries");
   if(box)box.scrollIntoView({behavior:"smooth",block:"nearest"});
@@ -2260,15 +2445,17 @@ function plannerSeriesPanelHtml(d,t){
   </div>`;
 }
 function setPlannerEntryMode(mode){
-  disciplinePlannerState.entryMode=mode==="series"?"series":"single";
+  disciplinePlannerState.entryMode=mode==="series"?"series":mode==="single"?"single":null;
   const single=$("#plannerSingleMode");
   const series=$("#plannerSeriesMode");
   const singleBtn=$("#plannerModeSingle");
   const seriesBtn=$("#plannerModeSeries");
+  const hint=$("#plannerModeHint");
   if(single)single.classList.toggle("hidden",disciplinePlannerState.entryMode!=="single");
   if(series)series.classList.toggle("hidden",disciplinePlannerState.entryMode!=="series");
   if(singleBtn)singleBtn.classList.toggle("active",disciplinePlannerState.entryMode==="single");
   if(seriesBtn)seriesBtn.classList.toggle("active",disciplinePlannerState.entryMode==="series");
+  if(hint)hint.classList.toggle("hidden",!!disciplinePlannerState.entryMode);
 }
 function plannerGenerateSeries(d,t){
   const pattern=$("#plannerSeriesPattern").value;
@@ -2479,12 +2666,20 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
 
     ${totalRemaining>0?`
       <div class="planner-add-section">
-        <div class="planner-mode-switch">
-          <button type="button" id="plannerModeSingle" class="${disciplinePlannerState.entryMode!=="series"?"active":""}" onclick="setPlannerEntryMode('single')">Одна дата</button>
-          <button type="button" id="plannerModeSeries" class="${disciplinePlannerState.entryMode==="series"?"active":""}" onclick="setPlannerEntryMode('series')">Серією за правилом</button>
+        <div class="planner-mode-switch planner-mode-switch-clean">
+          <button type="button" id="plannerModeSingle" class="${disciplinePlannerState.entryMode==="single"?"active":""}" onclick="setPlannerEntryMode('single')">
+            <b>Одна дата</b><span>поставити заняття на вибраний день</span>
+          </button>
+          <button type="button" id="plannerModeSeries" class="${disciplinePlannerState.entryMode==="series"?"active":""}" onclick="setPlannerEntryMode('series')">
+            <b>Серією за правилом</b><span>один день і пара на багато дат</span>
+          </button>
         </div>
 
-        <div id="plannerSingleMode" class="${disciplinePlannerState.entryMode==="series"?"hidden":""}">
+        <div id="plannerModeHint" class="planner-mode-hint ${disciplinePlannerState.entryMode?"hidden":""}">
+          Обери спосіб постановки — форма відкриється тільки після вибору.
+        </div>
+
+        <div id="plannerSingleMode" class="${disciplinePlannerState.entryMode==="single"?"":"hidden"}">
           <div class="section-head">
             <div>
               <h4>Додати заняття на ${formatDate(date)}</h4>
@@ -2581,7 +2776,7 @@ function renderDisciplinePlannerModal(){
     $("#plannerSeriesApplyRoom").onclick=()=>plannerApplySeriesRoom(d,t);
     $("#plannerSeriesSave").onclick=()=>savePlannerSeries(d,t);
 
-    setPlannerEntryMode(disciplinePlannerState.entryMode||"single");
+    setPlannerEntryMode(disciplinePlannerState.entryMode||null);
   }
 }
 function safeOpenDisciplineTeacherScheduler(disciplineId,teacherId){
@@ -2600,7 +2795,7 @@ function openDisciplineTeacherScheduler(disciplineId,teacherId,state={}){
     teacherId:Number(teacherId),
     month:state.month||schedulerCurrentMonth(d),
     date:state.date||null,
-    entryMode:state.entryMode||disciplinePlannerState.entryMode||"single"
+    entryMode:Object.prototype.hasOwnProperty.call(state,"entryMode")?state.entryMode:null
   };
   disciplinePlannerState.date=schedulerDateForMonth(d,disciplinePlannerState.month,state.date||null);
   renderDisciplinePlannerModal();
