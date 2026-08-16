@@ -614,14 +614,14 @@ function openCreateUserModal(){
       window.closeModal?.();
       if(result.resetSent)toast(`Користувача створено. На ${result.email} надіслано лист для встановлення пароля.`,"ok",8000);
       else toast(`Користувача створено, але лист для пароля не надіслано. Скористайтеся кнопкою «Пароль».`,"error",9000);
-      renderUsersPage(document.querySelector("#page-users"));
+      renderUsersPage(document.querySelector("#usersCloudMount")||document.querySelector("#page-users"));
     }catch(err){
       alert("Не вдалося створити користувача: "+humanUserError(err));
       btn.disabled=false;btn.textContent="Створити користувача";
     }
   };
 }
-async function renderUsersPage(mount=document.querySelector("#page-users")){
+async function renderUsersPage(mount=document.querySelector("#usersCloudMount")||document.querySelector("#page-users")){
   if(!mount)return;
   updateAdminUi();
   if(!configured){mount.innerHTML=`<div class="card section"><div class="empty">Firebase не підключено.</div></div>`;return;}

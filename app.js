@@ -392,7 +392,8 @@ const meta={
   disciplines:["Навантаження","Розподіл дисциплін і годин між викладачами"],
   lessonTypes:["Види занять","Правила підрахунку годин"],
   users:["Користувачі","Облікові записи та права доступу"],
-  settings:["Налаштування","Навчальний рік, семестр і резервні копії"]
+  bellSchedule:["Розклад дзвінків","Номери пар та час їх початку і завершення"],
+  settings:["Налаштування","Навчальний рік, системні довідники та резервні копії"]
 };
 $$(".nav-btn").forEach(b=>b.onclick=()=>go(b.dataset.page,{focusCurrentCalendar:true}));
 $("#modalClose").onclick=closeModal;
@@ -422,7 +423,7 @@ function go(p,options={}){
     const wanted="#"+p;
     if(location.hash!==wanted)history.replaceState(null,"",location.pathname+location.search+wanted);
   }catch(e){}
-  const sidebarPage=({students:"groups",rooms:"roomGrid",lessonTypes:"settings",users:"settings"})[p]||p;
+  const sidebarPage=({students:"groups",rooms:"roomGrid",lessonTypes:"settings",users:"settings",bellSchedule:"settings"})[p]||p;
   $$(".nav-btn").forEach(x=>x.classList.toggle("active",x.dataset.page===sidebarPage));
   $$(".page").forEach(x=>x.classList.remove("active"));
   $("#page-"+p).classList.add("active");
@@ -431,7 +432,7 @@ function go(p,options={}){
   renderCurrent();
 }
 function renderCurrent(){
-  ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,mySchedule:renderMySchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,settings:renderSettings}[currentPage])();
+  ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,mySchedule:renderMySchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,bellSchedule:renderBellSchedule,settings:renderSettings}[currentPage])();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
 }
 function openModal(html,wide=false){
@@ -1128,8 +1129,29 @@ function openTeacherWorkload(id){
 }
 
 /* Lesson types */
+function settingsBackBar(title,subtitle=""){
+  return `<div class="settings-backbar">
+    <button type="button" class="settings-back-button" onclick="go('settings')">
+      <span>←</span>
+      <div>
+        <b>Повернутися до налаштувань</b>
+        <small>головний екран налаштувань</small>
+      </div>
+    </button>
+    <div class="settings-back-context">
+      <span>НАЛАШТУВАННЯ</span>
+      <h2>${esc(title)}</h2>
+      ${subtitle?`<p>${esc(subtitle)}</p>`:""}
+    </div>
+  </div>`;
+}
+
 function renderLessonTypes(){
-  $("#page-lessonTypes").innerHTML=`<div class="card section"><div class="section-head"><h2>Види занять</h2><button class="primary" onclick="openLessonTypeModal()">+ Додати вид</button></div><div class="notice">Правило підрахунку можна змінити для будь-якого виду.</div>${db.lessonTypes.map(x=>`<div class="mode-card"><div><b>${esc(x.name)}</b><p>${formatMode(x.countMode)}${x.defaultUnit?` · базове значення: ${esc(x.defaultUnit)}`:""}${x.description?` · ${esc(x.description)}`:""}</p></div><div class="actions"><button onclick="openLessonTypeModal(${x.id})">Редагувати</button><button onclick="deleteLessonType(${x.id})">Видалити</button></div></div>`).join("")}</div>`;
+  $("#page-lessonTypes").innerHTML=`${settingsBackBar("Види занять і правила годин","Лекції, практичні, лабораторні, іспити та правила підрахунку навантаження.")}
+  <div class="card section settings-subpage-card">
+    <div class="section-head"><div><h2>Види занять</h2><div class="small">Правило підрахунку можна змінити для будь-якого виду.</div></div><button class="primary" onclick="openLessonTypeModal()">+ Додати вид</button></div>
+    ${db.lessonTypes.map(x=>`<div class="mode-card"><div><b>${esc(x.name)}</b><p>${formatMode(x.countMode)}${x.defaultUnit?` · базове значення: ${esc(x.defaultUnit)}`:""}${x.description?` · ${esc(x.description)}`:""}</p></div><div class="actions"><button onclick="openLessonTypeModal(${x.id})">Редагувати</button><button onclick="deleteLessonType(${x.id})">Видалити</button></div></div>`).join("")}
+  </div>`;
 }
 function openLessonTypeModal(id=null){
   const x=id?db.lessonTypes.find(v=>v.id===id):{name:"",countMode:"manual",defaultUnit:1,description:""};
@@ -4792,23 +4814,127 @@ window.REMS_APPLY_ROLE_ACCESS=()=>{
 /* Settings */
 function renderBellRows(){return bellPairs().map(p=>`<div class="bell-row" data-bell-row data-id="${esc(p.id)}"><div class="bell-number">${esc(p.id)} пара</div><input data-bstart type="time" value="${esc(p.start||"")}"><span>—</span><input data-bend type="time" value="${esc(p.end||"")}"><button class="danger small-btn" onclick="removeBellPair(${JSON.stringify(p.id)})">×</button></div>`).join("");}
 function renderUsers(){
-  const mount=$("#page-users");
+  const page=$("#page-users");
+  page.innerHTML=`${settingsBackBar("Користувачі та доступ","Облікові записи, ролі, прив’язка до викладачів і блокування доступу.")}
+    <div id="usersCloudMount"><div class="card section"><div class="empty">Підключення модуля користувачів…</div></div></div>`;
+  const mount=$("#usersCloudMount");
   if(window.REMS_CLOUD?.renderUsersPage) window.REMS_CLOUD.renderUsersPage(mount);
-  else mount.innerHTML=`<div class="card section"><div class="empty">Підключення модуля користувачів…</div></div>`;
+}
+
+function renderBellSchedule(){
+  $("#page-bellSchedule").innerHTML=`${settingsBackBar("Розклад дзвінків","Налаштування номерів пар і часу, який автоматично використовується у всіх календарях та перевірках конфліктів.")}
+    <div class="card section settings-subpage-card bell-schedule-page">
+      <div class="section-head">
+        <div>
+          <h2>Розклад дзвінків</h2>
+          <div class="small">Змінюй час тут один раз — заняття з номерами пар оновляться автоматично.</div>
+        </div>
+        <button class="secondary" onclick="addBellPair()">+ Додати пару</button>
+      </div>
+
+      <div class="bell-page-intro">
+        <div><b>${bellPairs().length}</b><span>пар у довіднику</span></div>
+        <p>У складанні розкладу ти вибираєш номер пари, а час підтягується звідси.</p>
+      </div>
+
+      <div class="bell-editor">
+        <div class="bell-head"><span>Пара</span><span>Початок</span><span></span><span>Кінець</span><span></span></div>
+        ${renderBellRows()}
+      </div>
+
+      <div class="settings-subpage-actions">
+        <button class="primary" onclick="saveBellSchedule()">Зберегти розклад дзвінків</button>
+        <button class="secondary" onclick="go('settings')">← До налаштувань</button>
+      </div>
+    </div>`;
 }
 
 function renderSettings(){
-  $("#page-settings").innerHTML=`<div class="card section">
-    <div class="section-head"><div><h2>Системні довідники</h2><div class="small">Речі, які потрібні рідше, більше не займають місце в основному меню.</div></div></div>
-    <div class="settings-shortcuts">
-      <button class="settings-shortcut" onclick="go('lessonTypes')"><b>Види занять і правила годин</b><span>Лекції, практичні, іспити, індивідуальні та правила підрахунку.</span></button>
-      <button class="settings-shortcut" onclick="go('users')"><b>Користувачі та доступ</b><span>Облікові записи, ролі та блокування доступу.</span></button>
-    </div>
-  </div>
-  <div class="settings-grid"><div class="card settings-card"><h3>Навчальний період</h3><label>Навчальний рік<input id="setYear" value="${esc(db.academicYear)}"></label><label style="margin-top:10px">Семестр<select id="setSem"><option ${db.semester===1?"selected":""}>1</option><option ${db.semester===2?"selected":""}>2</option></select></label><div class="small" style="margin-top:10px"><b>Календар року:</b> ${academicDateMessage()}<br><b>І семестр:</b> ${academicDateMessage(semesterDateBounds(1))}<br><b>ІІ семестр:</b> ${academicDateMessage(semesterDateBounds(2))}<br>Липень і серпень у розкладах не використовуються.</div><button class="primary" style="margin-top:12px" onclick="savePeriod()">Зберегти</button></div><div class="card settings-card"><h3>Резервна копія</h3><p class="small">Експорт усієї бази одним JSON-файлом.</p><button class="primary" onclick="exportData()">Експорт даних</button></div><div class="card settings-card"><h3>Імпорт</h3><p class="small">Відновити дані з резервної копії.</p><button class="secondary" onclick="document.querySelector('#importFile').click()">Імпортувати</button></div><div class="card settings-card"><h3>Скидання</h3><p class="small">Повернути початкові дані версії 0.9.</p><button class="danger" onclick="resetData()">Скинути дані</button></div></div>
-  <div id="cloudSettingsMount"></div>
-  <div class="card section"><div class="section-head"><div><h2>Розклад дзвінків</h2><div class="small">У складанні розкладу ти вибираєш номер пари. Час використовується автоматично для перевірки конфліктів і доступності викладачів.</div></div><button class="secondary" onclick="addBellPair()">+ Додати пару</button></div><div class="bell-editor"><div class="bell-head"><span>Пара</span><span>Початок</span><span></span><span>Кінець</span><span></span></div>${renderBellRows()}</div><button class="primary" style="margin-top:12px" onclick="saveBellSchedule()">Зберегти дзвінки</button></div>`;
+  $("#page-settings").innerHTML=`
+    <div class="settings-hub">
+      <div class="settings-hub-hero">
+        <div>
+          <span>СИСТЕМА</span>
+          <h2>Налаштування</h2>
+          <p>Рідкісні довідники відкриваються окремими робочими екранами. Основні параметри та резервні копії залишаються тут.</p>
+        </div>
+      </div>
+
+      <div class="settings-hub-section">
+        <div class="settings-hub-section-head">
+          <div>
+            <span>ДОВІДНИКИ ТА ДОСТУП</span>
+            <h3>Відкрити окремий розділ</h3>
+          </div>
+        </div>
+
+        <div class="settings-shortcuts settings-shortcuts-3">
+          <button class="settings-shortcut settings-shortcut-feature" onclick="go('lessonTypes')">
+            <i>≡</i>
+            <div><b>Види занять і правила годин</b><span>Лекції, практичні, іспити, індивідуальні та правила підрахунку.</span></div>
+            <strong>→</strong>
+          </button>
+
+          <button class="settings-shortcut settings-shortcut-feature" onclick="go('users')">
+            <i>◎</i>
+            <div><b>Користувачі та доступ</b><span>Облікові записи, ролі, прив’язка викладачів і блокування доступу.</span></div>
+            <strong>→</strong>
+          </button>
+
+          <button class="settings-shortcut settings-shortcut-feature" onclick="go('bellSchedule')">
+            <i>◷</i>
+            <div><b>Розклад дзвінків</b><span>${bellPairs().length} пар · час початку й завершення кожної пари.</span></div>
+            <strong>→</strong>
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-hub-section">
+        <div class="settings-hub-section-head">
+          <div>
+            <span>ОСНОВНІ ПАРАМЕТРИ</span>
+            <h3>Навчальний період і дані</h3>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="card settings-card settings-card-primary">
+            <h3>Навчальний період</h3>
+            <label>Навчальний рік<input id="setYear" value="${esc(db.academicYear)}"></label>
+            <label style="margin-top:10px">Семестр<select id="setSem"><option ${db.semester===1?"selected":""}>1</option><option ${db.semester===2?"selected":""}>2</option></select></label>
+            <div class="small settings-period-summary">
+              <b>Календар року:</b> ${academicDateMessage()}<br>
+              <b>І семестр:</b> ${academicDateMessage(semesterDateBounds(1))}<br>
+              <b>ІІ семестр:</b> ${academicDateMessage(semesterDateBounds(2))}<br>
+              Липень і серпень у розкладах не використовуються.
+            </div>
+            <button class="primary" style="margin-top:12px" onclick="savePeriod()">Зберегти період</button>
+          </div>
+
+          <div class="card settings-card">
+            <h3>Резервна копія</h3>
+            <p class="small">Експорт усієї бази одним JSON-файлом.</p>
+            <button class="primary" onclick="exportData()">Експорт даних</button>
+          </div>
+
+          <div class="card settings-card">
+            <h3>Імпорт</h3>
+            <p class="small">Відновити дані з резервної копії.</p>
+            <button class="secondary" onclick="document.querySelector('#importFile').click()">Імпортувати</button>
+          </div>
+
+          <div class="card settings-card settings-card-danger">
+            <h3>Скидання</h3>
+            <p class="small">Повернути початкові дані системи.</p>
+            <button class="danger" onclick="resetData()">Скинути дані</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="cloudSettingsMount"></div>
+    </div>`;
 }
+
 function saveBellSchedule(){db.bellSchedule=$$("[data-bell-row]").map(r=>({id:Number(r.dataset.id),start:r.querySelector("[data-bstart]").value,end:r.querySelector("[data-bend]").value})).sort((a,b)=>a.id-b.id);db.schedule.forEach(s=>{if(s.pairId){const p=pairById(s.pairId);if(p){s.start=p.start;s.end=p.end;}}});db.roomBookings.forEach(b=>{if(b.pairId){const p=pairById(b.pairId);if(p){b.start=p.start;b.end=p.end;}}});save();alert("Розклад дзвінків збережено. Усі заняття з номерами пар оновлено автоматично.");}
 function addBellPair(){const next=bellPairs().length?Math.max(...bellPairs().map(p=>Number(p.id)||0))+1:1;db.bellSchedule.push({id:next,start:"",end:""});save();}
 function removeBellPair(id){if((db.schedule.some(s=>String(s.pairId)===String(id))||db.roomBookings.some(b=>String(b.pairId)===String(id)))&&!confirm("На цій парі вже є заняття. Видалити пару з довідника? Самі заняття не видаляться."))return;db.bellSchedule=db.bellSchedule.filter(p=>String(p.id)!==String(id));save();}
