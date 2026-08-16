@@ -1491,6 +1491,14 @@ function renderDisciplinePlannerModal(){
     $("#plannerDateForm").onsubmit=e=>savePlannerDateEntries(e,d,t);
   }
 }
+function safeOpenDisciplineTeacherScheduler(disciplineId,teacherId){
+  try{
+    openDisciplineTeacherScheduler(disciplineId,teacherId);
+  }catch(err){
+    console.error("Planner open failed",err);
+    alert("Не вдалося відкрити календар постановки розкладу. Помилка: "+(err?.message||err));
+  }
+}
 function openDisciplineTeacherScheduler(disciplineId,teacherId,state={}){const d=disciplineById(disciplineId),t=teacherById(teacherId);if(!d||!t)return;disciplinePlannerState={disciplineId:Number(disciplineId),teacherId:Number(teacherId),month:state.month||schedulerCurrentMonth(d),date:state.date||null};disciplinePlannerState.date=schedulerDateForMonth(d,disciplinePlannerState.month,state.date||null);renderDisciplinePlannerModal();}
 function setDisciplinePlannerMonth(month){const d=disciplineById(disciplinePlannerState.disciplineId);if(!d||!schedulerMonthsForDiscipline(d).some(x=>x.value===month))return;disciplinePlannerState.month=month;disciplinePlannerState.date=schedulerDateForMonth(d,month,null);renderDisciplinePlannerModal();}
 function selectDisciplinePlannerDate(date){
