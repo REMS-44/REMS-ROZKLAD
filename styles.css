@@ -5969,3 +5969,30 @@ td .small{font-size:12px}
 .special-student-picker button small{
   line-height:1.35;
 }
+
+
+/* v1.4.4 · consultations use the same student-assignment model */
+.special-kind-tabs button:nth-child(2).active,
+.special-kind-tabs button:nth-child(3).active{
+  box-shadow:0 8px 20px rgba(78,38,104,.16);
+}
+
+
+/* v1.4.5 · descriptive labels for individual / consultation slots */
+.room-event-special .room-event-special-kind{
+  display:block!important;
+  width:100%;
+  max-width:100%;
+  padding:3px 5px!important;
+  border-radius:5px;
+  white-space:normal!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+  line-height:1.08!important;
+  font-size:7.5px!important;
+  letter-spacing:.025em!important;
+  text-align:left;
+}
+.room-event-special{
+  min-height:0;
+}
