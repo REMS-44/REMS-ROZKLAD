@@ -5959,3 +5959,13 @@ td .small{font-size:12px}
     width:max-content;
   }
 }
+
+
+/* v1.4.3 · individual caps + stable assignment sync */
+.special-modal-head p b{
+  color:#2e785f;
+  font-weight:850;
+}
+.special-student-picker button small{
+  line-height:1.35;
+}

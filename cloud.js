@@ -271,7 +271,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=13;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=15;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
@@ -325,7 +325,7 @@ async function commitOps(ops){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:13,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
+function settingsPart(st){return clean({schemaVersion:15,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;
@@ -343,6 +343,12 @@ async function flushPush(){
     }
     await syncSchedule(remoteState.schedule||[],wanted.schedule||[]);
     await syncRoomBookings(remoteState.roomBookings||[],wanted.roomBookings||[]);
+
+    // All writes succeeded. Keep the just-saved local state as the baseline
+    // instead of waiting for a possibly out-of-order snapshot to restore it.
+    remoteState=clean(wanted);
+    window.REMS_APPLY_REMOTE_STATE?.(remoteState);
+
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
   }catch(e){
     console.error(e);
@@ -373,13 +379,30 @@ async function syncRoomBookings(oldItems,newItems){
   for(const [id] of old)if(!neu.has(id))await deleteRoomBookingCloud(id);
 }
 
-function slotKey(x){return x.pairId?`pair-${x.pairId}`:`time-${x.start||""}-${x.end||""}`;}
+function slotKey(x){
+  // Individual / consultation records occupy exactly half a pair.
+  // They MUST NOT receive the same cloud lock for both halves.
+  if(x?.specialSchedule){
+    return `time-${x.start||""}-${x.end||""}`;
+  }
+  return x?.pairId?`pair-${x.pairId}`:`time-${x.start||""}-${x.end||""}`;
+}
 function lockSpecs(x){
   if(!x?.date)return[];
   const key=slotKey(x),specs=[];
-  if(x.group)specs.push(["group",x.group]);
-  if(x.room)specs.push(["room",x.room]);
-  if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
+
+  if(x.specialSchedule){
+    // Different students of the same group may work in parallel.
+    // Lock the concrete student, teacher and room — not the whole group.
+    if(x.studentId)specs.push(["student",String(x.studentId)]);
+    if(x.room)specs.push(["room",x.room]);
+    if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
+  }else{
+    if(x.group)specs.push(["group",x.group]);
+    if(x.room)specs.push(["room",x.room]);
+    if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
+  }
+
   return specs.map(([kind,res])=>({kind,res,id:`${kind}__${encodeURIComponent(res)}__${x.date}__${encodeURIComponent(key)}`}));
 }
 async function writeScheduleLesson(lesson){
@@ -393,7 +416,7 @@ async function writeScheduleLesson(lesson){
     for(const l of newLocks){
       const ls=lockSnaps.get(l.id).snap;
       if(ls.exists()&&String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`))!==`schedule:${lesson.id}`){
-        const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:`Викладач`;
+        const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:l.kind==="student"?`Студент`:`Викладач`;
         throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${lesson.date}, ${lesson.pairId?lesson.pairId+" пара":(lesson.start+"–"+lesson.end)}. Зміна не збережена.`);
       }
     }
@@ -427,7 +450,7 @@ async function writeRoomBookingCloud(booking){
     [...oldLocks,...newLocks].forEach(x=>all.set(x.id,x));
     const lockSnaps=new Map();
     for(const [id] of all){const r=itemRef("locks",id);lockSnaps.set(id,{ref:r,snap:await tx.get(r)});}
-    for(const l of newLocks){const ls=lockSnaps.get(l.id).snap;if(ls.exists()){const existing=String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`));if(existing!==owner){const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:`Викладач`;throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${booking.date}, ${booking.pairId?booking.pairId+" пара":(booking.start+"–"+booking.end)}. Бронювання не збережено.`);}}}
+    for(const l of newLocks){const ls=lockSnaps.get(l.id).snap;if(ls.exists()){const existing=String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`));if(existing!==owner){const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:l.kind==="student"?`Студент`:`Викладач`;throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${booking.date}, ${booking.pairId?booking.pairId+" пара":(booking.start+"–"+booking.end)}. Бронювання не збережено.`);}}}
     const newIds=new Set(newLocks.map(x=>x.id));
     for(const l of oldLocks){if(newIds.has(l.id))continue;const item=lockSnaps.get(l.id),existing=item.snap.exists()?String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`)):"";if(existing===owner)tx.delete(item.ref);}
     for(const l of newLocks)tx.set(lockSnaps.get(l.id).ref,{ownerKey:owner,ownerType:"roomBooking",ownerId:String(booking.id),kind:l.kind,resource:l.res,date:booking.date,slot:slotKey(booking),updatedAt:serverTimestamp()});
@@ -465,6 +488,15 @@ function subscribeRealtime(){
   const state=remoteState||clean(window.REMS_INITIAL_DATA||{});
   const apply=()=>{
     remoteState=clean(state);
+
+    // Critical: while a local write is waiting / being written,
+    // realtime snapshots may still contain the OLD discipline document.
+    // Do not apply that stale copy over the user's just-saved assignment.
+    if(pendingPush||pushing){
+      setSidebar("syncing","Синхронізація…",`${user.email} · ${roleLabel(profile.role)}`);
+      return;
+    }
+
     window.REMS_APPLY_REMOTE_STATE?.(remoteState);
     cloudWasOnline=true;
     lastCloudError=null;

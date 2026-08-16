@@ -341,7 +341,7 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     const raw=rawSchedule.get(String(x.id));
     return raw&&(String(raw.group||"")!==String(x.group||"")||Number(raw.teacherId||0)!==Number(x.teacherId||0)||Number(raw.disciplineId||0)!==Number(x.disciplineId||0));
   });
-  db.schemaVersion=13;
+  db.schemaVersion=15;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
   renderCurrent();
@@ -1441,6 +1441,23 @@ function assignedStudentTeacherId(d,typeId,studentId,excludeTeacherId=null){
   }
   return null;
 }
+function individualStudentLimit(d,lt){
+  if(!d||!lt||lt.countMode!=="per_student")return 0;
+  return perStudentUnitHours(d,lt.id);
+}
+function individualStudentUsage(d,t,lt,studentId,ignoreId=null){
+  const limit=individualStudentLimit(d,lt);
+  const used=scheduledStudentLoad(d.id,t.id,lt.name,studentId,ignoreId);
+  return {
+    limit,
+    used,
+    remaining:Math.max(0,limit-used),
+    meetings:used,
+    maxMeetings:limit,
+    complete:limit>0&&used>=limit-.001
+  };
+}
+
 function scheduledStudentLoad(disciplineId,teacherId,typeName,studentId,ignoreId=null){
   return db.schedule
     .filter(s=>s.id!==ignoreId
@@ -2446,9 +2463,11 @@ function specialStudentsForLoad(d,t,lt){
   return studentsForGroup(d.group).filter(s=>ids.has(Number(s.id)));
 }
 function specialStudentProgress(d,t,lt,studentId,ignoreId=null){
-  const plan=lt.countMode==="per_student"
-    ?perStudentUnitHours(d,lt.id)
-    :teacherTypePlan(d,t.id,lt.name);
+  if(lt.countMode==="per_student"){
+    const u=individualStudentUsage(d,t,lt,studentId,ignoreId);
+    return {plan:u.limit,used:u.used,remaining:u.remaining,done:u.complete};
+  }
+  const plan=teacherTypePlan(d,t.id,lt.name);
   const used=scheduledStudentLoad(d.id,t.id,lt.name,studentId,ignoreId);
   return {plan,used,remaining:Math.max(0,plan-used),done:used>=plan-.001};
 }
@@ -2461,7 +2480,7 @@ function specialStudentButtonsHtml(d,t,lt,selected=null,ignoreId=null){
       ${p.done?"disabled":""}
       onclick="selectSpecialStudent(${s.id})">
         <span>${esc(s.name)}</span>
-        ${lt.countMode==="per_student"?`<small>${fmtHours(p.used)} / ${fmtHours(p.plan)} год${p.done?" · ГОТОВО":` · залишок ${fmtHours(p.remaining)}`}</small>`:""}
+        ${lt.countMode==="per_student"?`<small>${fmtHours(p.used)} / ${fmtHours(p.plan)} год · ${fmtHours(p.used)} / ${fmtHours(p.plan)} зустрічей${p.done?" · ГОТОВО":` · залишилось ${fmtHours(p.remaining)}`}</small>`:""}
     </button>`;
   }).join("")}</div>`;
 }
@@ -2548,7 +2567,7 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
         <span>${editing?"РЕДАГУВАННЯ · ":""}${esc(specialKindMeta(specialScheduleState.kind).label)}</span>
         <h2>${esc(d.name)}</h2>
         <strong>${esc(teacherDisplay(t))}</strong>
-        <p>${esc(d.group)} · ${esc(lt.name)} · ${editing?"редагуємо існуючий запис":`залишок ${fmtHours(remaining)} год`}</p>
+        <p>${esc(d.group)} · ${esc(lt.name)} · ${editing?"редагуємо існуючий запис":`залишок викладача ${fmtHours(remaining)} год`}${lt.countMode==="per_student"?` · <b>${fmtHours(perStudentUnitHours(d,lt.id))} год / ${fmtHours(perStudentUnitHours(d,lt.id))} зустрічей на кожного студента</b>`:""}</p>
       </div>
       <div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div>
     </div>
@@ -2641,10 +2660,12 @@ function saveSpecialScheduleEvent(e,d,t,lt,editId=null){
       return alert("Цей студент не закріплений за цим викладачем у навантаженні.");
     }
 
-    const planForStudent=perStudentUnitHours(d,lt.id);
-    const usedForStudent=scheduledStudentLoad(d.id,t.id,lt.name,studentId,editId);
-    if(usedForStudent+1>planForStudent+.001){
-      return alert(`У цього студента залишилось лише ${fmtHours(Math.max(0,planForStudent-usedForStudent))} год.`);
+    const usage=individualStudentUsage(d,t,lt,studentId,editId);
+    if(usage.limit<=0){
+      return alert("Для цього студента в навчальному плані не передбачено індивідуальних годин.");
+    }
+    if(usage.used+1>usage.limit+.001){
+      return alert(`Ліміт вичерпано. За планом цьому студенту передбачено ${fmtHours(usage.limit)} індивідуальних год = максимум ${fmtHours(usage.limit)} зустрічей. Уже виставлено ${fmtHours(usage.used)}.`);
     }
   }
 
