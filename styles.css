@@ -3842,3 +3842,619 @@ table{min-width:760px}th,td{padding:11px 12px;font-size:10px;border-bottom:1px s
     grid-template-columns:1fr;
   }
 }
+
+
+/* ================================================================
+   v1.2.0 · READABLE STUDIO
+   Larger hierarchy, less dead space, no microscopic interface text.
+   ================================================================ */
+
+:root{
+  --studio-bg:#f4f1f6;
+  --studio-surface:#ffffff;
+  --studio-soft:#f7f3fa;
+  --studio-ink:#21162c;
+  --studio-muted:#6f6378;
+  --studio-line:#ddd4e3;
+  --studio-purple:#6727b8;
+  --studio-purple-dark:#42156f;
+  --studio-magenta:#b9408e;
+  --studio-shadow:0 10px 30px rgba(42,24,55,.075);
+}
+
+/* Base readability */
+body{
+  background:
+    radial-gradient(circle at 84% 10%,rgba(126,71,190,.065),transparent 27rem),
+    var(--studio-bg);
+  color:var(--studio-ink);
+  font-size:15px;
+}
+.main{padding:0 26px 48px}
+.topbar{margin:0 -26px 20px;padding:17px 26px 15px}
+.topbar h1{font-size:31px;letter-spacing:-.75px}
+.topbar p{font-size:14px;line-height:1.4}
+.topbar-kicker{font-size:10px}
+.small{font-size:13px;line-height:1.42;color:var(--studio-muted)}
+label{font-size:13px;line-height:1.35;color:#5d5067}
+input,select,textarea{
+  min-height:44px;
+  padding:10px 12px;
+  font-size:14px;
+  border-radius:11px;
+}
+button{line-height:1.2}
+.primary,.secondary,.danger,.ghost{
+  min-height:40px;
+  padding:10px 15px;
+  font-size:13px;
+}
+.actions button{font-size:12px;padding:8px 10px}
+.badge{font-size:11px;padding:5px 8px}
+.notice,.conflict{font-size:13px;line-height:1.4}
+.pill{font-size:12px}
+
+/* More purposeful density */
+.card{
+  border-radius:18px;
+  box-shadow:var(--studio-shadow);
+}
+.section{padding:17px 18px;margin-bottom:13px}
+.section-head{margin-bottom:12px}
+.section-head h2,.section h2{font-size:20px}
+.section-kicker{font-size:9px}
+.grid-kpi{gap:11px;margin-bottom:14px}
+.kpi{padding:16px 17px}
+.kpi .label{font-size:11px;letter-spacing:.65px}
+.kpi .value{font-size:30px;margin-top:4px}
+.toolbar{margin-bottom:11px}
+
+/* Tables: readable, not spreadsheet-microscopic */
+.table-wrap{border-radius:13px}
+table{min-width:720px}
+th,td{
+  padding:11px 12px;
+  font-size:14px;
+  line-height:1.3;
+}
+th{
+  font-size:11px;
+  letter-spacing:.45px;
+  color:#574a62;
+}
+td .small{font-size:12px}
+
+/* Sidebar */
+.sidebar{padding:20px 14px}
+.brand{padding:2px 7px 18px}
+.brand b{font-size:19px}
+.brand span{font-size:11px}
+.nav-section-label{
+  font-size:9px;
+  padding:11px 11px 4px;
+  color:rgba(255,255,255,.48);
+}
+.nav-btn{
+  min-height:45px;
+  padding:9px 10px;
+  font-size:14px;
+  font-weight:690;
+}
+.nav-icon{
+  width:32px;height:32px;flex-basis:32px;
+  font-size:14px;
+}
+.cloud-sidebar b{font-size:12px}
+.cloud-sidebar span{font-size:10px;line-height:1.3}
+.sidebar-note{font-size:9px}
+
+/* Home: less empty height, stronger information */
+.home-stage{
+  min-height:165px;
+  padding:21px 23px;
+  margin-bottom:12px;
+}
+.home-stage h2{font-size:38px}
+.home-stage-kicker{font-size:10px}
+.home-stage p{font-size:13px;max-width:650px}
+.home-stage-date{padding:15px 17px}
+.home-stage-date>span{font-size:10px!important}
+.home-stage-date b{font-size:42px!important}
+.home-stage-date strong{font-size:17px!important}
+.home-stage-date small{font-size:11px!important}
+.home-groups-section,.home-today-section{margin-bottom:12px}
+
+/* GROUP SWITCHERS — visible, centered, course is not microscopic */
+.group-switch-wrap{margin:9px 0 13px}
+.group-switch-row{gap:9px}
+.group-switch-btn{
+  min-width:154px;
+  min-height:76px;
+  align-items:center;
+  justify-content:center;
+  padding:12px 36px 11px 12px;
+  border-radius:14px;
+  text-align:center;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.98),rgba(249,246,251,.98));
+}
+.group-switch-btn:hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 18px rgba(57,34,72,.09);
+}
+.group-switch-btn.active{
+  background:
+    radial-gradient(circle at 90% 10%,rgba(194,86,164,.16),transparent 45%),
+    linear-gradient(145deg,#f3eafd,#fff);
+  box-shadow:
+    inset 0 0 0 2px var(--studio-purple),
+    0 8px 20px rgba(87,42,123,.13)!important;
+}
+.group-switch-main{
+  font-size:16px;
+  line-height:1.05;
+  letter-spacing:-.2px;
+}
+.group-switch-meta{
+  margin-top:3px;
+  font-size:11px;
+  font-weight:760;
+  color:#77667f;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+}
+.group-switch-count{
+  top:9px;right:9px;
+  min-width:25px;
+  max-width:75px;
+  padding:4px 6px;
+  font-size:9px;
+}
+.group-switch-btn.active .group-switch-count{
+  background:var(--studio-purple);
+  color:#fff;
+}
+.group-switch-btn.all{min-width:165px}
+
+/* Home group cards */
+.group-grid{gap:10px}
+.group-card{
+  min-height:120px;
+  padding:17px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.group-card b{font-size:25px}
+.group-card-course{font-size:10px!important;font-weight:850!important}
+.group-card p{font-size:13px}
+.group-card p strong{font-size:18px}
+
+/* Teacher page */
+.teacher-grid{gap:11px}
+.teacher-card,.teacher-card-compact{
+  padding:15px 16px;
+  border-radius:14px;
+}
+.teacher-card-compact h3{font-size:20px;margin-bottom:7px}
+.teacher-availability-summary{
+  margin-top:7px;
+  font-size:12px!important;
+  line-height:1.35;
+}
+.teacher-compact-tags{gap:6px}
+.rate-chip{font-size:11px;padding:5px 8px}
+.teacher-meta div{padding:8px 9px}
+.teacher-meta b{font-size:10px}
+.teacher-meta span{font-size:13px}
+.load-strip{gap:6px;margin:10px 0}
+.load-strip div{padding:9px}
+.load-strip span{font-size:11px}
+.load-strip b{font-size:17px}
+
+/* Curriculum & workload */
+.curriculum-grid{gap:11px}
+.curriculum-card{padding:16px;border-radius:14px}
+.curriculum-title h3{font-size:20px}
+.load-workspace{gap:11px}
+.load-workspace-head h1{font-size:27px}
+.load-workspace-head p{font-size:13px}
+.load-overview-strip{gap:7px}
+.load-overview-strip>div{min-height:54px;padding:8px 11px}
+.load-overview-strip b{font-size:20px}
+.load-overview-strip span{font-size:11px}
+.load-group-selector{padding:12px;border-radius:14px}
+.load-group-selector-head h2{font-size:20px}
+.load-group-selector-head small{font-size:11px}
+.load-course-block{grid-template-columns:90px minmax(0,1fr);gap:8px}
+.load-course-block-title{
+  min-height:92px;
+  font-size:13px;
+  border-radius:12px;
+}
+.load-group-card{min-height:92px!important;padding:11px 12px}
+.load-group-card-top b{font-size:18px}
+.load-group-card-top span{font-size:11px}
+.load-group-card-stats span{font-size:10px}
+.load-selected-group-head h3{font-size:21px}
+.load-selected-group-head>div:first-child>span{font-size:9px}
+.load-filter-tabs button,.load-semester-tabs button{font-size:12px;padding:7px 10px}
+.load-discipline-row{padding:10px 11px;gap:10px}
+.load-discipline-title b{font-size:14px}
+.load-discipline-title span{font-size:11px}
+.load-discipline-teachers span{font-size:9px}
+.load-discipline-teachers b{font-size:13px}
+.load-progress-status-top b{font-size:12px}
+
+/* Discipline cards in schedule authoring */
+.schedule-discipline-list{gap:10px}
+.schedule-discipline-card{border-radius:14px}
+.schedule-discipline-head{padding:13px 14px 11px}
+.schedule-discipline-kicker span{font-size:9px;padding:4px 7px}
+.schedule-discipline-head h3{font-size:20px}
+.schedule-discipline-meta{font-size:11px}
+.schedule-discipline-summary>div b{font-size:14px}
+.schedule-discipline-summary>div span{font-size:10px}
+.schedule-discipline-summary strong{font-size:10px;padding:7px 9px}
+.schedule-discipline-teachers-grid{
+  grid-template-columns:repeat(auto-fit,minmax(305px,1fr));
+  padding:9px;
+  gap:8px;
+}
+.schedule-discipline-teacher{padding:10px;gap:8px}
+.schedule-discipline-teacher-head>div:first-child>span{font-size:9px}
+.schedule-discipline-teacher-head h4{font-size:17px}
+.schedule-discipline-teacher-total b{font-size:12px}
+.schedule-discipline-teacher-total span{font-size:9px}
+.schedule-teacher-type{min-width:115px;padding:7px 8px}
+.schedule-teacher-type span{font-size:10px}
+.schedule-teacher-type b{font-size:12px}
+.schedule-teacher-type small{font-size:9px}
+.schedule-remaining{font-size:10px}
+
+/* MONTH TABS — larger and easier to scan */
+.scheduler-month-tabs,
+.teacher-month-tabs{
+  gap:7px;
+}
+.scheduler-month-tabs button,
+.teacher-month-tabs button{
+  min-height:42px;
+  padding:9px 13px;
+  border-radius:11px;
+  font-size:13px;
+}
+.scheduler-month-tabs button b,
+.teacher-month-tabs button b{
+  min-width:22px;
+  height:22px;
+  font-size:10px;
+}
+.teacher-month-title b{font-size:23px}
+.teacher-month-title span{font-size:12px}
+
+/* Calendar legibility */
+.scheduler-weekdays div{
+  padding:9px;
+  font-size:12px;
+}
+.scheduler-day{
+  min-height:124px;
+  padding:8px;
+}
+.scheduler-day-head b{
+  width:28px;height:28px;
+  font-size:13px;
+}
+.scheduler-day-head span{font-size:9px}
+.scheduler-own-event{padding:6px 7px}
+.scheduler-own-event b{font-size:10px}
+.scheduler-own-event span{font-size:11px}
+.scheduler-own-event small{font-size:10px}
+.scheduler-more,.scheduler-busy{font-size:10px}
+.day-detail-chip{font-size:9px!important;padding:4px 5px!important}
+.day-detail-chip b{font-size:10px!important}
+.day-detail-more{font-size:9px!important}
+.day-summary-free{font-size:10px!important}
+.planner-day-availability{font-size:8px!important;padding:3px 5px}
+
+/* Group/teacher month calendars */
+.teacher-month-weekdays div{font-size:12px}
+.teacher-month-day-head b{font-size:13px}
+.teacher-month-day-head span{font-size:9px}
+.teacher-month-group{font-size:13px}
+.teacher-month-discipline{font-size:12px}
+.teacher-month-event-top b,.teacher-month-event-top strong{font-size:11px}
+.teacher-month-event small{font-size:10px}
+.group-month-discipline{font-size:12px}
+.group-month-teacher{font-size:11px}
+.group-month-event small{font-size:10px}
+
+/* PLANNER — key context redesigned */
+.planner-modal-card{
+  width:min(1500px,98vw)!important;
+  padding:18px!important;
+}
+.planner-context-hero{
+  display:grid;
+  grid-template-columns:minmax(320px,1.35fr) minmax(260px,.95fr) auto;
+  gap:11px;
+  align-items:stretch;
+  margin-bottom:12px;
+}
+.planner-context-title,
+.planner-context-person,
+.planner-context-meta{
+  border:1px solid #ded4e6;
+  border-radius:14px;
+  background:#fff;
+}
+.planner-context-title{
+  padding:15px 17px;
+  border-left:5px solid var(--studio-purple);
+  background:
+    radial-gradient(circle at 90% 0,rgba(182,65,147,.09),transparent 42%),
+    #fff;
+}
+.planner-context-kicker{
+  display:block;
+  margin-bottom:5px;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:1.15px;
+  color:#87649e;
+}
+.planner-context-title h2{
+  margin:0!important;
+  font-size:25px!important;
+  line-height:1.12;
+  letter-spacing:-.45px;
+}
+.planner-context-person{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding:14px 16px;
+  background:linear-gradient(145deg,#2b113f,#4b1768);
+  color:#fff;
+}
+.planner-context-person span{
+  margin-bottom:4px;
+  font-size:10px;
+  font-weight:850;
+  letter-spacing:1px;
+  color:#d7b9e7;
+}
+.planner-context-person strong{
+  font-size:21px;
+  line-height:1.15;
+}
+.planner-context-meta{
+  min-width:188px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  padding:8px;
+  gap:6px;
+  background:#f8f5fa;
+}
+.planner-context-meta>div{
+  min-width:80px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding:7px 9px;
+  border-radius:9px;
+  background:#fff;
+}
+.planner-context-meta span{
+  font-size:9px;
+  font-weight:800;
+  color:#897c90;
+  letter-spacing:.55px;
+}
+.planner-context-meta b{
+  margin-top:2px;
+  font-size:15px;
+}
+.planner-context-remain{
+  grid-column:1/-1;
+}
+.planner-context-remain.warn{
+  background:#fff5df!important;
+  color:#8e5d0f;
+}
+.planner-context-remain.ok{
+  background:#e9f7ed!important;
+  color:#34744a;
+}
+
+/* Planner summary cards */
+.planner-type-strip,
+.planner-type-summary{
+  gap:7px!important;
+}
+.planner-type-strip>div,
+.planner-type-summary>div{
+  padding:9px 10px!important;
+  min-height:58px;
+}
+.planner-type-strip span,
+.planner-type-summary span{font-size:10px!important}
+.planner-type-strip b,
+.planner-type-summary b{font-size:15px!important}
+
+/* Planner layout uses space better */
+.planner-main-layout{
+  grid-template-columns:minmax(610px,1.3fr) minmax(410px,.7fr)!important;
+  gap:11px!important;
+}
+.scheduler-day-workspace{
+  padding:11px;
+  border-radius:13px;
+}
+.scheduler-day-workspace-head{
+  padding-bottom:9px;
+  margin-bottom:8px;
+}
+.scheduler-day-workspace-head>div:first-child>span{font-size:10px}
+.scheduler-day-workspace-head h3{font-size:21px}
+.scheduler-day-kpis div{
+  min-width:76px;
+  padding:8px;
+}
+.scheduler-day-kpis b{font-size:18px}
+.scheduler-day-kpis span{font-size:9px;line-height:1.2}
+
+/* Three action buttons: important and readable */
+.planner-action-launcher-head{
+  padding:10px 11px;
+}
+.planner-action-launcher-head>span{font-size:9px}
+.planner-action-launcher-head h4{font-size:17px}
+.planner-action-launcher-head p{font-size:11px}
+.planner-launch-btn{
+  min-height:82px;
+  grid-template-columns:50px minmax(0,1fr) 26px;
+  padding:12px 13px;
+}
+.planner-launch-icon{
+  width:48px;height:48px;
+  font-size:19px;
+}
+.planner-launch-copy b{font-size:15px}
+.planner-launch-copy small{font-size:11px;line-height:1.35}
+.planner-launch-arrow{font-size:20px}
+.planner-action-complete{font-size:11px}
+
+/* Selected-day overview */
+.planner-calendar-day-overview-head{
+  padding:10px 11px;
+}
+.planner-calendar-day-overview-head>div:first-child>span{font-size:9px}
+.planner-calendar-day-overview-head h4{font-size:16px}
+.planner-day-overview-grid-head{font-size:9px}
+.planner-day-overview-row{min-height:50px}
+.planner-day-overview-pair b{font-size:11px}
+.planner-day-overview-pair span{font-size:9px}
+.planner-day-overview-free{font-size:10px}
+.planner-day-overview-event b{font-size:11px}
+.planner-day-overview-event span{font-size:10px}
+.planner-day-overview-event small{font-size:9px}
+
+/* POPUPS: context must be obvious */
+.planner-action-card{
+  padding:20px;
+}
+.planner-popup-head h2{font-size:25px}
+.planner-popup-head>div:first-child>span{font-size:10px}
+.planner-popup-context{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 8px;
+  align-items:center;
+  margin-top:7px;
+}
+.planner-popup-context strong{
+  font-size:18px;
+  color:var(--studio-purple-dark);
+}
+.planner-popup-context span{
+  font-size:13px;
+  color:var(--studio-muted);
+}
+.planner-popup-context b{
+  padding:5px 8px;
+  border-radius:8px;
+  background:#f0e8f7;
+  font-size:12px;
+  color:var(--studio-purple);
+}
+.planner-popup-date-status b,.planner-popup-remain b{font-size:14px}
+.planner-popup-date-status span,.planner-popup-remain span{font-size:11px}
+.planner-popup-section-head h3{font-size:16px}
+.planner-popup-section-head p{font-size:11px}
+.planner-popup-empty{font-size:11px}
+.planner-popup-load span{font-size:11px}
+.planner-popup-form-head h3{font-size:17px}
+.planner-popup-form-head p{font-size:11px}
+
+/* Series cards */
+.planner-series-date-input>span,
+.planner-series-card-fields label>span{font-size:9px}
+.planner-series-status{font-size:10px!important}
+.planner-series-status span{font-size:10px}
+.planner-series-use{font-size:11px}
+.planner-series-empty{font-size:11px}
+.planner-series-method h4{font-size:15px}
+.series-method-switch button b{font-size:15px}
+.series-method-switch button span{font-size:11px}
+.series-method-hint{font-size:11px}
+
+/* Availability */
+.planner-availability-toggle-title b{font-size:16px}
+.planner-availability-toggle-title span{font-size:12px}
+.planner-availability-toggle-state strong{font-size:11px}
+.planner-inline-availability-title b{font-size:14px}
+.planner-inline-availability-title span{font-size:11px}
+.planner-inline-empty{font-size:11px}
+.planner-inline-limits label>span{font-size:11px}
+
+/* Rooms */
+.room-day-chip{
+  min-width:50px;
+  padding:7px 6px;
+}
+.room-day-chip span{font-size:10px}
+.room-day-chip b{font-size:16px}
+
+/* Empty states should not consume half the page */
+.empty{
+  padding:24px 18px;
+  font-size:13px;
+}
+.studio-empty{min-height:90px!important}
+
+/* Modals generally */
+.modal-card{
+  padding:20px;
+  border-radius:17px;
+}
+.modal h2{font-size:24px}
+.form-grid{gap:10px}
+.hours-grid{gap:8px;padding:10px}
+
+/* Responsive */
+@media(max-width:1180px){
+  .planner-context-hero{
+    grid-template-columns:1fr 1fr;
+  }
+  .planner-context-meta{
+    grid-column:1/-1;
+    grid-template-columns:repeat(3,1fr);
+  }
+  .planner-context-remain{grid-column:auto}
+  .planner-main-layout{
+    grid-template-columns:1fr!important;
+  }
+  .scheduler-day-workspace{
+    position:relative;
+    max-height:none;
+  }
+}
+@media(max-width:800px){
+  .main{padding:0 16px 80px}
+  .topbar{margin:0 -16px 16px;padding:15px 16px 13px}
+  .planner-context-hero{grid-template-columns:1fr}
+  .planner-context-meta{
+    grid-column:auto;
+    grid-template-columns:1fr 1fr;
+  }
+  .planner-context-remain{grid-column:1/-1}
+  .planner-context-title h2{font-size:22px!important}
+  .planner-context-person strong{font-size:18px}
+  .group-switch-row{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .group-switch-btn{min-width:0;width:100%}
+}

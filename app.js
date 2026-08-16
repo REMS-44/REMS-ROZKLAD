@@ -4087,7 +4087,11 @@ function openPlannerSingleDatePopup(disciplineId,teacherId){
       <div>
         <span>Одна дата</span>
         <h2>${formatDate(date)} · ${esc(weekdayNameForDate(date))}</h2>
-        <p>${esc(d.name)} · ${esc(teacherDisplay(t))} · ${esc(d.group)}</p>
+        <div class="planner-popup-context">
+          <strong>${esc(teacherDisplay(t))}</strong>
+          <span>${esc(d.name)}</span>
+          <b>${esc(d.group)}</b>
+        </div>
       </div>
       <div class="planner-popup-date-status ${availability.state}">
         <span>${esc(availability.text)}</span>
@@ -4150,7 +4154,11 @@ function openPlannerSeriesPopup(disciplineId,teacherId){
       <div>
         <span>Серія дат</span>
         <h2>${esc(d.name)}</h2>
-        <p>${esc(teacherDisplay(t))} · ${esc(d.group)} · ${d.semester} семестр</p>
+        <div class="planner-popup-context">
+          <strong>${esc(teacherDisplay(t))}</strong>
+          <b>${esc(d.group)}</b>
+          <span>${d.semester} семестр</span>
+        </div>
       </div>
       <div class="planner-popup-remain">
         <b>${fmtHours(plannerTypes(d,t.id).reduce((sum,x)=>sum+x.remaining,0))} год</b>
@@ -4217,13 +4225,25 @@ function renderDisciplinePlannerModal(){
   const totalRemaining=plannerTypes(d,t.id).reduce((a,x)=>a+x.remaining,0);
 
   openModal(`<div class="discipline-planner">
-    <div class="allocation-scheduler-head">
-      <div>
-        <h2>Розставити навантаження</h2>
-        <h3>${esc(d.name)}</h3>
-        <div class="small"><b>${esc(teacherDisplay(t))}</b> · ${esc(d.group)} · ${d.semester} семестр</div>
+    <div class="planner-context-hero">
+      <div class="planner-context-title">
+        <span class="planner-context-kicker">РОЗСТАВИТИ НАВАНТАЖЕННЯ</span>
+        <h2>${esc(d.name)}</h2>
       </div>
-      <span class="badge ${totalRemaining>0?"warn":"ok"}">${totalRemaining>0?`Залишок ${fmtHours(totalRemaining)} год`:"Навантаження розставлено"}</span>
+
+      <div class="planner-context-person">
+        <span>ВИКЛАДАЧ</span>
+        <strong>${esc(teacherDisplay(t))}</strong>
+      </div>
+
+      <div class="planner-context-meta">
+        <div><span>ГРУПА</span><b>${esc(d.group)}</b></div>
+        <div><span>СЕМЕСТР</span><b>${d.semester}</b></div>
+        <div class="planner-context-remain ${totalRemaining>0?"warn":"ok"}">
+          <span>${totalRemaining>0?"ЗАЛИШИЛОСЬ":"СТАТУС"}</span>
+          <b>${totalRemaining>0?`${fmtHours(totalRemaining)} год`:"Готово"}</b>
+        </div>
+      </div>
     </div>
 
     ${plannerTypeSummaryHtml(d,t)}
