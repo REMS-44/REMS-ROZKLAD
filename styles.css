@@ -1002,3 +1002,140 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
   .planner-entry-fields .planner-room-field{grid-column:auto}
   .planner-modal-card .planner-extra{grid-template-columns:1fr!important}
 }
+
+/* v1.0.16 · compact schedule journal */
+.schedule-journal-card{
+  padding:0!important;
+  overflow:hidden;
+}
+.schedule-journal-head{
+  min-height:74px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:15px 18px;
+}
+.schedule-journal-title{
+  flex:1;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  border:0;
+  background:transparent;
+  padding:0;
+  text-align:left;
+  color:var(--ink);
+}
+.schedule-journal-title>span{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.schedule-journal-title b{
+  font-size:18px;
+}
+.schedule-journal-title small{
+  font-size:10px;
+  color:var(--muted);
+  font-weight:500;
+}
+.schedule-journal-title strong{
+  flex:0 0 auto;
+  padding:7px 10px;
+  border-radius:999px;
+  background:#f2edf8;
+  color:var(--purple2);
+  font-size:11px;
+}
+#scheduleJournalBody{
+  border-top:1px solid var(--line);
+  padding:14px 18px 18px;
+}
+.journal-filter-grid{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(125px,1fr)) minmax(190px,1.35fr);
+  gap:8px;
+  align-items:end;
+}
+.journal-filter-grid label{
+  margin:0;
+}
+.journal-search-field{
+  min-width:0;
+}
+.schedule-journal-summary{
+  display:flex;
+  gap:8px;
+  margin:11px 0 8px;
+}
+.schedule-journal-summary span{
+  padding:5px 8px;
+  border-radius:8px;
+  background:#f8f5fb;
+  color:var(--muted);
+  font-size:9px;
+}
+.schedule-journal-summary b{
+  color:var(--purple2);
+}
+.journal-table-wrap{
+  max-height:520px;
+  overflow:auto;
+  border:1px solid var(--line);
+  border-radius:12px;
+}
+.journal-table{
+  margin:0;
+}
+.journal-table thead{
+  position:sticky;
+  top:0;
+  z-index:2;
+}
+.journal-table th{
+  background:#f7f3fa;
+}
+.journal-table td{
+  vertical-align:middle;
+}
+.journal-dept-badge{
+  background:#eff8f2!important;
+  color:#34764c!important;
+}
+.journal-more{
+  display:flex;
+  justify-content:center;
+  margin-top:10px;
+}
+.journal-more button span{
+  color:var(--muted);
+  font-size:9px;
+}
+.journal-empty{
+  padding:26px 10px;
+}
+@media(max-width:1200px){
+  .journal-filter-grid{
+    grid-template-columns:repeat(3,1fr);
+  }
+}
+@media(max-width:760px){
+  .schedule-journal-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .schedule-journal-head .actions{
+    width:100%;
+  }
+  .journal-filter-grid{
+    grid-template-columns:1fr 1fr;
+  }
+}
+@media(max-width:520px){
+  .journal-filter-grid{
+    grid-template-columns:1fr;
+  }
+}

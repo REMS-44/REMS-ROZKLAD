@@ -1644,9 +1644,100 @@ function saveReadySchedule(e,editId=null){
   closeModal();
   save();
 }
+
+/* Compact schedule journal */
+let scheduleJournalState={
+  open:false,
+  limit:30
+};
+
+function scheduleJournalMonthOptions(selected=""){
+  const months=academicMonthTabs();
+  return `<option value="">Увесь навчальний рік</option>`+
+    months.map(m=>`<option value="${esc(m.value)}" ${m.value===selected?"selected":""}>${esc(m.label)}</option>`).join("");
+}
+function scheduleJournalTeacherOptions(selected=""){
+  const names=[...new Set(
+    db.schedule
+      .filter(x=>dateInBounds(x.date)&&x.teacher)
+      .map(x=>String(x.teacher).trim())
+      .filter(Boolean)
+  )].sort((a,b)=>a.localeCompare(b,"uk"));
+  return `<option value="">Усі викладачі</option>`+
+    names.map(name=>`<option value="${esc(name)}" ${name===selected?"selected":""}>${esc(name)}</option>`).join("");
+}
+function scheduleJournalDisciplineOptions(selected=""){
+  const names=[...new Set(
+    db.schedule
+      .filter(x=>dateInBounds(x.date)&&x.discipline)
+      .map(x=>String(x.discipline).trim())
+      .filter(Boolean)
+  )].sort((a,b)=>a.localeCompare(b,"uk"));
+  return `<option value="">Усі дисципліни</option>`+
+    names.map(name=>`<option value="${esc(name)}" ${name===selected?"selected":""}>${esc(name)}</option>`).join("");
+}
+function scheduleJournalCurrentMonth(){
+  return currentAcademicDate().slice(0,7);
+}
+function toggleScheduleJournal(){
+  scheduleJournalState.open=!scheduleJournalState.open;
+  scheduleJournalState.limit=30;
+  const body=$("#scheduleJournalBody");
+  const btn=$("#scheduleJournalToggle");
+  if(body)body.classList.toggle("hidden",!scheduleJournalState.open);
+  if(btn)btn.textContent=scheduleJournalState.open?"Згорнути ↑":"Розгорнути ↓";
+  if(scheduleJournalState.open){
+    renderScheduleTable();
+    requestAnimationFrame(()=>$("#scheduleJournalCard")?.scrollIntoView({behavior:"smooth",block:"nearest"}));
+  }
+}
+function resetScheduleJournalLimit(){
+  scheduleJournalState.limit=30;
+  renderScheduleTable();
+}
+function showMoreScheduleJournal(){
+  scheduleJournalState.limit+=30;
+  renderScheduleTable();
+}
+function scheduleJournalFilteredRows(){
+  const q=($("#scheduleSearch")?.value||"").trim().toLowerCase();
+  const group=$("#scheduleGroup")?.value||"";
+  const month=$("#scheduleMonth")?.value||"";
+  const teacher=$("#scheduleTeacher")?.value||"";
+  const discipline=$("#scheduleDiscipline")?.value||"";
+  const source=$("#scheduleSource")?.value||"";
+
+  return db.schedule
+    .filter(x=>dateInBounds(x.date))
+    .filter(x=>!month||String(x.date||"").slice(0,7)===month)
+    .filter(x=>!group||normIdentity(x.group)===normIdentity(group))
+    .filter(x=>!teacher||String(x.teacher||"")===teacher)
+    .filter(x=>!discipline||String(x.discipline||"")===discipline)
+    .filter(x=>{
+      if(!source)return true;
+      if(source==="ready_external")return x.scheduleSource==="ready_external";
+      if(source==="department")return x.scheduleSource!=="ready_external";
+      return true;
+    })
+    .filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q))
+    .slice()
+    .sort((a,b)=>{
+      const aPair=Number(pairForLesson(a)?.id||a.pairId||99);
+      const bPair=Number(pairForLesson(b)?.id||b.pairId||99);
+      return String(a.date||"").localeCompare(String(b.date||""))||aPair-bPair;
+    });
+}
+function scheduleJournalSourceBadge(x){
+  if(x.scheduleSource==="ready_external")return `<span class="badge ready-badge">ГОТОВА ПАРА</span>`;
+  return `<span class="badge journal-dept-badge">КАФЕДРАЛЬНА</span>`;
+}
+
 function renderSchedule(){
   const defaultGroup=bestWorkloadGroup();
   const loadedGroups=groupsWithDistributedAuditoriumLoad();
+  const journalMonth=scheduleJournalCurrentMonth();
+  const totalSchedule=db.schedule.filter(x=>dateInBounds(x.date)).length;
+
   $("#page-schedule").innerHTML=`<div class="card section">
     <div class="section-head">
       <div><h2>Складання розкладу</h2><div class="small">Кафедральні пари йдуть із «Навантаження». Пари інших кафедр можна внести одразу кнопкою «Внести готові пари» — без активації та розподілу годин.</div></div>
@@ -1658,19 +1749,106 @@ function renderSchedule(){
     </div>
     <div id="workloadScheduleBox"></div>
   </div>
-  <div class="card section"><div class="section-head"><h2>Виставлені заняття</h2><button class="secondary" onclick="go('timetable')">Відкрити календар →</button></div><div class="toolbar"><input id="scheduleSearch" placeholder="Група, дисципліна, аудиторія…"><select id="scheduleGroup"><option value="">Усі групи</option>${groupOptions()}</select></div><div id="scheduleTable"></div></div>`;
+
+  <div class="card section schedule-journal-card" id="scheduleJournalCard">
+    <div class="schedule-journal-head">
+      <button class="schedule-journal-title" type="button" onclick="toggleScheduleJournal()">
+        <span>
+          <b>Журнал занять</b>
+          <small>Пошук, редагування та видалення вже внесених пар</small>
+        </span>
+        <strong>${totalSchedule} записів</strong>
+      </button>
+      <div class="actions">
+        <button class="secondary" onclick="go('timetable')">Відкрити календар →</button>
+        <button class="secondary" id="scheduleJournalToggle" onclick="toggleScheduleJournal()">${scheduleJournalState.open?"Згорнути ↑":"Розгорнути ↓"}</button>
+      </div>
+    </div>
+
+    <div id="scheduleJournalBody" class="${scheduleJournalState.open?"":"hidden"}">
+      <div class="journal-filter-grid">
+        <label>Місяць
+          <select id="scheduleMonth">${scheduleJournalMonthOptions(journalMonth)}</select>
+        </label>
+        <label>Група
+          <select id="scheduleGroup"><option value="">Усі групи</option>${groupOptions()}</select>
+        </label>
+        <label>Викладач
+          <select id="scheduleTeacher">${scheduleJournalTeacherOptions()}</select>
+        </label>
+        <label>Дисципліна
+          <select id="scheduleDiscipline">${scheduleJournalDisciplineOptions()}</select>
+        </label>
+        <label>Джерело
+          <select id="scheduleSource">
+            <option value="">Усі заняття</option>
+            <option value="department">Кафедральні</option>
+            <option value="ready_external">Готові пари інших кафедр</option>
+          </select>
+        </label>
+        <label class="journal-search-field">Пошук
+          <input id="scheduleSearch" placeholder="аудиторія, назва, примітка…">
+        </label>
+      </div>
+
+      <div id="scheduleJournalSummary" class="schedule-journal-summary"></div>
+      <div id="scheduleTable"></div>
+    </div>
+  </div>`;
+
   const draw=()=>{
     const group=$("#workloadGroup").value;
     rememberWorkloadGroup(group);
     $("#workloadScheduleBox").innerHTML=renderWorkloadToSchedule(group);
   };
-  $("#workloadGroup").onchange=draw;draw();
-  $("#scheduleSearch").oninput=renderScheduleTable;$("#scheduleGroup").onchange=renderScheduleTable;renderScheduleTable();
+  $("#workloadGroup").onchange=draw;
+  draw();
+
+  if(scheduleJournalState.open){
+    ["scheduleMonth","scheduleGroup","scheduleTeacher","scheduleDiscipline","scheduleSource"].forEach(id=>{
+      const el=$("#"+id);
+      if(el)el.onchange=resetScheduleJournalLimit;
+    });
+    const search=$("#scheduleSearch");
+    if(search)search.oninput=resetScheduleJournalLimit;
+    renderScheduleTable();
+  }
 }
 function renderScheduleTable(){
-  if(!$("#scheduleTable"))return;const q=($("#scheduleSearch")?.value||"").toLowerCase(),gf=$("#scheduleGroup")?.value||"";
-  const rows=db.schedule.filter(x=>dateInBounds(x.date)&&(!gf||x.group===gf)&&(!q||JSON.stringify(x).toLowerCase().includes(q))).slice().sort((a,b)=>(a.date+(pairForLesson(a)?.id||99)).localeCompare(b.date+(pairForLesson(b)?.id||99)));
-  $("#scheduleTable").innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Дата</th><th>Пара</th><th>Група</th><th>Дисципліна</th><th>Вид</th><th>Навантаження</th><th>Аудиторія</th><th>Викладач</th><th></th></tr></thead><tbody>${rows.map(x=>`<tr><td>${formatDate(x.date)}</td><td><b>${esc(pairDisplay(x))}</b>${pairTimeDisplay(x)?`<div class="small">${esc(pairTimeDisplay(x))}</div>`:""}</td><td>${esc(x.group)}</td><td>${esc(x.discipline||"—")}${x.scheduleSource==="ready_external"?` <span class="badge ready-badge">ГОТОВА ПАРА</span>`:(x.disciplineId?"":` <span class="badge warn">ІНША</span>`)}</td><td>${esc(x.type||"—")}</td><td>${x.scheduleSource==="ready_external"?"—":fmtHours(x.workloadHours)}</td><td><b>${esc(x.room||"—")}</b></td><td>${esc(x.teacher||"—")}</td><td class="actions"><button onclick="${x.scheduleSource==="ready_external"?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">Редагувати</button><button onclick="deleteLesson(${x.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Занять поки немає.</div>`;
+  if(!scheduleJournalState.open||!$("#scheduleTable"))return;
+
+  const rows=scheduleJournalFilteredRows();
+  const visible=rows.slice(0,scheduleJournalState.limit);
+  const remaining=Math.max(0,rows.length-visible.length);
+
+  const summary=$("#scheduleJournalSummary");
+  if(summary){
+    summary.innerHTML=`<span><b>${rows.length}</b> знайдено</span><span>показано <b>${visible.length}</b></span>`;
+  }
+
+  $("#scheduleTable").innerHTML=visible.length
+    ? `<div class="table-wrap journal-table-wrap"><table class="journal-table">
+        <thead><tr>
+          <th>Дата</th><th>Пара</th><th>Група</th><th>Дисципліна</th>
+          <th>Вид</th><th>Аудиторія</th><th>Викладач</th><th>Джерело</th><th></th>
+        </tr></thead>
+        <tbody>${visible.map(x=>`<tr>
+          <td><b>${formatDate(x.date)}</b></td>
+          <td><b>${esc(pairDisplay(x))}</b>${pairTimeDisplay(x)?`<div class="small">${esc(pairTimeDisplay(x))}</div>`:""}</td>
+          <td>${esc(x.group||"—")}</td>
+          <td><b>${esc(x.discipline||"—")}</b></td>
+          <td>${esc(x.type||"—")}</td>
+          <td><b>${esc(x.room||"—")}</b></td>
+          <td>${esc(x.teacher||"—")}</td>
+          <td>${scheduleJournalSourceBadge(x)}</td>
+          <td class="actions">
+            <button onclick="${x.scheduleSource==="ready_external"?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">Редагувати</button>
+            <button onclick="deleteLesson(${x.id})">Видалити</button>
+          </td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+      ${remaining?`<div class="journal-more"><button class="secondary" onclick="showMoreScheduleJournal()">Показати ще 30 <span>(${remaining} залишилось)</span></button></div>`:""}`
+    : `<div class="empty journal-empty">За вибраними фільтрами занять немає.</div>`;
 }
 function conflictsFor(item,ignore=null,extra=[]){
   const sameSlot=x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end));
