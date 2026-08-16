@@ -2123,6 +2123,68 @@ function teacherEventsForDate(source,date){
     return String(ax.start||"99:99").localeCompare(String(bx.start||"99:99"));
   });
 }
+function teacherEventSlotId(ev,source){
+  const x=ev.data;
+  if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return String(x.pairId);
+  const p=(source.bellSchedule||[]).find(p=>p.start===x?.start&&p.end===x?.end);
+  if(p)return String(p.id);
+  const derived=pairIdForTimes(x?.start||"",x?.end||"");
+  return derived!==null&&derived!==undefined?String(derived):null;
+}
+function teacherPairSlotEventCard(ev,source){
+  const x=ev.data;
+  if(ev.source==="schedule"){
+    return `<div class="teacher-slot-event subject-colored" style="${scheduleColorVars(x)}">
+      <div class="teacher-slot-event-main">
+        <b>${esc(x.group||"—")}</b>
+        <span>${esc(x.discipline||"Заняття")}</span>
+      </div>
+      <div class="teacher-slot-event-meta">
+        <strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong>
+        ${x.type?`<small>${esc(x.type)}</small>`:""}
+      </div>
+    </div>`;
+  }
+  return `<div class="teacher-slot-event booking">
+    <div class="teacher-slot-event-main">
+      <b>${esc(x.group||x.kind||"Подія")}</b>
+      <span>${esc(x.title||roomBookingLabel(x))}</span>
+    </div>
+    <div class="teacher-slot-event-meta">
+      <strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong>
+      ${x.kind?`<small>${esc(x.kind)}</small>`:""}
+    </div>
+  </div>`;
+}
+function teacherDayPairSlots(source,date){
+  const events=teacherEventsForDate(source,date);
+  const pairs=teacherSchedulePairs(source);
+  const known=new Set(pairs.map(p=>String(p.id)));
+  const byPair=new Map();
+  pairs.forEach(p=>byPair.set(String(p.id),[]));
+  const unslotted=[];
+
+  events.forEach(ev=>{
+    const id=teacherEventSlotId(ev,source);
+    if(id&&known.has(id))byPair.get(id).push(ev);
+    else unslotted.push(ev);
+  });
+
+  const slots=pairs.map(pair=>{
+    const slotEvents=byPair.get(String(pair.id))||[];
+    return `<div class="teacher-pair-slot ${slotEvents.length?"occupied":"free"}">
+      <div class="teacher-pair-label">
+        <b>${esc(pair.id)}</b>
+        <span>${esc(pair.start||"")}</span>
+      </div>
+      <div class="teacher-pair-content">
+        ${slotEvents.length?slotEvents.map(ev=>teacherPairSlotEventCard(ev,source)).join(""):`<span class="teacher-window-label">вікно</span>`}
+      </div>
+    </div>`;
+  }).join("");
+
+  return slots+(unslotted.length?`<div class="teacher-unslotted"><span>Без № пари</span>${unslotted.map(ev=>teacherPairSlotEventCard(ev,source)).join("")}</div>`:"");
+}
 function teacherMonthEventCount(source,month){
   return [...(source.schedule||[]),...(source.roomBookings||[])].filter(x=>String(x.date||"").slice(0,7)===month).length;
 }
@@ -2243,7 +2305,6 @@ function renderMySchedule(){
         ${monthDays.map(date=>{
           const inMonth=date.slice(0,7)===month;
           const inAcademic=dateInBounds(date);
-          const events=inAcademic?teacherEventsForDate(source,date):[];
           const day=Number(date.slice(8,10));
           const isToday=date===today;
           return `<div class="teacher-month-day ${inMonth?"":"outside-month"} ${isToday?"today":""}">
@@ -2251,8 +2312,8 @@ function renderMySchedule(){
               <b>${day}</b>
               ${isToday?`<span>сьогодні</span>`:""}
             </div>
-            <div class="teacher-month-day-events">
-              ${events.length?events.map(ev=>teacherMonthEventCard(ev,source)).join(""):(inMonth?`<div class="teacher-month-free">—</div>`:"")}
+            <div class="teacher-month-day-events teacher-pair-slots">
+              ${inMonth&&inAcademic?teacherDayPairSlots(source,date):""}
             </div>
           </div>`;
         }).join("")}
