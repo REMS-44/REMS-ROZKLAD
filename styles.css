@@ -431,3 +431,187 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
   .ready-entry-row{grid-template-columns:34px 1fr}
   .ready-entry-row label{grid-column:2}
 }
+
+/* v1.0.12 · pair-slot month calendar + stable subject/group colors */
+
+/* Stable colors are intentionally pastel: the same discipline+group looks
+   identical in group, teacher and room calendars without becoming a "traffic light". */
+.subject-colored{
+  background:var(--subject-bg)!important;
+  border-left-color:var(--subject-border)!important;
+  color:var(--subject-text)!important;
+}
+.subject-colored b,
+.subject-colored strong,
+.subject-colored .teacher-month-discipline,
+.subject-colored .teacher-month-group{
+  color:var(--subject-text)!important;
+}
+.subject-colored span,
+.subject-colored small{
+  color:var(--subject-muted)!important;
+}
+.room-event-lesson.subject-colored{
+  border-left:4px solid var(--subject-border);
+}
+.room-event-lesson.subject-colored .room-event-badge{
+  color:var(--subject-text);
+  background:rgba(255,255,255,.46);
+}
+.teacher-month-event.subject-colored{
+  border-left:4px solid var(--subject-border);
+}
+
+/* Group monthly calendar: every visible day has all bell-schedule pair slots. */
+.group-month-page .teacher-month-calendar{
+  grid-template-columns:repeat(7,minmax(185px,1fr));
+  min-width:1295px;
+}
+.group-month-page .teacher-month-weekdays{
+  grid-template-columns:repeat(7,minmax(185px,1fr));
+  min-width:1295px;
+}
+.group-month-page .teacher-month-day{
+  min-height:302px;
+  padding:6px;
+}
+.group-month-page .teacher-month-day-head{
+  margin-bottom:5px;
+}
+.group-pair-slots{
+  display:flex!important;
+  flex-direction:column;
+  gap:3px!important;
+}
+.group-pair-slot{
+  min-height:34px;
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr);
+  border:1px solid #ebe6f0;
+  border-radius:7px;
+  overflow:hidden;
+  background:#fff;
+}
+.group-pair-slot.free{
+  background:#fbfafc;
+}
+.group-pair-label{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:0;
+  background:#f4f1f7;
+  border-right:1px solid #ebe6f0;
+}
+.group-pair-label b{
+  font-size:10px;
+  line-height:1;
+  color:#3f2a59;
+}
+.group-pair-label span{
+  margin-top:2px;
+  font-size:7px;
+  line-height:1;
+  color:#aaa2b3;
+}
+.group-pair-content{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:2px;
+  padding:2px 3px;
+}
+.group-free-label{
+  font-size:8px;
+  color:#c8c2cd;
+  padding-left:4px;
+  letter-spacing:.2px;
+}
+.group-slot-event{
+  width:100%;
+  min-height:29px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:5px;
+  padding:4px 5px;
+  border:0;
+  border-left:4px solid var(--subject-border);
+  border-radius:6px;
+  background:var(--subject-bg);
+  color:var(--subject-text);
+  text-align:left;
+}
+.group-slot-event:hover{
+  filter:brightness(.985);
+  box-shadow:0 2px 7px rgba(35,22,49,.08);
+}
+.group-slot-event-main{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+}
+.group-slot-event-main b{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:8.5px;
+  line-height:1.15;
+  color:var(--subject-text);
+}
+.group-slot-event-main span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:7.5px;
+  line-height:1.1;
+  color:var(--subject-muted);
+}
+.group-slot-event-meta{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:1px;
+  white-space:nowrap;
+}
+.group-slot-event-meta strong{
+  font-size:7.5px;
+  line-height:1.1;
+  color:var(--subject-text);
+}
+.group-slot-event-meta small{
+  font-size:6.8px;
+  line-height:1.1;
+  color:var(--subject-muted);
+}
+.group-slot-event.booking{
+  --subject-bg:#fff8e8;
+  --subject-border:#d97706;
+  --subject-text:#79420a;
+  --subject-muted:#966522;
+}
+.group-unslotted{
+  margin-top:2px;
+  padding:4px;
+  border:1px dashed #d8d1df;
+  border-radius:7px;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.group-unslotted>span{
+  font-size:7px;
+  text-transform:uppercase;
+  letter-spacing:.4px;
+  color:var(--muted);
+}
+@media(max-width:900px){
+  .group-month-page .teacher-month-calendar,
+  .group-month-page .teacher-month-weekdays{
+    grid-template-columns:repeat(7,minmax(165px,1fr));
+    min-width:1155px;
+  }
+}

@@ -510,8 +510,7 @@ function roomBookingLabel(b){return b.title||b.kind||"Бронювання";}
 function roomEventCard(ev){
   const x=ev.data;
   if(ev.source==="schedule"){
-    const d=disciplineById(x.disciplineId),color=d?.color||"#8b5cf6";
-    return `<button class="room-event room-event-lesson" style="--event-color:${esc(color)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(x.group||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
+    return `<button class="room-event room-event-lesson subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(x.group||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
   }
   return `<button class="room-event room-event-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><span class="room-event-badge">${esc((x.kind||"БРОНЮВАННЯ").toUpperCase())}</span><b>${esc(x.group||roomBookingLabel(x))}</b><span>${esc(x.group?roomBookingLabel(x):(x.teacher||""))}</span>${x.teacher&&x.group?`<small>${esc(x.teacher)}</small>`:""}</button>`;
 }
@@ -1762,7 +1761,7 @@ function plannerDateEventsSummary(date,d,t){
 function plannerEventPair(x){return x.pairId?`${x.pairId} пара`:(x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"без №");}
 function plannerMonthOwnCount(month,d,t){return db.schedule.filter(x=>String(x.date||"").slice(0,7)===month&&Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)).length;}
 function plannerMonthTabsHtml(d,t){return `<div class="scheduler-month-tabs">${schedulerMonthsForDiscipline(d).map(m=>{const c=plannerMonthOwnCount(m.value,d,t);return `<button class="${m.value===disciplinePlannerState.month?"active":""}" onclick="setDisciplinePlannerMonth('${m.value}')"><span>${esc(m.label)}</span>${c?`<b>${c}</b>`:""}</button>`;}).join("")}</div>`;}
-function plannerCalendarDayHtml(date,d,t){const inMonth=date.slice(0,7)===disciplinePlannerState.month,b=semesterDateBounds(d.semester),allowed=inMonth&&dateInBounds(date,b),own=allowed?plannerOwnEvents(date,d,t.id):[],te=allowed?plannerTeacherEvents(date,t.id):[],ge=allowed?plannerGroupEvents(date,d.group):[],day=Number(date.slice(8,10)),selected=date===disciplinePlannerState.date,today=date===localTodayISO();const otherT=te.filter(x=>!own.includes(x)),otherG=ge.filter(x=>!own.includes(x)&&!otherT.includes(x));return `<button type="button" class="scheduler-day ${inMonth?"":"outside-month"} ${allowed?"":"disabled"} ${selected?"selected":""} ${today?"today":""}" ${allowed?`onclick="selectDisciplinePlannerDate('${date}')"`:"disabled"}><div class="scheduler-day-head"><b>${day}</b>${today?`<span>сьогодні</span>`:""}</div><div class="scheduler-day-body">${own.slice(0,3).map(x=>`<div class="scheduler-own-event"><b>${esc(plannerEventPair(x))}</b><span>${esc(x.type||"")}</span><small>${esc(x.room||"без ауд.")}</small></div>`).join("")}${own.length>3?`<div class="scheduler-more">+${own.length-3} своїх</div>`:""}${otherT.length?`<div class="scheduler-busy teacher">Викладач зайнятий: ${otherT.length}</div>`:""}${otherG.length?`<div class="scheduler-busy group">Група зайнята: ${otherG.length}</div>`:""}</div></button>`;}
+function plannerCalendarDayHtml(date,d,t){const inMonth=date.slice(0,7)===disciplinePlannerState.month,b=semesterDateBounds(d.semester),allowed=inMonth&&dateInBounds(date,b),own=allowed?plannerOwnEvents(date,d,t.id):[],te=allowed?plannerTeacherEvents(date,t.id):[],ge=allowed?plannerGroupEvents(date,d.group):[],day=Number(date.slice(8,10)),selected=date===disciplinePlannerState.date,today=date===localTodayISO();const otherT=te.filter(x=>!own.includes(x)),otherG=ge.filter(x=>!own.includes(x)&&!otherT.includes(x));return `<button type="button" class="scheduler-day ${inMonth?"":"outside-month"} ${allowed?"":"disabled"} ${selected?"selected":""} ${today?"today":""}" ${allowed?`onclick="selectDisciplinePlannerDate('${date}')"`:"disabled"}><div class="scheduler-day-head"><b>${day}</b>${today?`<span>сьогодні</span>`:""}</div><div class="scheduler-day-body">${own.slice(0,3).map(x=>`<div class="scheduler-own-event subject-colored" style="${scheduleColorVars(x)}"><b>${esc(plannerEventPair(x))}</b><span>${esc(x.type||"")}</span><small>${esc(x.room||"без ауд.")}</small></div>`).join("")}${own.length>3?`<div class="scheduler-more">+${own.length-3} своїх</div>`:""}${otherT.length?`<div class="scheduler-busy teacher">Викладач зайнятий: ${otherT.length}</div>`:""}${otherG.length?`<div class="scheduler-busy group">Група зайнята: ${otherG.length}</div>`:""}</div></button>`;}
 function plannerOccupancyCell(x,mode){if(!x)return `<span class="planner-free">вільно</span>`;const counterpart=mode==="teacher"?(x.group||"—"):(x.teacher||"—");return `<div class="planner-occupied"><b>${esc(counterpart)}</b><span>${esc(x.discipline||x.type||"Заняття")}</span><small>${esc(x.room?`ауд. ${x.room}`:"без ауд.")}</small></div>`;}
 function plannerDayOccupancyHtml(d,t,date){const te=plannerTeacherEvents(date,t.id),ge=plannerGroupEvents(date,d.group);return `<div class="planner-occupancy"><h4>Що вже є ${formatDate(date)}</h4><div class="table-wrap"><table><thead><tr><th>Пара</th><th>${esc(teacherDisplay(t))}</th><th>${esc(d.group)}</th></tr></thead><tbody>${bellPairs().map(p=>{const a=te.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(p.id)),g=ge.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(p.id));return `<tr><td><b>${esc(p.id)} пара</b><div class="small">${esc(p.start)}–${esc(p.end)}</div></td><td>${plannerOccupancyCell(a,"teacher")}</td><td>${plannerOccupancyCell(g,"group")}</td></tr>`;}).join("")}</tbody></table></div></div>`;}
 function plannerPairBusyInfo(date,pairId,d,t){const teacher=plannerTeacherEvents(date,t.id).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)),group=plannerGroupEvents(date,d.group).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));return {teacher,group};}
@@ -1916,6 +1915,28 @@ function deleteLesson(id){if(confirm("Видалити заняття? Годи�
 /* Group timetable calendar — monthly, fed by the same db.schedule as scheduling and teacher calendars */
 let timetableState={group:rememberedTimetableGroup()||null,month:null};
 function normGroup(v){return normIdentity(v);}
+function scheduleVisualKey(x){
+  const group=resolvedScheduleGroup(x,db)||x?.group||"";
+  const discipline=x?.discipline||x?.title||x?.kind||"Подія";
+  return `${normIdentity(group)}|${normIdentity(discipline)}`;
+}
+function stableVisualHash(value){
+  let h=2166136261;
+  const s=String(value||"");
+  for(let i=0;i<s.length;i++){
+    h^=s.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
+  return h>>>0;
+}
+function scheduleColorVars(x){
+  const hash=stableVisualHash(scheduleVisualKey(x));
+  const hue=hash%360;
+  const sat=52+((hash>>>8)%13);
+  const bgLight=92+((hash>>>16)%3);
+  const borderLight=54+((hash>>>20)%7);
+  return `--subject-h:${hue};--subject-s:${sat}%;--subject-bg:hsl(${hue} ${sat}% ${bgLight}%);--subject-border:hsl(${hue} ${Math.min(78,sat+8)}% ${borderLight}%);--subject-text:hsl(${hue} 48% 23%);--subject-muted:hsl(${hue} 28% 42%)`;
+}
 function scheduleLessonsForGroup(group){
   const key=normGroup(group);
   return db.schedule.filter(x=>normGroup(resolvedScheduleGroup(x,db))===key&&dateInBounds(x.date));
@@ -1943,12 +1964,71 @@ function groupMonthTabsHtml(group){
 function groupEventsForDate(group,date){
   const lessons=scheduleLessonsForGroup(group).filter(x=>x.date===date).map(x=>({source:"schedule",data:x}));
   const bookings=timetableBookingsForGroup(group).filter(x=>x.date===date).map(x=>({source:"booking",data:x}));
-  return [...lessons,...bookings].sort((a,b)=>{const ap=Number(a.data.pairId),bp=Number(b.data.pairId);if(Number.isFinite(ap)&&Number.isFinite(bp)&&ap!==bp)return ap-bp;return String(a.data.start||"99:99").localeCompare(String(b.data.start||"99:99"));});
+  return [...lessons,...bookings].sort((a,b)=>{
+    const ap=Number(a.data.pairId),bp=Number(b.data.pairId);
+    if(Number.isFinite(ap)&&Number.isFinite(bp)&&ap!==bp)return ap-bp;
+    return String(a.data.start||"99:99").localeCompare(String(b.data.start||"99:99"));
+  });
+}
+function groupEventSlotId(ev){
+  const x=ev.data;
+  if(x?.pairId!==null&&x?.pairId!==undefined&&String(x.pairId)!=="")return String(x.pairId);
+  const derived=pairIdForTimes(x?.start||"",x?.end||"");
+  return derived!==null&&derived!==undefined?String(derived):null;
 }
 function groupMonthEventCard(ev){
-  const x=ev.data,pair=x.pairId?`${x.pairId} пара`:(x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"без № пари");
-  if(ev.source==="schedule")return `<button class="group-month-event" onclick="openLessonModal(${x.id})"><div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div><span class="group-month-discipline">${esc(x.discipline||"Заняття")}</span><span class="group-month-teacher">${esc(x.teacher||"—")}</span>${x.type?`<small>${esc(x.type)}</small>`:""}</button>`;
-  return `<button class="group-month-event booking" onclick="openRoomBookingModal(${x.id})"><div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div><span class="group-month-discipline">${esc(x.title||roomBookingLabel(x))}</span><span class="group-month-teacher">${esc(x.teacher||x.kind||"")}</span></button>`;
+  const x=ev.data;
+  if(ev.source==="schedule"){
+    return `<button class="group-slot-event" style="${scheduleColorVars(x)}" onclick="openLessonModal(${x.id})">
+      <div class="group-slot-event-main">
+        <b>${esc(x.discipline||"Заняття")}</b>
+        <span>${esc(x.teacher||"—")}</span>
+      </div>
+      <div class="group-slot-event-meta">
+        <strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong>
+        ${x.type?`<small>${esc(x.type)}</small>`:""}
+      </div>
+    </button>`;
+  }
+  return `<button class="group-slot-event booking" onclick="openRoomBookingModal(${x.id})">
+    <div class="group-slot-event-main">
+      <b>${esc(x.title||roomBookingLabel(x))}</b>
+      <span>${esc(x.teacher||x.kind||"")}</span>
+    </div>
+    <div class="group-slot-event-meta">
+      <strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong>
+      <small>${esc(x.kind||"Бронювання")}</small>
+    </div>
+  </button>`;
+}
+function groupDayPairSlots(group,date){
+  const events=groupEventsForDate(group,date);
+  const pairs=bellPairs();
+  const known=new Set(pairs.map(p=>String(p.id)));
+  const byPair=new Map();
+  pairs.forEach(p=>byPair.set(String(p.id),[]));
+  const unslotted=[];
+
+  events.forEach(ev=>{
+    const id=groupEventSlotId(ev);
+    if(id&&known.has(id))byPair.get(id).push(ev);
+    else unslotted.push(ev);
+  });
+
+  const slots=pairs.map(pair=>{
+    const slotEvents=byPair.get(String(pair.id))||[];
+    return `<div class="group-pair-slot ${slotEvents.length?"occupied":"free"}">
+      <div class="group-pair-label">
+        <b>${esc(pair.id)}</b>
+        <span>${esc(pair.start||"")}</span>
+      </div>
+      <div class="group-pair-content">
+        ${slotEvents.length?slotEvents.map(groupMonthEventCard).join(""):`<span class="group-free-label">вільно</span>`}
+      </div>
+    </div>`;
+  }).join("");
+
+  return slots+(unslotted.length?`<div class="group-unslotted"><span>Без № пари</span>${unslotted.map(groupMonthEventCard).join("")}</div>`:"");
 }
 function setGroupTimetableMonth(month){if(!academicMonthTabs().some(x=>x.value===month))return;timetableState.month=month;renderTimetable();}
 function shiftGroupTimetableMonth(delta){const months=academicMonthTabs(),idx=months.findIndex(x=>x.value===timetableState.month),next=months[idx+Number(delta)];if(next)setGroupTimetableMonth(next.value);}
@@ -1966,7 +2046,7 @@ function renderTimetable(){
       ${groupMonthTabsHtml(group)}
       <div class="teacher-month-toolbar"><button class="secondary" ${idx<=0?"disabled":""} onclick="shiftGroupTimetableMonth(-1)">← Попередній</button><div class="teacher-month-title"><b>${esc(info?.label||monthLabel(month))}</b><span>${monthCount} подій у місяці · ${esc(db.academicYear)}</span></div><button class="secondary" onclick="timetableToday()">Актуальний місяць</button><button class="secondary" ${idx>=months.length-1?"disabled":""} onclick="shiftGroupTimetableMonth(1)">Наступний →</button></div>
     </div>
-    <div class="card section teacher-month-calendar-card"><div class="teacher-month-weekdays">${weekdays.map(w=>`<div>${w}</div>`).join("")}</div><div class="teacher-month-calendar">${days.map(date=>{const inMonth=date.slice(0,7)===month,inAcademic=dateInBounds(date),events=inAcademic?groupEventsForDate(group,date):[],day=Number(date.slice(8,10)),isToday=date===today;return `<div class="teacher-month-day ${inMonth?"":"outside-month"} ${isToday?"today":""}"><div class="teacher-month-day-head"><b>${day}</b>${isToday?`<span>сьогодні</span>`:""}</div><div class="teacher-month-day-events">${events.length?events.map(groupMonthEventCard).join(""):(inMonth?`<div class="teacher-month-free">—</div>`:"")}</div></div>`;}).join("")}</div></div>
+    <div class="card section teacher-month-calendar-card"><div class="teacher-month-weekdays">${weekdays.map(w=>`<div>${w}</div>`).join("")}</div><div class="teacher-month-calendar">${days.map(date=>{const inMonth=date.slice(0,7)===month,inAcademic=dateInBounds(date),day=Number(date.slice(8,10)),isToday=date===today;return `<div class="teacher-month-day ${inMonth?"":"outside-month"} ${isToday?"today":""}"><div class="teacher-month-day-head"><b>${day}</b>${isToday?`<span>сьогодні</span>`:""}</div><div class="teacher-month-day-events group-pair-slots">${inMonth&&inAcademic?groupDayPairSlots(group,date):""}</div></div>`;}).join("")}</div></div>
     <div class="notice">Це не окрема копія розкладу: кожне заняття тут — той самий запис, який одночасно бачить сітка аудиторій і індивідуальний розклад викладача.</div>
   </div>`;
   $("#timetableGroup").onchange=e=>{timetableState.group=e.target.value;rememberTimetableGroup(timetableState.group);timetableState.month=groupCurrentMonth();renderTimetable();};
@@ -2058,7 +2138,7 @@ function teacherMonthEventCard(ev,source){
   const x=ev.data;
   const pair=teacherEventPairLabel(x,source);
   if(ev.source==="schedule"){
-    return `<div class="teacher-month-event">
+    return `<div class="teacher-month-event subject-colored" style="${scheduleColorVars(x)}">
       <div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div>
       <span class="teacher-month-group">${esc(x.group||"—")}</span>
       <span class="teacher-month-discipline">${esc(x.discipline||"Заняття")}</span>
