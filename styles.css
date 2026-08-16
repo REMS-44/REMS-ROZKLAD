@@ -2395,3 +2395,139 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     justify-content:flex-start;
   }
 }
+
+
+/* v1.0.26 · universal hidden utility.
+   Important: many progressive-disclosure blocks use class="hidden". */
+.hidden{display:none!important;}
+
+
+/* v1.0.26 · availability visible where schedule is actually built */
+.planner-teacher-availability{
+  margin-bottom:9px;
+  padding:9px;
+  border:1px solid #ddd4e6;
+  border-radius:11px;
+  background:#fbf9fd;
+}
+.planner-teacher-availability-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:7px;
+}
+.planner-teacher-availability-head>div{
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+}
+.planner-teacher-availability-head span{
+  font-size:7px;
+  text-transform:uppercase;
+  letter-spacing:.45px;
+  color:var(--muted);
+}
+.planner-teacher-availability-head b{
+  font-size:10px;
+}
+.planner-teacher-availability-head button{
+  padding:5px 8px;
+  font-size:8px;
+}
+.planner-availability-today{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin-bottom:7px;
+  padding:6px 8px;
+  border-radius:8px;
+  background:#f2f1f4;
+  color:#6f6875;
+}
+.planner-availability-today b{font-size:9px}
+.planner-availability-today span{font-size:8px;font-weight:700}
+.planner-availability-today.preferred{
+  background:#eaf7ee;
+  color:#34734a;
+}
+.planner-availability-today.blocked{
+  background:#fff0f0;
+  color:#a43e3e;
+}
+.planner-availability-today.limited{
+  background:#fff5e8;
+  color:#9b6517;
+}
+.planner-availability-today.outside{
+  background:#fff8e9;
+  color:#987024;
+}
+.planner-availability-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+}
+.planner-availability-grid>div{
+  min-width:0;
+  padding:6px 7px;
+  border-radius:7px;
+  background:#fff;
+  border:1px solid #eee8f2;
+}
+.planner-availability-grid span{
+  display:block;
+  margin-bottom:2px;
+  font-size:6.8px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.35px;
+}
+.planner-availability-grid b{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:7.7px;
+  color:var(--ink);
+}
+.scheduler-day-head-tags{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:2px;
+}
+.planner-day-availability{
+  padding:2px 4px;
+  border-radius:999px;
+  font-size:6px!important;
+  line-height:1!important;
+  font-weight:800;
+  white-space:nowrap;
+}
+.planner-day-availability.preferred{
+  background:#e8f7ed;
+  color:#34764b;
+}
+.planner-day-availability.blocked{
+  background:#ffeded;
+  color:#aa3d3d;
+}
+.planner-day-availability.limited{
+  background:#fff2dd;
+  color:#986016;
+}
+.planner-day-availability.outside{
+  background:#f5f1e8;
+  color:#8c7543;
+}
+
+/* Series chooser stays minimal until a choice is clicked */
+.series-method-body.hidden,
+#plannerSeriesWorkArea.hidden,
+#readySeriesWorkArea.hidden,
+#plannerSingleMode.hidden,
+#plannerSeriesMode.hidden,
+#readyModeBody.hidden{
+  display:none!important;
+}

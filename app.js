@@ -2626,7 +2626,10 @@ function plannerCalendarDayHtml(date,d,t){
     ${allowed?`onclick="selectDisciplinePlannerDate('${date}')"`:"disabled"}>
       <div class="scheduler-day-head">
         <b>${day}</b>
-        ${today?`<span>сьогодні</span>`:""}
+        <div class="scheduler-day-head-tags">
+          ${today?`<span>сьогодні</span>`:""}
+          ${allowed?plannerCalendarAvailabilityTag(date,t):""}
+        </div>
       </div>
       <div class="scheduler-day-details">
         ${visible.map(item=>plannerCalendarChip(item.x,item.kind)).join("")}
@@ -2751,9 +2754,9 @@ function plannerPairOptions(date,d,t,selected=null){
     ].filter(Boolean);
     const note=availability.notes[0]||"";
     const suffix=hard.length
-      ? ` · ${hard.join("; ")}`
+      ? ` · НЕ МОЖНА: ${hard.join("; ")}`
       : note
-        ? ` · ${note.includes("Бажаний")?"бажано":"поза бажаним"}`
+        ? ` · ${note.includes("Бажаний")?"БАЖАНО":"поза бажаним часом"}`
         : "";
     return `<option value="${esc(p.id)}" ${String(selected)===String(p.id)?"selected":""} ${hard.length?"disabled":""}>${esc(p.id)} пара · ${esc(p.start)}–${esc(p.end)}${esc(suffix)}</option>`;
   }).join("");
@@ -3068,9 +3071,9 @@ function plannerSeriesRefreshRow(row,d,t){
     status.innerHTML=`
       ${busy.teacher?`<span class="bad">Викладач зайнятий</span>`:""}
       ${busy.group?`<span class="bad">Група зайнята</span>`:""}
-      ${availability.warnings.map(w=>`<span class="bad">${esc(w)}</span>`).join("")}
-      ${!blocked&&availability.notes.length?availability.notes.map(n=>`<span class="${n.includes("Бажаний")?"preferred":"warn"}">${esc(n)}</span>`).join(""):""}
-      ${!blocked&&!availability.notes.length?`<span class="ok">можна ставити</span>`:""}
+      ${availability.warnings.map(w=>`<span class="bad">НЕ МОЖНА · ${esc(w)}</span>`).join("")}
+      ${!blocked&&availability.notes.length?availability.notes.map(n=>`<span class="${n.includes("Бажаний")?"preferred":"warn"}">${n.includes("Бажаний")?"БАЖАНО":"ПОЗА БАЖАНИМ"} · ${esc(n)}</span>`).join(""):""}
+      ${!blocked&&!availability.notes.length?`<span class="ok">МОЖНА СТАВИТИ</span>`:""}
     `;
   }
   plannerUpdateSeriesSummary(d,t);
@@ -3336,6 +3339,104 @@ function savePlannerSeries(d,t){
   openDisciplineTeacherScheduler(d.id,t.id,keep);
 }
 
+
+function teacherAvailabilityRuleLabel(rule){
+  if(!rule)return "";
+  const type=rule.type||"weekday";
+  const dayName=id=>{
+    const d=db.weekDays.find(x=>String(x.id)===String(id));
+    return d?.name||`день ${id}`;
+  };
+  let base="";
+  if(type==="weekday")base=dayName(rule.weekday);
+  else if(type==="date")base=rule.date?formatDate(rule.date):"конкретна дата";
+  else if(type==="range")base=`${rule.dateFrom?formatDate(rule.dateFrom):"…"}–${rule.dateTo?formatDate(rule.dateTo):"…"}`;
+  else base="правило";
+
+  const time=(rule.start||rule.end)
+    ? ` · ${rule.start||"…"}–${rule.end||"…"}`
+    : "";
+  return `${base}${time}`;
+}
+function plannerTeacherAvailabilitySummaryHtml(t,date){
+  const unavailable=t.unavailableRules||[];
+  const preferred=t.preferredRules||[];
+
+  const dayUnavailable=unavailable.filter(r=>ruleApplies(r,date));
+  const dayPreferred=preferred.filter(r=>ruleApplies(r,date));
+
+  let dayState="neutral";
+  let dayText="Можна ставити";
+  if(dayUnavailable.length){
+    dayState="blocked";
+    dayText=dayUnavailable.some(r=>!r.start&&!r.end)
+      ?"Цього дня викладач недоступний"
+      :"Є недоступні години";
+  }else if(dayPreferred.length){
+    dayState="preferred";
+    dayText="Є бажані години цього дня";
+  }else if(preferred.length){
+    dayState="outside";
+    dayText="Цей день не входить до бажаних";
+  }
+
+  const unavailableText=unavailable.length
+    ? unavailable.slice(0,2).map(teacherAvailabilityRuleLabel).join(" · ")+(unavailable.length>2?` · +${unavailable.length-2}`:"")
+    : "не задано";
+
+  const preferredText=preferred.length
+    ? preferred.slice(0,2).map(teacherAvailabilityRuleLabel).join(" · ")+(preferred.length>2?` · +${preferred.length-2}`:"")
+    : "не задано";
+
+  return `<div class="planner-teacher-availability">
+    <div class="planner-teacher-availability-head">
+      <div>
+        <span>Доступність викладача</span>
+        <b>${esc(teacherDisplay(t))}</b>
+      </div>
+      <button type="button" class="secondary" onclick="openTeacherAvailabilityModal(${t.id})">Змінити</button>
+    </div>
+
+    <div class="planner-availability-today ${dayState}">
+      <b>${formatDate(date)}</b>
+      <span>${esc(dayText)}</span>
+    </div>
+
+    <div class="planner-availability-grid">
+      <div>
+        <span>Не можна ставити</span>
+        <b>${esc(unavailableText)}</b>
+      </div>
+      <div>
+        <span>Бажано ставити</span>
+        <b>${esc(preferredText)}</b>
+      </div>
+      <div>
+        <span>Макс. на день</span>
+        <b>${t.maxPerDay?`${esc(t.maxPerDay)} пар`:"не задано"}</b>
+      </div>
+      <div>
+        <span>Макс. підряд</span>
+        <b>${t.maxConsecutive?`${esc(t.maxConsecutive)} пар`:"не задано"}</b>
+      </div>
+    </div>
+  </div>`;
+}
+function plannerCalendarAvailabilityTag(date,t){
+  const unavailable=(t.unavailableRules||[]).filter(r=>ruleApplies(r,date));
+  const preferred=(t.preferredRules||[]).filter(r=>ruleApplies(r,date));
+
+  if(unavailable.some(r=>!r.start&&!r.end))
+    return `<span class="planner-day-availability blocked">викл. не може</span>`;
+  if(unavailable.length)
+    return `<span class="planner-day-availability limited">є обмеження</span>`;
+  if(preferred.length)
+    return `<span class="planner-day-availability preferred">бажано</span>`;
+  if((t.preferredRules||[]).length)
+    return `<span class="planner-day-availability outside">поза бажаним</span>`;
+  return "";
+}
+
 function plannerSelectedDayPanel(d,t,totalRemaining){
   const date=disciplinePlannerState.date;
   const summary=plannerDateEventsSummary(date,d,t);
@@ -3357,9 +3458,11 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
       </div>
     </div>
 
+    ${plannerTeacherAvailabilitySummaryHtml(t,date)}
+
     <div class="planner-right-purpose">
       <b>Додавання занять</b>
-      <span>Повний розклад цього дня тепер показано під календарем зліва.</span>
+      <span>Повний розклад цього дня показано під календарем зліва.</span>
     </div>
 
     ${totalRemaining>0?`
