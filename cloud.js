@@ -32,7 +32,16 @@ function bestLocalRecoveryState(){
 const WORKSPACE=window.REMS_FIREBASE_WORKSPACE_ID||"main";
 const CONFIG_OVERRIDE_KEY="REMS_FIREBASE_CONFIG_OVERRIDE";
 const clean=x=>JSON.parse(JSON.stringify(x));
-const eq=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+function canonicalValue(v){
+  if(Array.isArray(v))return v.map(canonicalValue);
+  if(v&&typeof v==="object"){
+    const out={};
+    Object.keys(v).sort().forEach(k=>{out[k]=canonicalValue(v[k]);});
+    return out;
+  }
+  return v;
+}
+const eq=(a,b)=>JSON.stringify(canonicalValue(a))===JSON.stringify(canonicalValue(b));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function configFromStorage(){
@@ -69,7 +78,13 @@ window.REMS_CLOUD={
   createUser:createManagedUser,
   updateUser:updateManagedUser,
   sendPasswordReset:sendManagedPasswordReset,
-  reconnect:()=>manualCloudReconnect()
+  reconnect:()=>manualCloudReconnect(),
+  retryPending:()=>{
+    if(!pendingPush)return false;
+    clearTimeout(pushTimer);
+    pushTimer=setTimeout(flushPush,10);
+    return true;
+  }
 };
 
 function roleLabel(r){return ({admin:"Адміністратор",dispatcher:"Диспетчер",teacher:"Викладач",viewer:"Перегляд"})[r]||r||"—";}
@@ -351,32 +366,74 @@ async function flushPush(){
 
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
   }catch(e){
-    console.error(e);
-    setSidebar("error","Помилка синхронізації",user.email||"");
-    if(String(e?.message||e).startsWith("REMS_CONFLICT:")) toast(String(e.message).slice(14),"error",9000);
-    else toast("Зміни не вдалося записати у спільну базу. Дані буде перечитано з сервера.","error",8000);
-    await reloadRemote();
+    console.error("REMS cloud write failed",e);
+
+    const isConflict=String(e?.message||e).startsWith("REMS_CONFLICT:");
+    const summary=cloudErrorSummary(e);
+
+    if(isConflict){
+      setSidebar("error","Конфлікт у розкладі",`${user.email||""} · ${summary}`);
+      toast(String(e.message).slice(14),"error",10000);
+      // Logical collision: restore the actual server schedule.
+      await reloadRemote();
+    }else{
+      // Firebase/network/rules problem: KEEP the user's local state.
+      // Never replace it with an older server copy.
+      if(!pendingPush)pendingPush=wanted;
+
+      const code=cloudErrorCode(e);
+      const title=code==="permission-denied"?"Немає дозволу Firebase":"Не синхронізовано";
+      setSidebar("error",title,`${user.email||""} · ${summary}`);
+
+      toast(
+        `Зміни залишилися у цьому браузері, але ще не записані у Firebase. Помилка: ${summary}. Дані не повертаю до старої версії.`,
+        "error",
+        12000
+      );
+    }
   }finally{
     pushing=false;
-    if(pendingPush)setTimeout(flushPush,50);
+    // No rapid retry loop. The next user save retries the newest local state.
   }
 }
 async function syncCollection(name,oldItems,newItems){
   const old=stateMap(oldItems),neu=stateMap(newItems),ops=[];
   for(const [id,item] of neu)if(!old.has(id)||!eq(old.get(id),item))ops.push({type:"set",ref:itemRef(name,id),data:clean(item)});
   for(const [id] of old)if(!neu.has(id))ops.push({type:"delete",ref:itemRef(name,id)});
-  if(ops.length)await commitOps(ops);
+  if(!ops.length)return;
+  try{await commitOps(ops);}
+  catch(e){throw markCloudStep(e,`${name} · ${ops.length} змін`);}
 }
 async function syncSchedule(oldItems,newItems){
   const old=stateMap(oldItems),neu=stateMap(newItems);
-  for(const [id,item] of neu)if(!old.has(id)||!eq(old.get(id),item))await writeScheduleLesson(clean(item));
-  for(const [id] of old)if(!neu.has(id))await deleteScheduleLesson(id);
+  for(const [id,item] of neu){
+    if(!old.has(id)||!eq(old.get(id),item)){
+      try{await writeScheduleLesson(clean(item));}
+      catch(e){throw markCloudStep(e,`розклад · запис ${id} · ${item.date||"без дати"} · ${item.discipline||"без дисципліни"}`);}
+    }
+  }
+  for(const [id] of old){
+    if(!neu.has(id)){
+      try{await deleteScheduleLesson(id);}
+      catch(e){throw markCloudStep(e,`розклад · видалення ${id}`);}
+    }
+  }
 }
 
 async function syncRoomBookings(oldItems,newItems){
   const old=stateMap(oldItems),neu=stateMap(newItems);
-  for(const [id,item] of neu)if(!old.has(id)||!eq(old.get(id),item))await writeRoomBookingCloud(clean(item));
-  for(const [id] of old)if(!neu.has(id))await deleteRoomBookingCloud(id);
+  for(const [id,item] of neu){
+    if(!old.has(id)||!eq(old.get(id),item)){
+      try{await writeRoomBookingCloud(clean(item));}
+      catch(e){throw markCloudStep(e,`аудиторії · бронювання ${id}`);}
+    }
+  }
+  for(const [id] of old){
+    if(!neu.has(id)){
+      try{await deleteRoomBookingCloud(id);}
+      catch(e){throw markCloudStep(e,`аудиторії · видалення бронювання ${id}`);}
+    }
+  }
 }
 
 function slotKey(x){

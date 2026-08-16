@@ -6475,3 +6475,10 @@ td .small{font-size:12px}
 .ready-manager-main small{font-size:8px;color:#765f84;}
 
 @media(max-width:1280px){.schedule-discipline-list{grid-template-columns:1fr!important;}}
+
+
+/* v1.6.1 · safer cloud diagnostics */
+.cloud-toast.error{
+  max-width:540px;
+  line-height:1.38;
+}

@@ -377,21 +377,36 @@ function migrate(old){
       if(d)disciplineId=d.id;
     }
     const lt=fresh.lessonTypes.find(x=>x.name===s.type);
-    const audienceGroups=uniqueStrings([...(Array.isArray(s.audienceGroups)?s.audienceGroups:[]),s.group||""]);
-    const disciplineIds=ready?[]:[...new Set([...(Array.isArray(s.disciplineIds)?s.disciplineIds:[]),disciplineId].map(Number).filter(Boolean))];
-    return {
-      ...s,
+    const out={
       id:s.id||i+1,date:s.date||"",start:s.start||"",end:s.end||"",
       pairId:s.pairId||fresh.bellSchedule.find(p=>p.start===s.start&&p.end===s.end)?.id||null,
-      group:s.group||audienceGroups[0]||"",audienceGroups,
-      disciplineId,disciplineIds,discipline:s.discipline||"",type:s.type||"",coverage:s.coverage||"Вся група",
+      group:s.group||"",
+      disciplineId,discipline:s.discipline||"",type:s.type||"",coverage:s.coverage||"Вся група",
       students:s.students||"",studentId:s.studentId||null,teacherId,teacher:s.teacher||"",room:s.room||"",
       workloadHours:s.workloadHours??lt?.defaultUnit??1,note:s.note||"",repeatBatchId:s.repeatBatchId||null,
       specialSchedule:s.specialSchedule===true,specialKind:s.specialKind||"",specialHalf:s.specialHalf||null,
-      scheduleSource:ready?"ready_external":(s.scheduleSource||""),
-      sourceCurriculumId:s.sourceCurriculumId||null,sourceComponentId:s.sourceComponentId||null,
-      sourceSemester:s.sourceSemester||null,sourcePlanRef:s.sourcePlanRef||""
+      scheduleSource:ready?"ready_external":(s.scheduleSource||"")
     };
+
+    // v1.6 fields are kept only on records that actually have/use them.
+    // Legacy rows therefore do not all become "changed" after an upgrade.
+    if(Array.isArray(s.audienceGroups)&&s.audienceGroups.length){
+      out.audienceGroups=uniqueStrings(s.audienceGroups);
+      if(!out.group)out.group=out.audienceGroups[0]||"";
+    }
+    if(Array.isArray(s.disciplineIds)&&s.disciplineIds.length){
+      out.disciplineIds=ready?[]:[...new Set(s.disciplineIds.map(Number).filter(Boolean))];
+    }
+    if(s.sourceCurriculumId!==undefined&&s.sourceCurriculumId!==null)out.sourceCurriculumId=s.sourceCurriculumId;
+    if(s.sourceComponentId!==undefined&&s.sourceComponentId!==null)out.sourceComponentId=s.sourceComponentId;
+    if(s.sourceSemester!==undefined&&s.sourceSemester!==null)out.sourceSemester=s.sourceSemester;
+    if(s.sourcePlanRef)out.sourcePlanRef=s.sourcePlanRef;
+
+    // Preserve future/custom fields without inventing empty v1.6 values.
+    for(const [k,v] of Object.entries(s)){
+      if(!(k in out)&&v!==undefined)out[k]=v;
+    }
+    return out;
   });
   repairScheduleLinks(fresh);
   return fresh;
