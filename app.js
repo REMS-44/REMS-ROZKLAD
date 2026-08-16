@@ -1367,6 +1367,12 @@ function plannerScheduleForDate(date){return db.schedule.filter(x=>x.date===date
 function plannerTeacherEvents(date,teacherId){return plannerScheduleForDate(date).filter(x=>Number(resolvedScheduleTeacherId(x,db))===Number(teacherId));}
 function plannerGroupEvents(date,group){return plannerScheduleForDate(date).filter(x=>normIdentity(resolvedScheduleGroup(x,db))===normIdentity(group));}
 function plannerOwnEvents(date,d,teacherId){return plannerScheduleForDate(date).filter(x=>Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(teacherId));}
+function plannerDateEventsSummary(date,d,t){
+  const own=plannerOwnEvents(date,d,t.id);
+  const teacher=plannerTeacherEvents(date,t.id);
+  const group=plannerGroupEvents(date,d.group);
+  return {own,teacher,group};
+}
 function plannerEventPair(x){return x.pairId?`${x.pairId} пара`:(x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"без №");}
 function plannerMonthOwnCount(month,d,t){return db.schedule.filter(x=>String(x.date||"").slice(0,7)===month&&Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)).length;}
 function plannerMonthTabsHtml(d,t){return `<div class="scheduler-month-tabs">${schedulerMonthsForDiscipline(d).map(m=>{const c=plannerMonthOwnCount(m.value,d,t);return `<button class="${m.value===disciplinePlannerState.month?"active":""}" onclick="setDisciplinePlannerMonth('${m.value}')"><span>${esc(m.label)}</span>${c?`<b>${c}</b>`:""}</button>`;}).join("")}</div>`;}
