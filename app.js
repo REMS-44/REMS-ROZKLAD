@@ -2384,7 +2384,7 @@ function specialScheduleListHtml(){
     .filter(x=>!specialScheduleState.disciplineId||Number(x.disciplineId)===Number(specialScheduleState.disciplineId));
   if(!rows.length)return `<div class="empty">У цьому місяці ще немає записів цього спеціального розкладу.</div>`;
   const dates=[...new Set(rows.map(x=>x.date))];
-  return `<div class="special-schedule-days">${dates.map(date=>{const dayRows=rows.filter(x=>x.date===date);return `<section class="special-day"><div class="special-day-date"><b>${formatDate(date)}</b><span>${esc(weekdayNameForDate(date))}</span><strong>${dayRows.length}</strong></div><div class="special-day-events">${dayRows.map(x=>`<div class="special-event-card" style="${scheduleColorVars(x)}"><div class="special-event-time"><b>${esc(specialSlotLabel(x))}</b><span>${esc(x.room||"без аудиторії")}</span></div><div class="special-event-student"><span>Студент</span><b>${esc(specialStudentName(x))}</b></div><div class="special-event-context"><b>${esc(x.discipline||"")}</b><span>${esc(x.teacher||"")}</span></div><button onclick="deleteSpecialScheduleEvent(${x.id})">×</button></div>`).join("")}</div></section>`;}).join("")}</div>`;
+  return `<div class="special-schedule-days">${dates.map(date=>{const dayRows=rows.filter(x=>x.date===date);return `<section class="special-day"><div class="special-day-date"><b>${formatDate(date)}</b><span>${esc(weekdayNameForDate(date))}</span><strong>${dayRows.length}</strong></div><div class="special-day-events">${dayRows.map(x=>`<div class="special-event-card special-event-editable" style="${scheduleColorVars(x)}" role="button" tabindex="0" onclick="openSpecialScheduleEventEditor(${x.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openSpecialScheduleEventEditor(${x.id});}"><div class="special-event-time"><b>${esc(specialSlotLabel(x))}</b><span>${esc(x.room||"без аудиторії")}</span></div><div class="special-event-student"><span>Студент</span><b>${esc(specialStudentName(x))}</b></div><div class="special-event-context"><b>${esc(x.discipline||"")}</b><span>${esc(x.teacher||"")}</span></div><span class="special-event-edit-hint">Редагувати ✎</span><button class="special-event-delete" title="Видалити" onclick="event.stopPropagation();deleteSpecialScheduleEvent(${x.id})">×</button></div>`).join("")}</div></section>`;}).join("")}</div>`;
 }
 function renderSpecialSchedule(){
   const kind=specialScheduleState.kind,groups=specialGroups(kind);
@@ -2445,16 +2445,16 @@ function specialStudentsForLoad(d,t,lt){
   const ids=new Set(persistedAssignedStudentIds(d,t.id,lt.id));
   return studentsForGroup(d.group).filter(s=>ids.has(Number(s.id)));
 }
-function specialStudentProgress(d,t,lt,studentId){
+function specialStudentProgress(d,t,lt,studentId,ignoreId=null){
   const plan=lt.countMode==="per_student"
     ?perStudentUnitHours(d,lt.id)
     :teacherTypePlan(d,t.id,lt.name);
-  const used=scheduledStudentLoad(d.id,t.id,lt.name,studentId);
+  const used=scheduledStudentLoad(d.id,t.id,lt.name,studentId,ignoreId);
   return {plan,used,remaining:Math.max(0,plan-used),done:used>=plan-.001};
 }
-function specialStudentButtonsHtml(d,t,lt,selected=null){
+function specialStudentButtonsHtml(d,t,lt,selected=null,ignoreId=null){
   return `<div class="special-student-picker">${specialStudentsForLoad(d,t,lt).map(s=>{
-    const p=specialStudentProgress(d,t,lt,s.id);
+    const p=specialStudentProgress(d,t,lt,s.id,ignoreId);
     return `<button type="button"
       class="${Number(selected)===Number(s.id)?"active":""} ${p.done?"done":""}"
       data-student-id="${s.id}"
@@ -2468,11 +2468,13 @@ function specialStudentButtonsHtml(d,t,lt,selected=null){
 function selectSpecialStudent(id){const hidden=$("#specialStudentId");if(hidden)hidden.value=id;$$('[data-student-id]').forEach(b=>b.classList.toggle("active",Number(b.dataset.studentId)===Number(id)));}
 function specialHalfOptionsHtml(pairId,selected=1){return [1,2].map(h=>{const times=specialHalfTimes(pairId,h);return `<button type="button" class="special-half-btn ${Number(selected)===h?"active":""}" data-half="${h}" onclick="selectSpecialHalf(${h})"><b>${h===1?"І половина":"ІІ половина"}</b><span>${esc(times.start)}–${esc(times.end)}</span></button>`;}).join("");}
 function selectSpecialHalf(half){const hidden=$("#specialHalf");if(hidden)hidden.value=half;$$('[data-half]').forEach(b=>b.classList.toggle("active",Number(b.dataset.half)===Number(half)));refreshSpecialRoomOptions();}
-function specialRoomOptions(date,pairId,half,selected=""){
+let specialEditEventId=null;
+
+function specialRoomOptions(date,pairId,half,selected="",ignoreId=specialEditEventId){
   const times=specialHalfTimes(pairId,half);
   return `<option value="">— без аудиторії —</option>`+
     db.rooms.filter(r=>r.status!=="archived").map(r=>{
-      const conflict=roomConflictRecord(date,times.start,times.end,pairId,r.name,null);
+      const conflict=roomConflictRecord(date,times.start,times.end,pairId,r.name,ignoreId);
       const busy=!!conflict;
       return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(roomBusyOptionLabel(r.name,conflict))}</option>`;
     }).join("");
@@ -2492,8 +2494,28 @@ function refreshSpecialHalfButtons(){
   if(box)box.innerHTML=specialHalfOptionsHtml(pairId,half);
   refreshSpecialRoomOptions();
 }
-function openSpecialScheduleModal(disciplineId,teacherId,typeId){
-  const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=db.lessonTypes.find(x=>Number(x.id)===Number(typeId));if(!d||!t||!lt)return;
+function openSpecialScheduleEventEditor(id){
+  const existing=db.schedule.find(x=>Number(x.id)===Number(id));
+  if(!existing||!existing.specialSchedule)return;
+  const d=disciplineById(existing.disciplineId);
+  const t=teacherById(existing.teacherId);
+  const lt=db.lessonTypes.find(x=>x.name===existing.type);
+  if(!d||!t||!lt)return alert("Не вдалося відкрити запис для редагування.");
+  specialScheduleState.kind=existing.specialKind||specialScheduleState.kind;
+  specialScheduleState.group=existing.group||specialScheduleState.group;
+  specialScheduleState.disciplineId=existing.disciplineId||specialScheduleState.disciplineId;
+  specialScheduleState.month=String(existing.date||"").slice(0,7)||specialScheduleState.month;
+  openSpecialScheduleModal(d.id,t.id,lt.id,existing.id);
+}
+
+function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
+  const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=db.lessonTypes.find(x=>Number(x.id)===Number(typeId));
+  if(!d||!t||!lt)return;
+
+  const existing=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
+  const editing=!!existing;
+  specialEditEventId=editing?existing.id:null;
+
   const students=specialStudentsForLoad(d,t,lt);
   if(!students.length){
     if(lt.countMode==="per_student"){
@@ -2502,41 +2524,179 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId){
     }
     return alert("У цій групі немає студентів.");
   }
-  const availableStudents=students.filter(s=>!specialStudentProgress(d,t,lt,s.id).done);
+
+  const availableStudents=students.filter(s=>{
+    if(editing&&Number(s.id)===Number(existing.studentId))return true;
+    return !specialStudentProgress(d,t,lt,s.id,editId).done;
+  });
   if(!availableStudents.length)return alert("Усі закріплені за цим викладачем студенти вже використали свої години.");
-  const remaining=remainingLoad(d,t.id,lt.name);if(remaining<1-.001)return alert("Для цього виду занять уже немає щонайменше 1 години залишку.");
-  const bounds=semesterDateBounds(d.semester),defaultDate=clampDate(currentAcademicDate(),bounds),firstPair=bellPairs()[0]?.id||1;
-  openModal(`<div class="special-modal"><div class="special-modal-head"><div><span>${esc(specialKindMeta(specialScheduleState.kind).label)}</span><h2>${esc(d.name)}</h2><strong>${esc(teacherDisplay(t))}</strong><p>${esc(d.group)} · ${esc(lt.name)} · залишок ${fmtHours(remaining)} год</p></div><div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div></div><form id="specialScheduleForm"><input id="specialStudentId" type="hidden" value="${availableStudents[0].id}"><input id="specialHalf" type="hidden" value="1"><div class="special-form-section"><div class="special-form-title"><span>1</span><div><b>Студент</b><small>кожен запис належить конкретному студенту</small></div></div>${specialStudentButtonsHtml(d,t,lt,availableStudents[0].id)}</div><div class="special-form-section"><div class="special-form-title"><span>2</span><div><b>Дата і половина пари</b><small>повної пари тут немає — тільки одна академічна година</small></div></div><div class="special-time-grid"><label>Дата<input id="specialDate" type="date" min="${bounds.start}" max="${bounds.end}" value="${defaultDate}"></label><label>Пара<select id="specialPair">${bellPairs().map(p=>`<option value="${p.id}">${p.id} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("")}</select></label></div><div id="specialHalfButtons" class="special-half-buttons">${specialHalfOptionsHtml(firstPair,1)}</div></div><div class="special-form-section"><div class="special-form-title"><span>3</span><div><b>Місце</b><small>аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій</small></div></div><div class="special-time-grid"><label>Аудиторія<select id="specialRoom">${specialRoomOptions(defaultDate,firstPair,1,"")}</select></label><label>Примітка<input id="specialNote" placeholder="необов’язково"></label></div></div><div id="specialConflictMessage"></div><div class="special-modal-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button class="primary">Зберегти 1 академічну годину</button></div></form></div>`,true);
+
+  const remaining=remainingLoad(d,t.id,lt.name,editId);
+  if(remaining<1-.001)return alert("Для цього виду занять уже немає щонайменше 1 години залишку.");
+
+  const bounds=semesterDateBounds(d.semester);
+  const defaultDate=editing?existing.date:clampDate(currentAcademicDate(),bounds);
+  const firstPair=editing?(existing.pairId||bellPairs()[0]?.id||1):(bellPairs()[0]?.id||1);
+  const defaultHalf=editing?(Number(existing.specialHalf)||1):1;
+  const defaultStudentId=editing?Number(existing.studentId):Number(availableStudents[0].id);
+  const defaultRoom=editing?(existing.room||""):"";
+  const defaultNote=editing?(existing.note||""):"";
+
+  openModal(`<div class="special-modal">
+    <div class="special-modal-head">
+      <div>
+        <span>${editing?"РЕДАГУВАННЯ · ":""}${esc(specialKindMeta(specialScheduleState.kind).label)}</span>
+        <h2>${esc(d.name)}</h2>
+        <strong>${esc(teacherDisplay(t))}</strong>
+        <p>${esc(d.group)} · ${esc(lt.name)} · ${editing?"редагуємо існуючий запис":`залишок ${fmtHours(remaining)} год`}</p>
+      </div>
+      <div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div>
+    </div>
+
+    ${editing?`<div class="special-edit-notice"><b>Редагування запису</b><span>Можна змінити студента, дату, половину пари, аудиторію та примітку. Цей запис не враховується як конфлікт із самим собою.</span></div>`:""}
+
+    <form id="specialScheduleForm">
+      <input id="specialStudentId" type="hidden" value="${defaultStudentId}">
+      <input id="specialHalf" type="hidden" value="${defaultHalf}">
+
+      <div class="special-form-section">
+        <div class="special-form-title"><span>1</span><div><b>Студент</b><small>кожен запис належить конкретному студенту</small></div></div>
+        ${specialStudentButtonsHtml(d,t,lt,defaultStudentId,editId)}
+      </div>
+
+      <div class="special-form-section">
+        <div class="special-form-title"><span>2</span><div><b>Дата і половина пари</b><small>повної пари тут немає — тільки одна академічна година</small></div></div>
+        <div class="special-time-grid">
+          <label>Дата<input id="specialDate" type="date" min="${bounds.start}" max="${bounds.end}" value="${defaultDate}"></label>
+          <label>Пара<select id="specialPair">${bellPairs().map(p=>`<option value="${p.id}" ${String(p.id)===String(firstPair)?"selected":""}>${p.id} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("")}</select></label>
+        </div>
+        <div id="specialHalfButtons" class="special-half-buttons">${specialHalfOptionsHtml(firstPair,defaultHalf)}</div>
+      </div>
+
+      <div class="special-form-section">
+        <div class="special-form-title"><span>3</span><div><b>Місце</b><small>аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій</small></div></div>
+        <div class="special-time-grid">
+          <label>Аудиторія<select id="specialRoom">${specialRoomOptions(defaultDate,firstPair,defaultHalf,defaultRoom,editId)}</select></label>
+          <label>Примітка<input id="specialNote" value="${esc(defaultNote)}" placeholder="необов’язково"></label>
+        </div>
+      </div>
+
+      <div id="specialConflictMessage"></div>
+
+      <div class="special-modal-actions">
+        <button type="button" class="secondary" onclick="specialEditEventId=null;closeModal()">Скасувати</button>
+        <button class="primary">${editing?"Зберегти зміни":"Зберегти 1 академічну годину"}</button>
+      </div>
+    </form>
+  </div>`,true);
+
   $("#specialPair").onchange=refreshSpecialHalfButtons;
   $("#specialDate").onchange=refreshSpecialRoomOptions;
-  $("#specialScheduleForm").onsubmit=e=>saveSpecialScheduleEvent(e,d,t,lt);
+  $("#specialScheduleForm").onsubmit=e=>saveSpecialScheduleEvent(e,d,t,lt,editId);
 }
-function saveSpecialScheduleEvent(e,d,t,lt){
-  e.preventDefault();const studentId=Number($("#specialStudentId").value),student=db.students.find(s=>Number(s.id)===studentId);if(!student)return alert("Оберіть студента.");
-  const date=$("#specialDate").value,pairId=$("#specialPair").value,half=Number($("#specialHalf").value||1),times=specialHalfTimes(pairId,half),room=$("#specialRoom").value;
-  const item={id:uid(db.schedule),date,start:times.start,end:times.end,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type:lt.name,coverage:student.name,students:student.name,studentId,teacherId:t.id,teacher:teacherDisplay(t),room,workloadHours:1,note:$("#specialNote").value.trim(),repeatBatchId:null,specialSchedule:true,specialKind:specialScheduleState.kind,specialHalf:half,scheduleSource:"special"};
-  const rem=remainingLoad(d,t.id,lt.name);if(rem<1-.001)return alert(`Залишок навантаження лише ${fmtHours(rem)} год.`);
+function saveSpecialScheduleEvent(e,d,t,lt,editId=null){
+  e.preventDefault();
+
+  const studentId=Number($("#specialStudentId").value);
+  const student=db.students.find(s=>Number(s.id)===studentId);
+  if(!student)return alert("Оберіть студента.");
+
+  const date=$("#specialDate").value;
+  const pairId=$("#specialPair").value;
+  const half=Number($("#specialHalf").value||1);
+  const times=specialHalfTimes(pairId,half);
+  const room=$("#specialRoom").value;
+
+  const previous=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
+  const item={
+    id:editId||uid(db.schedule),
+    date,
+    start:times.start,
+    end:times.end,
+    pairId,
+    group:d.group,
+    disciplineId:d.id,
+    discipline:d.name,
+    type:lt.name,
+    coverage:student.name,
+    students:student.name,
+    studentId,
+    teacherId:t.id,
+    teacher:teacherDisplay(t),
+    room,
+    workloadHours:1,
+    note:$("#specialNote").value.trim(),
+    repeatBatchId:previous?.repeatBatchId||null,
+    specialSchedule:true,
+    specialKind:previous?.specialKind||specialScheduleState.kind,
+    specialHalf:half,
+    scheduleSource:"special"
+  };
+
+  const rem=remainingLoad(d,t.id,lt.name,editId);
+  if(rem<1-.001)return alert(`Залишок навантаження лише ${fmtHours(rem)} год.`);
 
   if(lt.countMode==="per_student"){
     if(!assignedStudentIds(d,t.id,lt.id).includes(Number(studentId))){
       return alert("Цей студент не закріплений за цим викладачем у навантаженні.");
     }
+
     const planForStudent=perStudentUnitHours(d,lt.id);
-    const usedForStudent=scheduledStudentLoad(d.id,t.id,lt.name,studentId);
+    const usedForStudent=scheduledStudentLoad(d.id,t.id,lt.name,studentId,editId);
     if(usedForStudent+1>planForStudent+.001){
       return alert(`У цього студента залишилось лише ${fmtHours(Math.max(0,planForStudent-usedForStudent))} год.`);
     }
   }
 
-  const cs=conflictsFor(item,null),info=teacherAvailabilityInfo(item,null),studentConflict=db.schedule.some(x=>x.date===date&&Number(x.studentId)===studentId&&((x.specialSchedule||item.specialSchedule)?timeOverlap(item.start,item.end,x.start,x.end):(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))));if(studentConflict)cs.push({discipline:"Студент уже зайнятий у цей час"});
+  const cs=conflictsFor(item,editId);
+  const info=teacherAvailabilityInfo(item,editId);
+
+  const studentConflict=db.schedule.some(x=>
+    Number(x.id)!==Number(editId)
+    &&x.date===date
+    &&Number(x.studentId)===studentId
+    &&(
+      (x.specialSchedule||item.specialSchedule)
+        ?timeOverlap(item.start,item.end,x.start,x.end)
+        :(item.pairId&&x.pairId
+          ?String(item.pairId)===String(x.pairId)
+          :timeOverlap(item.start,item.end,x.start,x.end))
+    )
+  );
+
+  if(studentConflict)cs.push({studentId,discipline:"Студент уже зайнятий у цей час"});
+
   if(cs.length||info.warnings.length){
     $("#specialConflictMessage").innerHTML=conflictDetailsHtml(item,cs,info.warnings);
     return;
   }
-  db.schedule.push(item);specialScheduleState.disciplineId=d.id;specialScheduleState.group=d.group;closeModal();save();go("specialSchedule",{focusCurrentCalendar:false});
+
+  if(editId){
+    const index=db.schedule.findIndex(x=>Number(x.id)===Number(editId));
+    if(index<0)return alert("Не вдалося знайти запис для оновлення.");
+    db.schedule[index]=item;
+  }else{
+    db.schedule.push(item);
+  }
+
+  specialScheduleState.disciplineId=d.id;
+  specialScheduleState.group=d.group;
+  specialScheduleState.month=String(date).slice(0,7)||specialScheduleState.month;
+  specialEditEventId=null;
+
+  closeModal();
+  save();
+  go("specialSchedule",{focusCurrentCalendar:false});
 }
 function openSpecialEventFromRoom(id){const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x||!x.specialSchedule)return;specialScheduleState.kind=x.specialKind||"individual";specialScheduleState.group=x.group||"";specialScheduleState.disciplineId=x.disciplineId||null;specialScheduleState.month=String(x.date||"").slice(0,7)||specialScheduleState.month;go("specialSchedule",{focusCurrentCalendar:false});}
-function deleteSpecialScheduleEvent(id){const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x)return;if(!confirm(`Видалити ${specialKindMeta(x.specialKind).short.toLowerCase()} · ${specialStudentName(x)} · ${formatDate(x.date)}?`))return;db.schedule=db.schedule.filter(s=>Number(s.id)!==Number(id));save();}
+function deleteSpecialScheduleEvent(id){
+  const x=db.schedule.find(s=>Number(s.id)===Number(id));
+  if(!x)return;
+  if(!confirm(`Видалити ${specialKindMeta(x.specialKind).short.toLowerCase()} · ${specialStudentName(x)} · ${formatDate(x.date)}?`))return;
+  db.schedule=db.schedule.filter(s=>Number(s.id)!==Number(id));
+  save();
+  if(currentPage==="specialSchedule")renderSpecialSchedule();
+}
 
 /* Schedule */
 function lessonTypeIdByName(name){return lessonTypeByName(name)?.id||null;}
