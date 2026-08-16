@@ -1245,13 +1245,399 @@ function renderWorkloadToSchedule(group){
   const warning=unallocated.length?`<div class="notice warn-notice"><b>Ще не все розподілено між викладачами:</b> ${unallocated.map(x=>`${esc(x.d.name)} · ${esc(x.lt.name)} — ${fmtHours(x.plan-x.allocated)} год`).join("; ")}</div>`:"";
   return `${warning}<div class="table-wrap"><table class="integrated-load-table"><thead><tr><th>Дисципліна</th><th>Сем.</th><th>Викладач</th><th>Розподілене навантаження</th><th>Усього</th><th>Залишок</th><th></th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.d.name)}</b><div class="small">${esc(x.d.group)}</div></td><td>${x.d.semester||"—"}</td><td><b>${esc(teacherDisplay(x.t))}</b></td><td>${workloadTypeSummary(x.types)}</td><td><b>${fmtHours(x.scheduled)} / ${fmtHours(x.planned)}</b><div class="small">виставлено / розподілено</div></td><td><span class="badge ${x.remaining<=0?"ok":"warn"}">${fmtHours(x.remaining)} год</span></td><td class="actions"><button class="${x.remaining>0?"primary-inline":"secondary"}" onclick="safeOpenDisciplineTeacherScheduler(${x.d.id},${x.t.id})">${x.remaining>0?"Розставити навантаження":"Переглянути календар"}</button></td></tr>`).join("")}</tbody></table></div>`;
 }
+
+/* Ready-made schedule from other departments */
+function readyPlanRecords(group){
+  const rows=[];
+  (db.curricula||[]).forEach(c=>{
+    ensureCurriculumShape(c);
+    const applies=!(c.applicableGroups||[]).length||(c.applicableGroups||[]).some(g=>normIdentity(g)===normIdentity(group));
+    if(!applies)return;
+    (c.components||[]).forEach(comp=>{
+      (comp.rows||[]).forEach(row=>{
+        rows.push({
+          ref:`plan:${c.id}:${comp.id}:${row.semester}`,
+          curriculumId:c.id,
+          componentId:comp.id,
+          semester:Number(row.semester)||null,
+          name:comp.name,
+          scope:comp.scope||"department",
+          row
+        });
+      });
+    });
+  });
+  return rows.sort((a,b)=>{
+    if(a.scope!==b.scope)return a.scope==="external"?-1:1;
+    if((a.semester||0)!==(b.semester||0))return (a.semester||0)-(b.semester||0);
+    return a.name.localeCompare(b.name,"uk");
+  });
+}
+function readyPlanRecordByRef(group,ref){
+  return readyPlanRecords(group).find(x=>x.ref===ref)||null;
+}
+function readyPlanOptions(group,selected=""){
+  const rows=readyPlanRecords(group);
+  const external=rows.filter(x=>x.scope==="external");
+  const other=rows.filter(x=>x.scope!=="external");
+  const render=x=>`<option value="${esc(x.ref)}" ${x.ref===selected?"selected":""}>${esc(x.name)} · ${x.semester} сем.</option>`;
+  return `<option value="">— обери дисципліну —</option>
+    ${external.length?`<optgroup label="Не кафедральні / загальноосвітні">${external.map(render).join("")}</optgroup>`:""}
+    ${other.length?`<optgroup label="Інші дисципліни з плану">${other.map(render).join("")}</optgroup>`:""}
+    <option value="__custom__" ${selected==="__custom__"?"selected":""}>Інша дисципліна…</option>`;
+}
+function readyTeacherText(t){
+  return t?.name||t?.shortName||"";
+}
+function readyTeacherIdFromText(text){
+  const key=normIdentity(text);
+  if(!key)return null;
+  const t=db.teachers.find(x=>x.status!=="archived"&&(normIdentity(x.name)===key||normIdentity(x.shortName)===key));
+  return t?Number(t.id):null;
+}
+function readyTeacherDatalist(){
+  return db.teachers
+    .filter(t=>t.status!=="archived")
+    .slice()
+    .sort((a,b)=>readyTeacherText(a).localeCompare(readyTeacherText(b),"uk"))
+    .map(t=>`<option value="${esc(readyTeacherText(t))}">${esc(t.scope==="external"?"зовнішній":"викладач кафедри")}</option>`)
+    .join("");
+}
+function readyRoomDatalist(){
+  return db.rooms
+    .filter(r=>r.status!=="archived")
+    .slice()
+    .sort((a,b)=>a.name.localeCompare(b.name,"uk",{numeric:true}))
+    .map(r=>`<option value="${esc(r.name)}"></option>`)
+    .join("");
+}
+function readyTypeOptions(selected=""){
+  return db.lessonTypes.map(lt=>`<option value="${esc(lt.name)}" ${lt.name===selected?"selected":""}>${esc(lt.name)}</option>`).join("");
+}
+function readyPairOptions(selected=null){
+  return bellPairs().map(p=>`<option value="${esc(p.id)}" ${String(p.id)===String(selected)?"selected":""}>${esc(p.id)} пара · ${esc(p.start)}–${esc(p.end)}</option>`).join("");
+}
+function readyDateBounds(group,planRef){
+  const rec=readyPlanRecordByRef(group,planRef);
+  return rec?.semester?semesterDateBounds(rec.semester):academicYearBounds();
+}
+function readyDisciplineName(){
+  const group=$("#readyGroup")?.value||"";
+  const ref=$("#readyDiscipline")?.value||"";
+  if(ref==="__custom__")return ($("#readyCustomDiscipline")?.value||"").trim();
+  return readyPlanRecordByRef(group,ref)?.name||"";
+}
+function readyRowHtml(preset={}){
+  const firstPair=bellPairs()[0]?.id||1;
+  return `<div class="ready-entry-row" data-ready-row>
+    <div class="ready-row-number">1</div>
+    <label>Дата<input data-ready-date type="date" value="${esc(preset.date||"")}"></label>
+    <label>Вид<select data-ready-type>${readyTypeOptions(preset.type||"Лекція")}</select></label>
+    <label>Пара<select data-ready-pair>${readyPairOptions(preset.pairId||firstPair)}</select></label>
+    <label>Аудиторія<input data-ready-room list="readyRoomList" placeholder="324, 415, онлайн…" value="${esc(preset.room||"")}"></label>
+    <button type="button" class="danger small-btn" data-ready-remove>×</button>
+  </div>`;
+}
+function renumberReadyRows(){
+  $$("[data-ready-row]").forEach((r,i)=>{
+    const n=r.querySelector(".ready-row-number");
+    if(n)n.textContent=i+1;
+  });
+}
+function bindReadyRow(row){
+  const remove=row.querySelector("[data-ready-remove]");
+  if(remove)remove.onclick=()=>{
+    if($$("[data-ready-row]").length<=1){
+      row.querySelector("[data-ready-date]").value="";
+      row.querySelector("[data-ready-room]").value="";
+      return;
+    }
+    row.remove();
+    renumberReadyRows();
+  };
+}
+function addReadyScheduleRow(preset={}){
+  const box=$("#readyRows");if(!box)return;
+  box.insertAdjacentHTML("beforeend",readyRowHtml(preset));
+  bindReadyRow(box.lastElementChild);
+  renumberReadyRows();
+  applyReadyDateBounds();
+}
+function applyReadyDateBounds(){
+  const group=$("#readyGroup")?.value||"";
+  const ref=$("#readyDiscipline")?.value||"";
+  const b=readyDateBounds(group,ref);
+  $$("[data-ready-date]").forEach(el=>{
+    el.min=b.start;
+    el.max=b.end;
+    if(el.value&&!dateInBounds(el.value,b))el.value="";
+  });
+  const hint=$("#readyDateHint");
+  if(hint)hint.textContent=`Дати: ${formatDate(b.start)} — ${formatDate(b.end)}`;
+}
+function parseReadyDateToken(token){
+  const s=String(token||"").trim();
+  if(!s)return null;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  const m=s.match(/^(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?$/);
+  if(!m)return null;
+  const day=Number(m[1]),month=Number(m[2]);
+  if(month<1||month>12||day<1||day>31)return null;
+  const ay=parseAcademicYear();
+  let year=m[3]?Number(m[3]):(month>=9?ay.startYear:ay.endYear);
+  if(year<100)year+=2000;
+  return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
+function addReadyDatesFromText(){
+  const input=$("#readyDatesPaste");
+  const raw=(input?.value||"").trim();
+  if(!raw)return;
+  const tokens=raw.split(/[\s,;]+/).filter(Boolean);
+  const dates=tokens.map(parseReadyDateToken).filter(Boolean);
+  if(!dates.length)return alert("Не знайшов дат. Можна вставити, наприклад: 03.09, 10.09, 17.09");
+  const group=$("#readyGroup").value;
+  const ref=$("#readyDiscipline").value;
+  const b=readyDateBounds(group,ref);
+  const invalid=dates.filter(d=>!dateInBounds(d,b));
+  if(invalid.length)return alert(`Ці дати не входять у дозволений період: ${invalid.map(formatDate).join(", ")}`);
+
+  const rows=$$("[data-ready-row]");
+  if(rows.length===1&&!rows[0].querySelector("[data-ready-date]").value){
+    rows[0].querySelector("[data-ready-date]").value=dates[0];
+    dates.slice(1).forEach(d=>addReadyScheduleRow({date:d}));
+  }else{
+    dates.forEach(d=>addReadyScheduleRow({date:d}));
+  }
+  input.value="";
+}
+function applyReadyDefaults(){
+  const type=$("#readyDefaultType").value;
+  const pair=$("#readyDefaultPair").value;
+  const room=$("#readyDefaultRoom").value.trim();
+  $$("[data-ready-row]").forEach(row=>{
+    if(type)row.querySelector("[data-ready-type]").value=type;
+    if(pair)row.querySelector("[data-ready-pair]").value=pair;
+    if(room)row.querySelector("[data-ready-room]").value=room;
+  });
+}
+function readySameExternalTeacherConflict(item,ignoreId=null,extra=[]){
+  if(item.teacherId||!item.teacher)return [];
+  const key=normIdentity(item.teacher);
+  if(!key)return [];
+  return db.schedule.concat(extra||[]).filter(x=>{
+    if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return false;
+    const sameSlot=item.pairId&&x.pairId
+      ? String(item.pairId)===String(x.pairId)
+      : timeOverlap(item.start,item.end,x.start,x.end);
+    return sameSlot&&!x.teacherId&&normIdentity(x.teacher)===key;
+  });
+}
+function readyBuildItem(row,common){
+  const pairId=row.querySelector("[data-ready-pair]").value;
+  const pair=pairById(pairId);
+  const teacherId=readyTeacherIdFromText(common.teacher);
+  const teacherObj=teacherById(teacherId);
+  return {
+    date:row.querySelector("[data-ready-date]").value,
+    pairId:pairId?Number(pairId):null,
+    start:pair?.start||"",
+    end:pair?.end||"",
+    group:common.group,
+    disciplineId:null,
+    discipline:common.discipline,
+    type:row.querySelector("[data-ready-type]").value,
+    workloadHours:0,
+    coverage:common.coverage,
+    students:"",
+    teacherId:teacherId||null,
+    teacher:teacherObj?teacherDisplay(teacherObj):common.teacher,
+    room:row.querySelector("[data-ready-room]").value.trim(),
+    note:common.note,
+    repeatBatchId:common.batchId,
+    scheduleSource:"ready_external",
+    sourceCurriculumId:common.plan?.curriculumId||null,
+    sourceComponentId:common.plan?.componentId||null,
+    sourceSemester:common.plan?.semester||null
+  };
+}
+function readyRefreshPlanFields(){
+  const group=$("#readyGroup").value;
+  const ref=$("#readyDiscipline").value;
+  $("#readyCustomDiscipline").style.display=ref==="__custom__"?"":"none";
+  const rec=readyPlanRecordByRef(group,ref);
+  const info=$("#readyPlanInfo");
+  if(info){
+    info.innerHTML=rec
+      ? `<div class="notice success-notice"><b>${esc(rec.name)}</b> · ${rec.semester} семестр${rec.scope==="external"?" · не кафедральна дисципліна":""}. Записи підуть одразу в розклад і не потраплять у кафедральне навантаження.</div>`
+      : `<div class="notice">Ці заняття не списують кафедральне навантаження.</div>`;
+  }
+  applyReadyDateBounds();
+}
+function openReadyScheduleModal(editId=null){
+  const existing=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
+  const editing=!!existing;
+  const defaultGroup=existing?.group||currentWorkloadGroup()||db.groups[0]?.code||"";
+  let selectedRef="__custom__";
+  if(existing?.sourceCurriculumId&&existing?.sourceComponentId&&existing?.sourceSemester){
+    selectedRef=`plan:${existing.sourceCurriculumId}:${existing.sourceComponentId}:${existing.sourceSemester}`;
+  }else if(!existing){
+    selectedRef="";
+  }
+  const teacherText=existing?.teacher||"";
+  const firstPair=bellPairs()[0]?.id||1;
+
+  openModal(`<div class="ready-schedule-modal">
+    <div class="allocation-scheduler-head">
+      <div>
+        <h2>${editing?"Редагувати готову пару":"Внести готові пари"}</h2>
+        <div class="small">Для політології, філософії, іноземної мови та інших занять, які приходять уже готовим розкладом.</div>
+      </div>
+      <span class="badge ok">БЕЗ НАВАНТАЖЕННЯ</span>
+    </div>
+
+    <div class="ready-common-grid">
+      <label>Група<select id="readyGroup">${groupOptions(defaultGroup)}</select></label>
+      <label class="ready-discipline-field">Дисципліна
+        <select id="readyDiscipline">${readyPlanOptions(defaultGroup,selectedRef)}</select>
+        <input id="readyCustomDiscipline" placeholder="Назва дисципліни" value="${esc(existing&&!existing.sourceComponentId?(existing.discipline||""):"")}" style="display:${selectedRef==="__custom__"?"":"none"}">
+      </label>
+      <label>Викладач
+        <input id="readyTeacher" list="readyTeacherList" placeholder="ПІБ або вибери з довідника" value="${esc(teacherText)}">
+        <small>Якщо ПІБ збігається з викладачем у довіднику, заняття автоматично потрапить і в його індивідуальний розклад.</small>
+      </label>
+      <label>Охоплення<select id="readyCoverage">${db.coverageTypes.map(v=>`<option ${v===(existing?.coverage||"Вся група")?"selected":""}>${esc(v)}</option>`).join("")}</select></label>
+      <label class="wide">Примітка<input id="readyNote" placeholder="необов’язково" value="${esc(existing?.note||"")}"></label>
+    </div>
+
+    <datalist id="readyTeacherList">${readyTeacherDatalist()}</datalist>
+    <datalist id="readyRoomList">${readyRoomDatalist()}</datalist>
+    <div id="readyPlanInfo"></div>
+
+    ${editing?"":`
+      <div class="ready-bulk-tools">
+        <div class="ready-paste-dates">
+          <label>Швидко додати дати<input id="readyDatesPaste" placeholder="03.09, 10.09, 17.09, 24.09"></label>
+          <button type="button" class="secondary" id="readyAddDates">Додати дати</button>
+        </div>
+        <div class="ready-defaults">
+          <label>Вид для всіх<select id="readyDefaultType"><option value="">— не змінювати —</option>${readyTypeOptions()}</select></label>
+          <label>Пара для всіх<select id="readyDefaultPair"><option value="">— не змінювати —</option>${readyPairOptions()}</select></label>
+          <label>Аудиторія для всіх<input id="readyDefaultRoom" list="readyRoomList" placeholder="наприклад 415"></label>
+          <button type="button" class="secondary" id="readyApplyDefaults">Застосувати до всіх</button>
+        </div>
+      </div>
+    `}
+
+    <div class="section-head compact ready-rows-head">
+      <div><b>${editing?"Заняття":"Дати та пари"}</b><div class="small" id="readyDateHint"></div></div>
+      ${editing?"":`<button type="button" class="secondary" id="readyAddRow">+ Рядок</button>`}
+    </div>
+
+    <form id="readyScheduleForm">
+      <div id="readyRows">${readyRowHtml(existing?{
+        date:existing.date,
+        type:existing.type,
+        pairId:existing.pairId||firstPair,
+        room:existing.room
+      }:{})}</div>
+      <div id="readyConflictBox"></div>
+      <div class="modal-footer-actions"><button class="primary">${editing?"Зберегти зміни":"Додати в розклад"}</button></div>
+    </form>
+  </div>`,true);
+
+  const row0=$("[data-ready-row]");
+  if(row0)bindReadyRow(row0);
+  renumberReadyRows();
+  readyRefreshPlanFields();
+
+  $("#readyGroup").onchange=()=>{
+    $("#readyDiscipline").innerHTML=readyPlanOptions($("#readyGroup").value,"");
+    $("#readyDiscipline").value="";
+    readyRefreshPlanFields();
+  };
+  $("#readyDiscipline").onchange=readyRefreshPlanFields;
+
+  if(!editing){
+    $("#readyAddRow").onclick=()=>addReadyScheduleRow();
+    $("#readyAddDates").onclick=addReadyDatesFromText;
+    $("#readyApplyDefaults").onclick=applyReadyDefaults;
+  }
+
+  $("#readyScheduleForm").onsubmit=e=>saveReadySchedule(e,editId);
+}
+function saveReadySchedule(e,editId=null){
+  e.preventDefault();
+
+  const group=$("#readyGroup").value;
+  const ref=$("#readyDiscipline").value;
+  const plan=readyPlanRecordByRef(group,ref);
+  const discipline=readyDisciplineName();
+  const teacher=$("#readyTeacher").value.trim();
+  const coverage=$("#readyCoverage").value;
+  const note=$("#readyNote").value.trim();
+
+  if(!group)return alert("Оберіть групу.");
+  if(!discipline)return alert("Оберіть або введіть дисципліну.");
+
+  const b=readyDateBounds(group,ref);
+  const rows=$$("[data-ready-row]");
+  if(!rows.length)return alert("Додайте хоча б одне заняття.");
+
+  const batchId=`READY-${Date.now()}`;
+  const common={group,plan,discipline,teacher,coverage,note,batchId};
+  const draft=[],errors=[],warnings=[];
+
+  rows.forEach((row,i)=>{
+    const date=row.querySelector("[data-ready-date]").value;
+    const pairId=row.querySelector("[data-ready-pair]").value;
+    const type=row.querySelector("[data-ready-type]").value;
+
+    if(!date){errors.push(`Рядок ${i+1}: немає дати.`);return;}
+    if(!dateInBounds(date,b)){errors.push(`Рядок ${i+1}: дата ${formatDate(date)} поза дозволеним періодом.`);return;}
+    if(!pairId){errors.push(`Рядок ${i+1}: не вибрана пара.`);return;}
+    if(!type){errors.push(`Рядок ${i+1}: не вибраний вид заняття.`);return;}
+
+    const item=readyBuildItem(row,common);
+    const ignore=editId&&i===0?editId:null;
+    const cs=conflictsFor(item,ignore,draft);
+    const textTeacher=readySameExternalTeacherConflict(item,ignore,draft);
+    const all=[...cs,...textTeacher];
+
+    if(all.length){
+      warnings.push(`${formatDate(item.date)} · ${pairDisplay(item)}: ${all.map(x=>{
+        const d=x.discipline||x.title||"заняття";
+        return `${x.group||""} ${d}${x.room?` · ${x.room}`:""}`.trim();
+      }).join("; ")}`);
+    }
+    draft.push(item);
+  });
+
+  if(errors.length){
+    $("#readyConflictBox").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${errors.map(esc).join("<br>")}</div>`;
+    return;
+  }
+
+  if(warnings.length&&!confirm("Є конфлікти з уже внесеним розкладом:\n\n"+warnings.join("\n")+"\n\nВсе одно зберегти?"))return;
+
+  if(editId){
+    const target=db.schedule.find(x=>Number(x.id)===Number(editId));
+    if(!target)return alert("Запис не знайдено.");
+    Object.assign(target,draft[0],{id:target.id});
+  }else{
+    draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));
+  }
+
+  rememberWorkloadGroup(group);
+  closeModal();
+  save();
+}
 function renderSchedule(){
   const defaultGroup=bestWorkloadGroup();
   const loadedGroups=groupsWithDistributedAuditoriumLoad();
   $("#page-schedule").innerHTML=`<div class="card section">
     <div class="section-head">
-      <div><h2>Складання розкладу</h2><div class="small">Тут з’являються години, які ти вже явно розподілив між викладачами у «Навантаженні».</div></div>
-      <div class="actions"><button class="secondary" onclick="openBulkScheduleModal(currentWorkloadGroup())">⇉ За правилом</button><button class="primary" onclick="openLessonModal(null,{group:currentWorkloadGroup()})">+ Одне заняття</button></div>
+      <div><h2>Складання розкладу</h2><div class="small">Кафедральні пари йдуть із «Навантаження». Пари інших кафедр можна внести одразу кнопкою «Внести готові пари» — без активації та розподілу годин.</div></div>
+      <div class="actions"><button class="ready-import-btn" onclick="openReadyScheduleModal()">+ Внести готові пари</button><button class="secondary" onclick="openBulkScheduleModal(currentWorkloadGroup())">⇉ За правилом</button><button class="secondary" onclick="openLessonModal(null,{group:currentWorkloadGroup()})">+ Одне заняття</button></div>
     </div>
     <div class="workflow-status-strip">
       <div><span>Груп із розподіленим аудиторним навантаженням</span><b>${loadedGroups.length}</b></div>
@@ -1271,7 +1657,7 @@ function renderSchedule(){
 function renderScheduleTable(){
   if(!$("#scheduleTable"))return;const q=($("#scheduleSearch")?.value||"").toLowerCase(),gf=$("#scheduleGroup")?.value||"";
   const rows=db.schedule.filter(x=>dateInBounds(x.date)&&(!gf||x.group===gf)&&(!q||JSON.stringify(x).toLowerCase().includes(q))).slice().sort((a,b)=>(a.date+(pairForLesson(a)?.id||99)).localeCompare(b.date+(pairForLesson(b)?.id||99)));
-  $("#scheduleTable").innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Дата</th><th>Пара</th><th>Група</th><th>Дисципліна</th><th>Вид</th><th>Облік. год.</th><th>Аудиторія</th><th>Викладач</th><th></th></tr></thead><tbody>${rows.map(x=>`<tr><td>${formatDate(x.date)}</td><td><b>${esc(pairDisplay(x))}</b>${pairTimeDisplay(x)?`<div class="small">${esc(pairTimeDisplay(x))}</div>`:""}</td><td>${esc(x.group)}</td><td>${esc(x.discipline||"—")}${x.disciplineId?"":` <span class="badge warn">ІНША</span>`}</td><td>${esc(x.type||"—")}</td><td>${fmtHours(x.workloadHours)}</td><td><b>${esc(x.room||"—")}</b></td><td>${esc(x.teacher||"—")}</td><td class="actions"><button onclick="openLessonModal(${x.id})">Редагувати</button><button onclick="deleteLesson(${x.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Занять поки немає.</div>`;
+  $("#scheduleTable").innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Дата</th><th>Пара</th><th>Група</th><th>Дисципліна</th><th>Вид</th><th>Навантаження</th><th>Аудиторія</th><th>Викладач</th><th></th></tr></thead><tbody>${rows.map(x=>`<tr><td>${formatDate(x.date)}</td><td><b>${esc(pairDisplay(x))}</b>${pairTimeDisplay(x)?`<div class="small">${esc(pairTimeDisplay(x))}</div>`:""}</td><td>${esc(x.group)}</td><td>${esc(x.discipline||"—")}${x.scheduleSource==="ready_external"?` <span class="badge ready-badge">ГОТОВА ПАРА</span>`:(x.disciplineId?"":` <span class="badge warn">ІНША</span>`)}</td><td>${esc(x.type||"—")}</td><td>${x.scheduleSource==="ready_external"?"—":fmtHours(x.workloadHours)}</td><td><b>${esc(x.room||"—")}</b></td><td>${esc(x.teacher||"—")}</td><td class="actions"><button onclick="${x.scheduleSource==="ready_external"?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">Редагувати</button><button onclick="deleteLesson(${x.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Занять поки немає.</div>`;
 }
 function conflictsFor(item,ignore=null,extra=[]){
   const sameSlot=x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end));
