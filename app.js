@@ -7,6 +7,9 @@ const UI_PAGE_KEY="remsUiPage_v1";
 const UI_TIMETABLE_GROUP_KEY="remsUiTimetableGroup_v1";
 const UI_WORKLOAD_GROUP_KEY="remsUiWorkloadGroup_v1";
 const UI_TEACHER_VIEW_KEY="remsUiTeacherView_v1";
+const UI_LOAD_PAGE_GROUP_KEY="remsUiLoadPageGroup_v1";
+const UI_LOAD_PAGE_FILTER_KEY="remsUiLoadPageFilter_v1";
+const UI_LOAD_PAGE_SEMESTER_KEY="remsUiLoadPageSemester_v1";
 function rememberWorkloadGroup(group){
   try{if(group)sessionStorage.setItem(UI_WORKLOAD_GROUP_KEY,group);else sessionStorage.removeItem(UI_WORKLOAD_GROUP_KEY);}catch(e){}
 }
@@ -18,6 +21,25 @@ function rememberTeacherView(id){
 }
 function rememberedTeacherView(){
   try{return Number(sessionStorage.getItem(UI_TEACHER_VIEW_KEY))||null;}catch(e){return null;}
+}
+function rememberLoadPageState(){
+  try{
+    if(loadPageState.group)sessionStorage.setItem(UI_LOAD_PAGE_GROUP_KEY,loadPageState.group);
+    else sessionStorage.removeItem(UI_LOAD_PAGE_GROUP_KEY);
+    sessionStorage.setItem(UI_LOAD_PAGE_FILTER_KEY,loadPageState.filter||"all");
+    sessionStorage.setItem(UI_LOAD_PAGE_SEMESTER_KEY,String(loadPageState.semester||"all"));
+  }catch(e){}
+}
+function rememberedLoadPageState(){
+  try{
+    return {
+      group:sessionStorage.getItem(UI_LOAD_PAGE_GROUP_KEY)||"",
+      filter:sessionStorage.getItem(UI_LOAD_PAGE_FILTER_KEY)||"all",
+      semester:sessionStorage.getItem(UI_LOAD_PAGE_SEMESTER_KEY)||"all"
+    };
+  }catch(e){
+    return {group:"",filter:"all",semester:"all"};
+  }
 }
 function localTodayISO(){
   const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");
@@ -1126,18 +1148,243 @@ function disciplineAllocationBadge(d){
   const text=allocated>plan+0.001?"ПЕРЕРОЗПОДІЛЕНО":Math.abs(allocated-plan)<=0.001?"РОЗПОДІЛЕНО":"Є ЗАЛИШОК";
   return `<span class="badge ${cls}">${text}</span><div class="small">${fmtHours(allocated)} / ${fmtHours(plan)} ауд. год</div>`;
 }
+let loadPageState={...rememberedLoadPageState()};
+
+function disciplineLoadState(d){
+  const plan=disciplineAuditoriumPlan(d);
+  const allocated=disciplineAuditoriumAllocated(d);
+  let status="noaud";
+  if(plan>0){
+    if(allocated>plan+0.001)status="over";
+    else if(Math.abs(allocated-plan)<=0.001)status="done";
+    else status="attention";
+  }
+  return {
+    plan,
+    allocated,
+    remaining:Math.max(0,plan-allocated),
+    status,
+    percent:plan>0?Math.min(100,Math.max(0,(allocated/plan)*100)):0
+  };
+}
+function loadPageRows(){
+  return db.disciplines
+    .filter(d=>d.status!=="archived")
+    .slice()
+    .sort((a,b)=>(a.course||groupCourse(a.group)||99)-(b.course||groupCourse(b.group)||99)
+      ||String(a.group||"").localeCompare(String(b.group||""),"uk")
+      ||Number(a.semester||99)-Number(b.semester||99)
+      ||a.name.localeCompare(b.name,"uk"));
+}
+function loadPageActiveGroups(rows=loadPageRows()){
+  const codes=[...new Set(rows.map(d=>d.group).filter(Boolean))];
+  return codes.map(code=>{
+    const g=db.groups.find(x=>normIdentity(x.code)===normIdentity(code))||{code,course:groupCourse(code)||99};
+    const disciplines=rows.filter(d=>normIdentity(d.group)===normIdentity(code));
+    const states=disciplines.map(d=>disciplineLoadState(d));
+    return {
+      ...g,
+      disciplines,
+      total:disciplines.length,
+      done:states.filter(x=>x.status==="done"||x.status==="noaud").length,
+      attention:states.filter(x=>x.status==="attention"||x.status==="over").length
+    };
+  }).sort((a,b)=>(a.course||99)-(b.course||99)||String(a.code).localeCompare(String(b.code),"uk"));
+}
+function loadGroupCardHtml(g,selected){
+  const isSelected=normIdentity(g.code)===normIdentity(selected);
+  return `<button type="button" class="load-group-card ${isSelected?"active":""} ${g.attention?"needs-attention":""}" onclick="selectLoadGroup('${String(g.code).replaceAll("'","\\'")}')">
+    <div class="load-group-card-top">
+      <div>
+        <b>${esc(g.code)}</b>
+        <span>${esc(g.course||"—")} курс · ${groupStudentCount(g.code)} студентів</span>
+      </div>
+      ${g.attention?`<strong>${g.attention}</strong>`:`<strong class="done">✓</strong>`}
+    </div>
+    <div class="load-group-card-stats">
+      <span><b>${g.total}</b> дисциплін</span>
+      <span class="ok"><b>${g.done}</b> готово</span>
+      <span class="${g.attention?"warn":"muted"}"><b>${g.attention}</b> уваги</span>
+    </div>
+  </button>`;
+}
+function loadGroupBoardHtml(groups,selected){
+  const courses=[...new Set(groups.map(g=>g.course||"—"))];
+  return `<div class="load-group-board">
+    ${courses.map(course=>{
+      const list=groups.filter(g=>(g.course||"—")===course);
+      return `<div class="load-course-section">
+        <div class="load-course-label">${esc(course)} курс</div>
+        <div class="load-group-cards">${list.map(g=>loadGroupCardHtml(g,selected)).join("")}</div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+function loadPageSelectedGroup(groups){
+  const remembered=loadPageState.group;
+  if(remembered&&groups.some(g=>normIdentity(g.code)===normIdentity(remembered)))return groups.find(g=>normIdentity(g.code)===normIdentity(remembered)).code;
+  const withAttention=groups.find(g=>g.attention>0);
+  return withAttention?.code||groups[0]?.code||"";
+}
+function selectLoadGroup(group){
+  loadPageState.group=group;
+  loadPageState.semester="all";
+  rememberLoadPageState();
+  renderDisciplines();
+}
+function setLoadPageFilter(filter){
+  loadPageState.filter=["all","attention","done"].includes(filter)?filter:"all";
+  rememberLoadPageState();
+  renderLoadDisciplinePanel();
+}
+function setLoadPageSemester(semester){
+  loadPageState.semester=semester||"all";
+  rememberLoadPageState();
+  renderLoadDisciplinePanel();
+}
+function loadDisciplineMatchesFilter(d){
+  const s=disciplineLoadState(d);
+  if(loadPageState.filter==="attention")return s.status==="attention"||s.status==="over";
+  if(loadPageState.filter==="done")return s.status==="done"||s.status==="noaud";
+  return true;
+}
+function loadDisciplineStatusHtml(d){
+  const s=disciplineLoadState(d);
+  if(s.status==="noaud"){
+    return `<div class="load-progress-status"><span class="badge">БЕЗ АУД. ПАР</span><div class="small">Немає аудиторного навантаження для розподілу.</div></div>`;
+  }
+  const cls=s.status==="done"?"ok":s.status==="over"?"bad":"warn";
+  const title=s.status==="done"?"РОЗПОДІЛЕНО":s.status==="over"?"ПЕРЕРОЗПОДІЛЕНО":"ПОТРЕБУЄ РОЗПОДІЛУ";
+  return `<div class="load-progress-status">
+    <div class="load-progress-status-top"><span class="badge ${cls}">${title}</span><b>${fmtHours(s.allocated)} / ${fmtHours(s.plan)} год</b></div>
+    <div class="load-progress-track"><i class="${cls}" style="width:${Math.min(100,s.percent)}%"></i></div>
+    <div class="small">${s.status==="done"?"Усе аудиторне навантаження розподілено.":s.status==="over"?`Перевищено на ${fmtHours(s.allocated-s.plan)} год.`:`Залишилось ${fmtHours(s.remaining)} год.`}</div>
+  </div>`;
+}
+function loadDisciplineRowHtml(d){
+  const s=disciplineLoadState(d);
+  const teachers=explicitlyAllocatedTeacherNames(d);
+  return `<div class="load-discipline-row ${s.status}" style="${scheduleColorVars({group:d.group,discipline:d.name})}">
+    <div class="load-discipline-main">
+      <div class="load-discipline-title">
+        <span class="load-discipline-color"></span>
+        <div>
+          <b>${esc(d.name)}</b>
+          <span>${d.semester?`${esc(d.semester)} семестр · `:""}${esc(d.controlForm||"без контролю")}</span>
+        </div>
+      </div>
+      <div class="load-discipline-teachers">
+        <span>Викладачі</span>
+        <b>${esc(teachers||"ще не розподілено")}</b>
+      </div>
+    </div>
+    <div class="load-discipline-progress">${loadDisciplineStatusHtml(d)}</div>
+    <div class="load-discipline-actions">
+      <button class="${s.status==="done"?"secondary":"primary-inline"}" onclick="openDisciplineModal(${d.id})">${s.status==="done"?"Переглянути розподіл":"Розподілити години"}</button>
+      <button class="quiet-danger" onclick="deleteDiscipline(${d.id})">Видалити</button>
+    </div>
+  </div>`;
+}
+function renderLoadDisciplinePanel(){
+  const box=$("#loadDisciplinePanel");
+  if(!box)return;
+
+  const rows=loadPageRows();
+  const group=loadPageState.group;
+  const allForGroup=rows.filter(d=>normIdentity(d.group)===normIdentity(group));
+  const semesters=[...new Set(allForGroup.map(d=>d.semester).filter(Boolean))].sort((a,b)=>Number(a)-Number(b));
+
+  if(loadPageState.semester!=="all"&&!semesters.some(s=>String(s)===String(loadPageState.semester))){
+    loadPageState.semester="all";
+  }
+
+  let filtered=allForGroup.filter(loadDisciplineMatchesFilter);
+  if(loadPageState.semester!=="all"){
+    filtered=filtered.filter(d=>String(d.semester)===String(loadPageState.semester));
+  }
+
+  const counts={
+    all:allForGroup.length,
+    attention:allForGroup.filter(d=>["attention","over"].includes(disciplineLoadState(d).status)).length,
+    done:allForGroup.filter(d=>["done","noaud"].includes(disciplineLoadState(d).status)).length
+  };
+  const g=db.groups.find(x=>normIdentity(x.code)===normIdentity(group));
+  const course=g?.course||groupCourse(group)||"—";
+
+  box.innerHTML=`<div class="load-selected-group-head">
+      <div>
+        <span>Відкрита група</span>
+        <h3>${esc(group)} · ${esc(course)} курс</h3>
+        <div class="small">${groupStudentCount(group)} студентів · ${counts.all} активних дисциплін</div>
+      </div>
+      <div class="load-filter-tabs">
+        <button class="${loadPageState.filter==="all"?"active":""}" onclick="setLoadPageFilter('all')">Усі <b>${counts.all}</b></button>
+        <button class="${loadPageState.filter==="attention"?"active attention":""}" onclick="setLoadPageFilter('attention')">Потребують уваги <b>${counts.attention}</b></button>
+        <button class="${loadPageState.filter==="done"?"active":""}" onclick="setLoadPageFilter('done')">Розподілено <b>${counts.done}</b></button>
+      </div>
+    </div>
+
+    ${semesters.length>1?`<div class="load-semester-tabs">
+      <button class="${loadPageState.semester==="all"?"active":""}" onclick="setLoadPageSemester('all')">Усі семестри</button>
+      ${semesters.map(s=>`<button class="${String(loadPageState.semester)===String(s)?"active":""}" onclick="setLoadPageSemester('${esc(s)}')">${esc(s)} семестр</button>`).join("")}
+    </div>`:""}
+
+    <div class="load-discipline-list">
+      ${filtered.length
+        ? filtered.map(loadDisciplineRowHtml).join("")
+        : `<div class="empty load-filter-empty">${loadPageState.filter==="attention"?"У цій групі зараз немає дисциплін, які потребують розподілу.":"За вибраним фільтром дисциплін немає."}</div>`}
+    </div>`;
+}
 function renderDisciplines(){
-  const rows=db.disciplines.filter(d=>d.status!=="archived").sort((a,b)=>(a.course||99)-(b.course||99)||a.name.localeCompare(b.name));
-  $("#page-disciplines").innerHTML=`<div class="card section"><div class="section-head"><div><h2>Навантаження</h2><div class="small">1. Активуй дисципліну з навчального плану. 2. Тут розподіли її години між усіма викладачами, які її читають.</div></div><button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button></div>
-  <div class="notice">Розподіл накопичувальний: можна спочатку зберегти години одного викладача, потім відкрити дисципліну й додати другого або третього. Попередній розподіл не стирається.</div>
-  ${rows.length?`<div class="table-wrap"><table><thead><tr><th>Дисципліна</th><th>Група</th><th>Сем.</th><th>Викладачі</th><th>Розподіл аудиторних</th><th>Контроль</th><th></th></tr></thead><tbody>${rows.map(d=>`<tr>
-    <td><span class="color-dot" style="background:${esc(d.color||"#8b5cf6")}"></span><b>${esc(d.name)}</b><div class="small">${esc(d.academicYear||"")}</div></td>
-    <td>${esc(d.group||"—")}</td><td>${d.semester||"—"}</td>
-    <td>${esc(explicitlyAllocatedTeacherNames(d)||"—")}</td>
-    <td>${disciplineAllocationBadge(d)}</td>
-    <td>${esc(d.controlForm||"—")}</td>
-    <td class="actions"><button class="primary-inline" onclick="openDisciplineModal(${d.id})">Розподілити години</button><button onclick="deleteDiscipline(${d.id})">Видалити</button></td>
-  </tr>`).join("")}</tbody></table></div>`:`<div class="empty">Активованих дисциплін ще немає.</div>`}</div>`;
+  const rows=loadPageRows();
+  const groups=loadPageActiveGroups(rows);
+
+  if(!rows.length){
+    $("#page-disciplines").innerHTML=`<div class="card section">
+      <div class="section-head">
+        <div><h2>Навантаження</h2><div class="small">Активуй дисципліни з навчальних планів — після цього вони з’являться тут за групами.</div></div>
+        <button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button>
+      </div>
+      <div class="empty">Активованих дисциплін ще немає.</div>
+    </div>`;
+    return;
+  }
+
+  const selected=loadPageSelectedGroup(groups);
+  loadPageState.group=selected;
+  rememberLoadPageState();
+
+  const totalAttention=groups.reduce((sum,g)=>sum+g.attention,0);
+  const totalDone=groups.reduce((sum,g)=>sum+g.done,0);
+
+  $("#page-disciplines").innerHTML=`<div class="card section load-page-card">
+    <div class="section-head">
+      <div>
+        <h2>Навантаження</h2>
+        <div class="small">Обери групу — нижче побачиш тільки її дисципліни та стан розподілу годин.</div>
+      </div>
+      <button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button>
+    </div>
+
+    <div class="load-page-summary">
+      <span><b>${groups.length}</b> груп</span>
+      <span><b>${rows.length}</b> активних дисциплін</span>
+      <span class="${totalAttention?"warn":""}"><b>${totalAttention}</b> потребують уваги</span>
+      <span class="ok"><b>${totalDone}</b> готово</span>
+    </div>
+
+    <div class="load-group-board-wrap">
+      <div class="load-board-title">
+        <b>Групи</b>
+        <span>Одночасно відкрита лише одна група — сторінка не перетворюється на довгий список.</span>
+      </div>
+      ${loadGroupBoardHtml(groups,selected)}
+    </div>
+
+    <div id="loadDisciplinePanel" class="load-discipline-panel"></div>
+  </div>`;
+
+  renderLoadDisciplinePanel();
 }
 let disciplineAllocationDraft={};
 let disciplineAllocationId=null;
