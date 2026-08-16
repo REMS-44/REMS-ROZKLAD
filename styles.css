@@ -1635,3 +1635,142 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     grid-template-columns:65px minmax(0,1fr) minmax(0,1fr);
   }
 }
+
+/* v1.0.22 · departmental series matches ready-made series */
+.planner-series-methods{
+  display:grid;
+  grid-template-columns:1fr 34px 1.15fr;
+  gap:9px;
+  align-items:stretch;
+  margin-bottom:9px;
+}
+.planner-series-method{
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#faf8fc;
+}
+.planner-series-method h4{
+  margin:0 0 3px;
+}
+.planner-series-method>.small{
+  margin-bottom:8px;
+}
+.planner-series-or{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#aaa1b3;
+  font-size:9px;
+  font-weight:800;
+  text-transform:uppercase;
+}
+.planner-series-paste{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:7px;
+  align-items:end;
+}
+.planner-series-rule-clean{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:7px;
+  align-items:end;
+}
+.planner-series-rule-clean button{
+  grid-column:1/-1;
+}
+.planner-series-defaults{
+  display:grid;
+  grid-template-columns:minmax(140px,1fr) minmax(165px,1fr) minmax(140px,1fr) minmax(185px,1.2fr);
+  gap:7px;
+  align-items:end;
+  padding:9px;
+  margin-bottom:9px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:#fff;
+}
+.planner-series-defaults label{
+  margin:0;
+}
+.planner-series-default-actions{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:5px;
+}
+.planner-series-rows-head{
+  margin:4px 0 7px;
+}
+.planner-series-empty{
+  padding:13px;
+  border:1px dashed #d9d1e3;
+  border-radius:10px;
+  text-align:center;
+  color:var(--muted);
+  font-size:9px;
+}
+.planner-series-row{
+  display:grid!important;
+  grid-template-columns:62px 126px minmax(140px,1fr) minmax(155px,1fr) minmax(135px,1fr) 96px 32px!important;
+  gap:6px!important;
+  align-items:end!important;
+  padding:7px!important;
+}
+.planner-series-row.blocked{
+  background:#fff7f7!important;
+  opacity:1!important;
+  border-color:#f0caca!important;
+}
+.planner-series-date-input{
+  margin:0!important;
+}
+.planner-series-status{
+  align-self:center;
+  font-size:7px;
+  line-height:1.25;
+}
+.planner-series-remove{
+  align-self:end;
+  width:32px;
+  height:38px;
+}
+@media(max-width:1050px){
+  .planner-series-methods{
+    grid-template-columns:1fr;
+  }
+  .planner-series-or{
+    min-height:18px;
+  }
+  .planner-series-defaults{
+    grid-template-columns:1fr 1fr;
+  }
+  .planner-series-row{
+    grid-template-columns:54px 120px 1fr 1fr!important;
+  }
+  .planner-series-row label:nth-of-type(4),
+  .planner-series-status,
+  .planner-series-remove{
+    grid-column:auto;
+  }
+}
+@media(max-width:650px){
+  .planner-series-paste,
+  .planner-series-rule-clean,
+  .planner-series-defaults{
+    grid-template-columns:1fr!important;
+  }
+  .planner-series-rule-clean button{
+    grid-column:auto;
+  }
+  .planner-series-row{
+    grid-template-columns:46px 1fr!important;
+  }
+  .planner-series-row>*{
+    grid-column:2;
+  }
+  .planner-series-use{
+    grid-column:1;
+    grid-row:1;
+  }
+}
