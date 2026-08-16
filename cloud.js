@@ -49,10 +49,17 @@ function configFromStorage(){
 }
 const config={...(window.REMS_FIREBASE_CONFIG||{}),...(configFromStorage()||{})};
 const configured=Boolean(config.apiKey&&config.projectId&&config.appId);
-let app=null,auth=null,fire=null,user=null,profile=null,remoteState=null;
+let app=null,auth=null,fire=null,user=null,profile=null,remoteState=null,liveState=null;
 let unsubs=[],profileUnsub=null,pushTimer=null,pendingPush=null,pushing=false,rejecting=false;
 let cloudReconnectTimer=null,cloudReconnectPromise=null,lastCloudError=null,lastCloudErrorAt=0;
 let cloudWasOnline=false,cloudAuthGeneration=0;
+
+let lastCatalogChangeId="";
+let catalogRefreshBusy=false;
+let catalogRefreshQueued=null;
+let hiddenSuspendTimer=null;
+let realtimeSuspended=false;
+const HIDDEN_SUSPEND_MS=10*60*1000;
 
 window.REMS_CLOUD={
   configured,
@@ -82,6 +89,7 @@ window.REMS_CLOUD={
   acceptScheduleBaseline:(schedule)=>{
     if(!remoteState||pushing||pendingPush)return false;
     remoteState.schedule=clean(schedule||[]);
+    if(liveState)liveState.schedule=clean(schedule||[]);
     return true;
   },
   retryPending:()=>{
@@ -267,21 +275,36 @@ async function ensureProfile(u){
 function collRef(name){return collection(fire,"workspaces",WORKSPACE,name);}
 function itemRef(name,id){return doc(fire,"workspaces",WORKSPACE,name,String(id));}
 function settingsRef(){return doc(fire,"workspaces",WORKSPACE,"settings","main");}
+function catalogSignalRef(){return doc(fire,"workspaces",WORKSPACE,"meta","catalog");}
 
-async function loadRemoteState(){
+async function loadRemoteState({includeDynamic=true}={}){
   const settingsSnap=await cloudReadStep("settings",()=>getDoc(settingsRef()));
   if(!settingsSnap.exists())return null;
+
   const base=clean(window.REMS_INITIAL_DATA||{});
   const settings=settingsSnap.data();
   Object.assign(base,settings);
+
+  // Static reference data is read ONCE on connection.
+  // It is no longer kept alive by seven separate snapshot listeners.
   for(const name of ARRAY_COLLECTIONS){
     const snap=await cloudReadStep(name,()=>getDocs(collRef(name)));
     base[name]=snap.docs.map(d=>d.data()).sort(sortById);
   }
-  const ss=await cloudReadStep(SCHEDULE_COLLECTION,()=>getDocs(collRef(SCHEDULE_COLLECTION)));
-  base.schedule=ss.docs.map(d=>d.data()).sort(sortById);
-  const bs=await cloudReadStep(ROOM_BOOKINGS_COLLECTION,()=>getDocs(collRef(ROOM_BOOKINGS_COLLECTION)));
-  base.roomBookings=bs.docs.map(d=>d.data()).sort(sortById);
+
+  if(includeDynamic){
+    const ss=await cloudReadStep(SCHEDULE_COLLECTION,()=>getDocs(collRef(SCHEDULE_COLLECTION)));
+    base.schedule=ss.docs.map(d=>d.data()).sort(sortById);
+
+    const bs=await cloudReadStep(ROOM_BOOKINGS_COLLECTION,()=>getDocs(collRef(ROOM_BOOKINGS_COLLECTION)));
+    base.roomBookings=bs.docs.map(d=>d.data()).sort(sortById);
+  }else{
+    // Keep the currently visible dynamic data until realtime initial snapshots arrive.
+    const current=window.REMS_GET_STATE?.()||remoteState||{};
+    base.schedule=clean(current.schedule||[]);
+    base.roomBookings=clean(current.roomBookings||[]);
+  }
+
   base.weekDays=clean(window.REMS_INITIAL_DATA?.weekDays||base.weekDays||[]);
   return base;
 }
@@ -305,7 +328,9 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
     // Settings are written last: an incomplete bootstrap is not marked as ready.
     step++;setSidebar("syncing",`Завантаження ${step}/${total}…`,`${user.email||""} · settings`);
     await setDoc(settingsRef(),settingsPart(st));
-    remoteState=st;
+    try{await publishCatalogSignal(ARRAY_COLLECTIONS);}catch(e){console.warn("Catalog signal after restore failed",e);}
+    remoteState=clean(st);
+    liveState=clean(st);
     window.REMS_APPLY_REMOTE_STATE?.(st);
     subscribeRealtime();
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
@@ -345,6 +370,53 @@ async function commitOps(ops){
   }
 }
 
+
+function collectionChanged(name,oldState,newState){
+  return !eq(oldState?.[name]||[],newState?.[name]||[]);
+}
+async function publishCatalogSignal(collectionsChanged=[]){
+  if(!fire||!user||!collectionsChanged.length)return;
+  const changeId=`${user.uid}:${Date.now()}:${Math.random().toString(36).slice(2,7)}`;
+  lastCatalogChangeId=changeId;
+  await setDoc(catalogSignalRef(),{
+    changeId,
+    collections:[...new Set(collectionsChanged.filter(x=>ARRAY_COLLECTIONS.includes(x)))],
+    updatedAt:serverTimestamp()
+  });
+}
+async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
+  if(!fire||!liveState)return;
+
+  const requested=[...new Set((names||ARRAY_COLLECTIONS).filter(x=>ARRAY_COLLECTIONS.includes(x)))];
+  if(!requested.length)return;
+
+  if(catalogRefreshBusy){
+    catalogRefreshQueued=[...new Set([...(catalogRefreshQueued||[]),...requested])];
+    return;
+  }
+
+  catalogRefreshBusy=true;
+  try{
+    for(const name of requested){
+      const snap=await cloudReadStep(`оновлення ${name}`,()=>getDocs(collRef(name)));
+      liveState[name]=snap.docs.map(d=>d.data()).sort(sortById);
+    }
+
+    if(!pendingPush&&!pushing){
+      remoteState=clean(liveState);
+      window.REMS_APPLY_REMOTE_STATE?.(remoteState);
+    }
+  }catch(e){
+    console.error("Catalog refresh failed",e);
+    scheduleCloudReconnect(markCloudStep(e,"оновлення довідників"),"catalog-refresh",4000);
+  }finally{
+    catalogRefreshBusy=false;
+    const queued=catalogRefreshQueued;
+    catalogRefreshQueued=null;
+    if(queued?.length)setTimeout(()=>refreshCatalogCollections(queued),100);
+  }
+}
+
 function settingsPart(st){return clean({schemaVersion:15,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
@@ -356,18 +428,35 @@ async function flushPush(){
   pushing=true;const wanted=pendingPush;pendingPush=null;
   setSidebar("syncing","Синхронізація…",`${user.email} · ${roleLabel(profile.role)}`);
   try{
+    const changedCatalog=[];
+
     if(profile.role==="admin"){
       const desiredSettings=settingsPart(wanted),oldSettings=settingsPart(remoteState);
       if(!eq(desiredSettings,oldSettings))await setDoc(settingsRef(),desiredSettings);
-      for(const name of ARRAY_COLLECTIONS)await syncCollection(name,remoteState[name]||[],wanted[name]||[]);
+
+      for(const name of ARRAY_COLLECTIONS){
+        if(!collectionChanged(name,remoteState,wanted))continue;
+        await syncCollection(name,remoteState[name]||[],wanted[name]||[]);
+        changedCatalog.push(name);
+      }
     }
+
     await syncSchedule(remoteState.schedule||[],wanted.schedule||[]);
     await syncRoomBookings(remoteState.roomBookings||[],wanted.roomBookings||[]);
 
-    // All writes succeeded. Keep the just-saved local state as the baseline
-    // instead of waiting for a possibly out-of-order snapshot to restore it.
+    // One shared baseline for listeners + writes.
+    // This prevents an old listener closure from restoring an older teachers /
+    // disciplines / groups snapshot after a successful local save.
     remoteState=clean(wanted);
+    liveState=clean(wanted);
     window.REMS_APPLY_REMOTE_STATE?.(remoteState);
+
+    // Static changes are rare. One tiny signal tells other open clients which
+    // reference collections to refresh; no permanent listener per collection.
+    if(changedCatalog.length){
+      try{await publishCatalogSignal(changedCatalog);}
+      catch(e){console.warn("Catalog signal failed",e);}
+    }
 
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
   }catch(e){
@@ -385,6 +474,14 @@ async function flushPush(){
       // Firebase/network/rules problem: KEEP the user's local state.
       // Never replace it with an older server copy.
       if(!pendingPush)pendingPush=wanted;
+
+      // Some schedule writes may already have succeeded before the error.
+      // Reuse snapshots already received from Firestore so the next retry
+      // doesn't unnecessarily write the successful rows again.
+      if(liveState&&remoteState){
+        remoteState.schedule=clean(liveState.schedule||remoteState.schedule||[]);
+        remoteState.roomBookings=clean(liveState.roomBookings||remoteState.roomBookings||[]);
+      }
 
       const code=cloudErrorCode(e);
       const title=
@@ -608,17 +705,34 @@ function subscribeTeacherPortal(){
   unsubs.push(onSnapshot(scheduleQuery,snap=>{feed.schedule=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
   unsubs.push(onSnapshot(bookingsQuery,snap=>{feed.roomBookings=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
 }
-function subscribeRealtime(){
+function subscribeRealtime({baseState=null,waitForDynamic=false}={}){
   unsubs.forEach(f=>f());unsubs=[];
-  const state=remoteState||clean(window.REMS_INITIAL_DATA||{});
-  const apply=()=>{
-    remoteState=clean(state);
+  realtimeSuspended=false;
 
-    // Critical: while a local write is waiting / being written,
-    // realtime snapshots may still contain the OLD discipline document.
-    // Do not apply that stale copy over the user's just-saved assignment.
+  liveState=clean(baseState||remoteState||window.REMS_INITIAL_DATA||{});
+
+  let scheduleReady=!waitForDynamic;
+  let bookingsReady=!waitForDynamic;
+  let initialResolved=false;
+  let resolveInitial=()=>{};
+  const initialPromise=new Promise(resolve=>{resolveInitial=resolve;});
+
+  let catalogPrimed=false;
+
+  const maybeResolveInitial=()=>{
+    if(initialResolved||!scheduleReady||!bookingsReady)return;
+    initialResolved=true;
+    resolveInitial(true);
+  };
+
+  const apply=()=>{
+    if(!scheduleReady||!bookingsReady)return;
+
+    remoteState=clean(liveState);
+
     if(pendingPush||pushing){
       setSidebar("syncing","Синхронізація…",`${user.email} · ${roleLabel(profile.role)}`);
+      maybeResolveInitial();
       return;
     }
 
@@ -627,13 +741,60 @@ function subscribeRealtime(){
     lastCloudError=null;
     clearCloudReconnectTimer();
     setSidebar("online","Онлайн",`${user.email} · ${roleLabel(profile.role)}`);
+    maybeResolveInitial();
   };
-  unsubs.push(onSnapshot(settingsRef(),snap=>{if(snap.exists()){Object.assign(state,snap.data());apply();}},cloudErr));
-  for(const name of ARRAY_COLLECTIONS){
-    unsubs.push(onSnapshot(collRef(name),snap=>{state[name]=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
-  }
-  unsubs.push(onSnapshot(collRef(SCHEDULE_COLLECTION),snap=>{state.schedule=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
-  unsubs.push(onSnapshot(collRef(ROOM_BOOKINGS_COLLECTION),snap=>{state.roomBookings=snap.docs.map(d=>d.data()).sort(sortById);apply();},cloudErr));
+
+  // 1) settings — one tiny document
+  unsubs.push(onSnapshot(settingsRef(),snap=>{
+    if(snap.exists()){
+      Object.assign(liveState,snap.data());
+      apply();
+    }
+  },cloudErr));
+
+  // 2) ONE signal replaces 7 static collection snapshot listeners.
+  unsubs.push(onSnapshot(catalogSignalRef(),snap=>{
+    const data=snap.exists()?snap.data():{};
+    const changeId=String(data.changeId||"");
+
+    // First snapshot is only a baseline: static data was already loaded once.
+    if(!catalogPrimed){
+      catalogPrimed=true;
+      lastCatalogChangeId=changeId;
+      return;
+    }
+
+    if(!changeId||changeId===lastCatalogChangeId)return;
+    lastCatalogChangeId=changeId;
+
+    const names=Array.isArray(data.collections)&&data.collections.length
+      ?data.collections
+      :ARRAY_COLLECTIONS;
+
+    if(pendingPush||pushing){
+      catalogRefreshQueued=[...new Set([...(catalogRefreshQueued||[]),...names])];
+      return;
+    }
+
+    refreshCatalogCollections(names);
+  },cloudErr));
+
+  // 3) schedule — genuinely realtime
+  unsubs.push(onSnapshot(collRef(SCHEDULE_COLLECTION),snap=>{
+    liveState.schedule=snap.docs.map(d=>d.data()).sort(sortById);
+    scheduleReady=true;
+    apply();
+  },cloudErr));
+
+  // 4) room bookings — genuinely realtime for conflicts
+  unsubs.push(onSnapshot(collRef(ROOM_BOOKINGS_COLLECTION),snap=>{
+    liveState.roomBookings=snap.docs.map(d=>d.data()).sort(sortById);
+    bookingsReady=true;
+    apply();
+  },cloudErr));
+
+  maybeResolveInitial();
+  return initialPromise;
 }
 function cloudErr(e){
   console.error("Firestore listener error",e);
@@ -644,7 +805,13 @@ function cloudErr(e){
   scheduleCloudReconnect(e,"listener",1500);
 }
 async function reloadRemote(){
-  if(!fire)return;const r=await loadRemoteState();if(r){remoteState=r;window.REMS_APPLY_REMOTE_STATE?.(r);}
+  if(!fire)return;
+  const r=await loadRemoteState();
+  if(r){
+    remoteState=clean(r);
+    liveState=clean(r);
+    window.REMS_APPLY_REMOTE_STATE?.(r);
+  }
 }
 function rejectLocalEdit(){
   if(rejecting)return;rejecting=true;
@@ -893,7 +1060,8 @@ function renderCloudSettings(){
     mount.querySelector("#firebaseConfigSave").onclick=()=>saveConfigOverride(mount.querySelector("#firebaseConfigPaste").value);
     return;
   }
-  mount.innerHTML=`<div class="card section cloud-settings"><div class="section-head"><div><h2>Спільна онлайн-база</h2><div class="small">Cloud Firestore · робочий простір ${WORKSPACE}</div></div><span class="badge ok">ОНЛАЙН</span></div><div class="cloud-account"><div><b>${escapeHtml(user?.email||"—")}</b><span>${roleLabel(profile?.role)}</span></div><div class="actions">${profile?.role==="admin"?`<button class="secondary" id="cloudManageUsers">Користувачі</button><button class="secondary" id="cloudUploadLocal">Відновити хмару з найповнішої локальної копії</button>`:""}<button class="secondary" id="cloudSignOut">Вийти</button></div></div><p class="small">Усі зміни автоматично синхронізуються. Перед примусовим перенесенням локальної копії в хмару зробіть експорт резервної копії.</p></div>`;
+  const realtimeCount=unsubs.length+(profileUnsub?1:0);
+  mount.innerHTML=`<div class="card section cloud-settings"><div class="section-head"><div><h2>Спільна онлайн-база</h2><div class="small">Cloud Firestore · робочий простір ${WORKSPACE}</div></div><span class="badge ok">ОНЛАЙН</span></div><div class="cloud-account"><div><b>${escapeHtml(user?.email||"—")}</b><span>${roleLabel(profile?.role)}</span></div><div class="actions">${profile?.role==="admin"?`<button class="secondary" id="cloudManageUsers">Користувачі</button><button class="secondary" id="cloudUploadLocal">Відновити хмару з найповнішої локальної копії</button>`:""}<button class="secondary" id="cloudSignOut">Вийти</button></div></div><div class="cloud-economy-status"><div><b>Економний realtime</b><span>${realtimeCount} активних слухачів разом із профілем</span></div><div><b>Живі дані</b><span>розклад · аудиторії · налаштування</span></div><div><b>Довідники</b><span>оновлюються тільки після сигналу про реальну зміну</span></div></div><p class="small">Усі зміни автоматично синхронізуються. Фонові вкладки після 10 хвилин призупиняють realtime і відновлюють його після повернення.</p></div>`;
   mount.querySelector("#cloudSignOut").onclick=()=>signOut(auth);
   const manage=mount.querySelector("#cloudManageUsers");if(manage)manage.onclick=()=>window.go?.("users");
   const up=mount.querySelector("#cloudUploadLocal");if(up)up.onclick=async()=>{
@@ -908,6 +1076,41 @@ function renderCloudSettings(){
 }
 function escapeHtml(v=""){return String(v).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
 document.addEventListener("rems-rendered",renderCloudSettings);
+function clearHiddenSuspendTimer(){
+  if(hiddenSuspendTimer){clearTimeout(hiddenSuspendTimer);hiddenSuspendTimer=null;}
+}
+function scheduleHiddenSuspend(){
+  clearHiddenSuspendTimer();
+  if(!document.hidden||!user)return;
+
+  hiddenSuspendTimer=setTimeout(()=>{
+    hiddenSuspendTimer=null;
+    if(!document.hidden||!user)return;
+
+    cloudStopDataListeners();
+    realtimeSuspended=true;
+    setSidebar("offline","Фоновий режим",`${user.email||""} · realtime призупинено`);
+  },HIDDEN_SUSPEND_MS);
+}
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){
+    scheduleHiddenSuspend();
+    return;
+  }
+
+  clearHiddenSuspendTimer();
+
+  if(realtimeSuspended&&user){
+    realtimeSuspended=false;
+    manualCloudReconnect(true);
+  }
+});
+window.addEventListener("beforeunload",()=>{
+  clearHiddenSuspendTimer();
+  cloudStopDataListeners();
+});
+
+
 
 
 async function connectCloudDataWithRetry(generation,{silent=false,maxAttempts=4,forceFirstRefresh=false}={}){
@@ -941,7 +1144,10 @@ async function connectCloudDataWithRetry(generation,{silent=false,maxAttempts=4,
         `${user.email} · ${roleLabel(profile.role)}`
       );
 
-      const r=await loadRemoteState();
+      // Static collections are loaded once.
+      // Schedule + room bookings arrive from the first realtime snapshots,
+      // so we no longer pay for the same dynamic documents twice on connect.
+      const r=await loadRemoteState({includeDynamic:false});
       if(!cloudIsSignedInGeneration(generation))return false;
 
       if(!r){
@@ -952,10 +1158,10 @@ async function connectCloudDataWithRetry(generation,{silent=false,maxAttempts=4,
         }
         await uploadWholeState(window.REMS_GET_STATE?.());
       }else{
-        remoteState=r;
-        window.REMS_APPLY_REMOTE_STATE?.(r);
+        remoteState=clean(r);
+        liveState=clean(r);
         cloudStopDataListeners();
-        subscribeRealtime();
+        await subscribeRealtime({baseState:r,waitForDynamic:true});
       }
 
       cloudWasOnline=true;

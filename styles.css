@@ -6488,3 +6488,35 @@ td .small{font-size:12px}
 .cloud-toast.error{
   max-width:580px;
 }
+
+
+/* ================================================================
+   v1.7.0 · lean realtime diagnostics
+   ================================================================ */
+.cloud-economy-status{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+  margin:10px 0;
+}
+.cloud-economy-status>div{
+  padding:9px 10px;
+  border:1px solid #dfd7e4;
+  border-radius:10px;
+  background:#faf8fc;
+}
+.cloud-economy-status b{
+  display:block;
+  margin-bottom:2px;
+  font-size:11px;
+  color:#4f246e;
+}
+.cloud-economy-status span{
+  display:block;
+  font-size:9px;
+  line-height:1.35;
+  color:#776b7e;
+}
+@media(max-width:850px){
+  .cloud-economy-status{grid-template-columns:1fr}
+}
