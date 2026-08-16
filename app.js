@@ -2137,15 +2137,47 @@ function plannerDateEventsSummary(date,d,t){
 function plannerEventPair(x){return x.pairId?`${x.pairId} пара`:(x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"без №");}
 function plannerMonthOwnCount(month,d,t){return db.schedule.filter(x=>String(x.date||"").slice(0,7)===month&&Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)).length;}
 function plannerMonthTabsHtml(d,t){return `<div class="scheduler-month-tabs">${schedulerMonthsForDiscipline(d).map(m=>{const c=plannerMonthOwnCount(m.value,d,t);return `<button class="${m.value===disciplinePlannerState.month?"active":""}" onclick="setDisciplinePlannerMonth('${m.value}')"><span>${esc(m.label)}</span>${c?`<b>${c}</b>`:""}</button>`;}).join("")}</div>`;}
+function plannerCalendarChip(x,kind){
+  const pair=x?.pairId||pairIdForTimes(x?.start||"",x?.end||"");
+  const pairText=pair?`${pair}п`:"—";
+  if(kind==="own"){
+    return `<span class="day-detail-chip own" style="${scheduleColorVars(x)}">
+      <b>${esc(pairText)}</b><span>${esc(x.type||"наша")}</span><small>${x.room?esc(x.room):"без ауд."}</small>
+    </span>`;
+  }
+  if(kind==="teacher"){
+    return `<span class="day-detail-chip teacher">
+      <b>${esc(pairText)}</b><span>викл.</span><small>${esc(x.group||"інша група")}</small>
+    </span>`;
+  }
+  return `<span class="day-detail-chip group">
+    <b>${esc(pairText)}</b><span>група</span><small>${esc(x.teacher||"інший викл.")}</small>
+  </span>`;
+}
 function plannerCalendarDayHtml(date,d,t){
   const inMonth=date.slice(0,7)===disciplinePlannerState.month;
   const bounds=semesterDateBounds(d.semester);
   const allowed=inMonth&&dateInBounds(date,bounds);
+
   const own=allowed?plannerOwnEvents(date,d,t.id):[];
   const teacherEvents=allowed?plannerTeacherEvents(date,t.id):[];
   const groupEvents=allowed?plannerGroupEvents(date,d.group):[];
+
   const otherTeacher=teacherEvents.filter(x=>!own.includes(x));
   const otherGroup=groupEvents.filter(x=>!own.includes(x)&&!otherTeacher.includes(x));
+
+  const detailItems=[
+    ...own.map(x=>({x,kind:"own"})),
+    ...otherTeacher.map(x=>({x,kind:"teacher"})),
+    ...otherGroup.map(x=>({x,kind:"group"}))
+  ].sort((a,b)=>{
+    const ap=Number(a.x.pairId||pairIdForTimes(a.x.start,a.x.end)||99);
+    const bp=Number(b.x.pairId||pairIdForTimes(b.x.start,b.x.end)||99);
+    return ap-bp;
+  });
+
+  const visible=detailItems.slice(0,3);
+  const hidden=Math.max(0,detailItems.length-visible.length);
   const day=Number(date.slice(8,10));
   const selected=date===disciplinePlannerState.date;
   const today=date===localTodayISO();
@@ -2157,11 +2189,10 @@ function plannerCalendarDayHtml(date,d,t){
         <b>${day}</b>
         ${today?`<span>сьогодні</span>`:""}
       </div>
-      <div class="scheduler-day-summary">
-        ${own.length?`<span class="day-summary-chip own">${own.length} ${own.length===1?"своя":"свої"}</span>`:""}
-        ${otherTeacher.length?`<span class="day-summary-chip teacher">викл. ${otherTeacher.length}</span>`:""}
-        ${otherGroup.length?`<span class="day-summary-chip group">група ${otherGroup.length}</span>`:""}
-        ${allowed&&!own.length&&!otherTeacher.length&&!otherGroup.length?`<span class="day-summary-free">вільний день</span>`:""}
+      <div class="scheduler-day-details">
+        ${visible.map(item=>plannerCalendarChip(item.x,item.kind)).join("")}
+        ${hidden?`<span class="day-detail-more">+${hidden} ще</span>`:""}
+        ${allowed&&!detailItems.length?`<span class="day-summary-free">вільний день</span>`:""}
       </div>
     </button>`;
 }
@@ -2186,6 +2217,48 @@ function plannerFreeRoomsText(date,pairId){
   const first=rooms.slice(0,3).map(r=>r.name);
   return `вільні ауд.: ${first.join(", ")}${rooms.length>3?` +${rooms.length-3}`:""}`;
 }
+function plannerDayOverviewCell(x,mode){
+  if(!x)return `<div class="planner-day-overview-free">вільно</div>`;
+  const main=mode==="group"?(x.teacher||"—"):(x.group||"—");
+  return `<div class="planner-day-overview-event subject-colored" style="${scheduleColorVars(x)}">
+    <b>${esc(main)}</b>
+    <span>${esc(x.discipline||x.type||"Заняття")}</span>
+    <small>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}${x.type?` · ${esc(x.type)}`:""}</small>
+  </div>`;
+}
+function plannerDayOverviewHtml(d,t,date){
+  const teacherEvents=plannerTeacherEvents(date,t.id);
+  const groupEvents=plannerGroupEvents(date,d.group);
+
+  return `<div class="planner-calendar-day-overview">
+    <div class="planner-calendar-day-overview-head">
+      <div>
+        <span>Розклад вибраного дня</span>
+        <h4>${formatDate(date)} · ${esc(weekdayNameForDate(date))}</h4>
+      </div>
+      <div class="small">Зліва — група ${esc(d.group)} · справа — ${esc(teacherDisplay(t))}</div>
+    </div>
+
+    <div class="planner-day-overview-grid">
+      <div class="planner-day-overview-grid-head">
+        <span>Пара</span><span>Група ${esc(d.group)}</span><span>Викладач</span>
+      </div>
+      ${bellPairs().map(pair=>{
+        const groupEvent=groupEvents.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pair.id));
+        const teacherEvent=teacherEvents.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pair.id));
+        return `<div class="planner-day-overview-row ${!groupEvent&&!teacherEvent?"free":""}">
+          <div class="planner-day-overview-pair">
+            <b>${esc(pair.id)} пара</b>
+            <span>${esc(pair.start)}–${esc(pair.end)}</span>
+          </div>
+          ${plannerDayOverviewCell(groupEvent,"group")}
+          ${plannerDayOverviewCell(teacherEvent,"teacher")}
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
 function plannerDayOccupancyHtml(d,t,date){
   const teacherEvents=plannerTeacherEvents(date,t.id);
   const groupEvents=plannerGroupEvents(date,d.group);
@@ -2662,7 +2735,10 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
       </div>
     </div>
 
-    ${plannerDayOccupancyHtml(d,t,date)}
+    <div class="planner-right-purpose">
+      <b>Додавання занять</b>
+      <span>Повний розклад цього дня тепер показано під календарем зліва.</span>
+    </div>
 
     ${totalRemaining>0?`
       <div class="planner-add-section">
@@ -2683,7 +2759,7 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
           <div class="section-head">
             <div>
               <h4>Додати заняття на ${formatDate(date)}</h4>
-              <div class="small">Найшвидше — натисни «+ Додати» біля потрібної вільної пари вище.</div>
+              <div class="small">Вибери пару, вид заняття й аудиторію. Зайнятість дня видно зліва під календарем.</div>
             </div>
             <button type="button" class="secondary" id="plannerAddEntry">+ Додати вручну</button>
           </div>
@@ -2691,7 +2767,7 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
           <form id="plannerDateForm">
             <div id="plannerEntries"></div>
             <div id="plannerEntriesEmpty" class="planner-entries-empty">
-              Обери вільну пару вище — вона одразу з’явиться тут для вибору виду заняття та аудиторії.
+              Натисни «+ Додати вручну» — з’явиться рядок для вибору пари, виду заняття та аудиторії.
             </div>
 
             <div class="planner-extra">
@@ -2753,7 +2829,10 @@ function renderDisciplinePlannerModal(){
           <div class="scheduler-weekdays">${weekdays.map(x=>`<div>${x}</div>`).join("")}</div>
           <div class="scheduler-calendar">${days.map(date=>plannerCalendarDayHtml(date,d,t)).join("")}</div>
         </div>
-        <div class="small planner-calendar-tip">Натисни на дату — справа одразу відкриється повна робоча картка цього дня.</div>
+        <div class="small planner-calendar-tip">Натисни на дату — нижче одразу побачиш повний розклад цього дня.</div>
+        <div id="plannerCalendarDayOverview">
+          ${plannerDayOverviewHtml(d,t,disciplinePlannerState.date)}
+        </div>
       </div>
 
       <div class="planner-day-column">

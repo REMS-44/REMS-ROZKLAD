@@ -1437,3 +1437,201 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     grid-template-columns:1fr!important;
   }
 }
+
+/* v1.0.21 · meaningful calendar cells + day timetable under calendar */
+
+/* Calendar cells: actual pair information instead of abstract counts */
+.planner-modal-card .scheduler-day{
+  min-height:96px!important;
+}
+.scheduler-day-details{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+}
+.day-detail-chip{
+  width:100%;
+  min-width:0;
+  display:grid;
+  grid-template-columns:22px minmax(0,1fr) auto;
+  gap:3px;
+  align-items:center;
+  padding:3px 4px;
+  border-radius:6px;
+  font-size:7px;
+  line-height:1.1;
+  text-align:left;
+}
+.day-detail-chip b{
+  font-size:7.5px;
+}
+.day-detail-chip span,
+.day-detail-chip small{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.day-detail-chip.own{
+  background:var(--subject-bg);
+  color:var(--subject-text);
+  border-left:3px solid var(--subject-border);
+}
+.day-detail-chip.own span,
+.day-detail-chip.own small{
+  color:var(--subject-muted);
+}
+.day-detail-chip.teacher{
+  background:#fff2e8;
+  color:#9a4a0d;
+}
+.day-detail-chip.group{
+  background:#eaf4ff;
+  color:#1f6198;
+}
+.day-detail-more{
+  font-size:7px;
+  color:var(--muted);
+  padding-left:3px;
+}
+
+/* Full selected-day timetable under the calendar */
+.planner-calendar-day-overview{
+  margin-top:10px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+  overflow:hidden;
+}
+.planner-calendar-day-overview-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:10px;
+  padding:10px 11px;
+  background:#faf8fc;
+  border-bottom:1px solid var(--line);
+}
+.planner-calendar-day-overview-head>div:first-child{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.planner-calendar-day-overview-head>div:first-child>span{
+  font-size:8px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.45px;
+}
+.planner-calendar-day-overview-head h4{
+  margin:0;
+  font-size:14px;
+}
+.planner-day-overview-grid{
+  display:flex;
+  flex-direction:column;
+}
+.planner-day-overview-grid-head,
+.planner-day-overview-row{
+  display:grid;
+  grid-template-columns:76px minmax(0,1fr) minmax(0,1fr);
+  gap:6px;
+  align-items:center;
+}
+.planner-day-overview-grid-head{
+  padding:6px 8px;
+  background:#f4f1f7;
+  color:var(--muted);
+  font-size:7px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.35px;
+}
+.planner-day-overview-row{
+  min-height:46px;
+  padding:5px 8px;
+  border-top:1px solid #eee9f2;
+}
+.planner-day-overview-row:first-of-type{
+  border-top:0;
+}
+.planner-day-overview-row.free{
+  background:#fcfcfd;
+}
+.planner-day-overview-pair{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.planner-day-overview-pair b{
+  font-size:9px;
+  color:var(--ink);
+}
+.planner-day-overview-pair span{
+  font-size:7px;
+  color:var(--muted);
+}
+.planner-day-overview-free{
+  min-height:34px;
+  display:flex;
+  align-items:center;
+  padding:5px 7px;
+  border-radius:7px;
+  background:#f3faf5;
+  color:#4d8460;
+  font-size:8px;
+  font-weight:700;
+}
+.planner-day-overview-event{
+  min-height:34px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:1px;
+  padding:4px 6px;
+  border-radius:7px;
+  border-left:3px solid var(--subject-border);
+  min-width:0;
+}
+.planner-day-overview-event b,
+.planner-day-overview-event span,
+.planner-day-overview-event small{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.planner-day-overview-event b{
+  font-size:8px;
+}
+.planner-day-overview-event span{
+  font-size:7.5px;
+}
+.planner-day-overview-event small{
+  font-size:7px;
+}
+
+.planner-right-purpose{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  margin-bottom:9px;
+  padding:8px 9px;
+  border-radius:9px;
+  background:#f8f5fb;
+  color:var(--muted);
+}
+.planner-right-purpose b{
+  color:var(--ink);
+  font-size:10px;
+}
+.planner-right-purpose span{
+  font-size:8px;
+}
+
+@media(max-width:900px){
+  .planner-day-overview-grid-head,
+  .planner-day-overview-row{
+    grid-template-columns:65px minmax(0,1fr) minmax(0,1fr);
+  }
+}
