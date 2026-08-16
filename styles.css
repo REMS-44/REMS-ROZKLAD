@@ -275,3 +275,23 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
   .teacher-month-toolbar{grid-template-columns:1fr 1fr}
   .teacher-month-title{grid-column:1/-1;grid-row:1}
 }
+
+/* v1.0.4 · end-to-end academic workflow */
+.allocation-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0 14px}
+.allocation-summary-item{display:flex;flex-direction:column;gap:3px;padding:10px 11px;border:1px solid var(--line);border-radius:11px;background:#faf9fc}
+.allocation-summary-item span{font-size:10px;color:var(--muted)}
+.allocation-summary-item b{font-size:15px;color:var(--ink)}
+.allocation-summary-item small{font-size:9px;font-weight:800}
+.allocation-summary-item small.ok{color:#16734a}.allocation-summary-item small.warn{color:#a15c00}.allocation-summary-item small.bad{color:#b42318}
+.progressive-allocation{margin-bottom:10px}
+.allocation-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:9px}
+.allocation-add-teacher{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;margin-top:10px;padding:11px;border:1px dashed #cfc4dd;border-radius:12px;background:#fbfaff}
+.warn-notice{background:#fff8e8;border-color:#f0d59b}
+.group-month-groupbar{align-items:end;margin-bottom:4px}
+.group-month-event{width:100%;display:flex;flex-direction:column;gap:2px;padding:6px 7px;border:0;border-left:3px solid var(--purple2);border-radius:8px;background:#f5f0ff;text-align:left;color:var(--ink)}
+.group-month-event:hover{background:#eee5ff}
+.group-month-event.booking{background:#fff8e8;border-left-color:#d97706}
+.group-month-discipline{font-size:10px;line-height:1.2;font-weight:800;color:var(--ink)}
+.group-month-teacher{font-size:9px;color:var(--muted)}
+.group-month-event small{font-size:8px;color:var(--muted)}
+@media(max-width:700px){.allocation-card-head{flex-direction:column}.allocation-add-teacher{grid-template-columns:1fr}.group-month-groupbar{display:grid;grid-template-columns:1fr 1fr}}
