@@ -319,7 +319,13 @@ function renderCurrent(){
   ({home:renderHome,schedule:renderSchedule,timetable:renderTimetable,mySchedule:renderMySchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,settings:renderSettings}[currentPage])();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
 }
-function openModal(html,wide=false){$("#modalBody").innerHTML=html;$("#modal").classList.remove("hidden");$("#modal").querySelector(".modal-card").classList.toggle("modal-wide",wide);}
+function openModal(html,wide=false){
+  $("#modalBody").innerHTML=html;
+  $("#modal").classList.remove("hidden");
+  const card=$("#modal").querySelector(".modal-card");
+  card.classList.remove("planner-modal-card");
+  card.classList.toggle("modal-wide",wide);
+}
 function closeModal(){$("#modal").classList.add("hidden");$("#modalBody").innerHTML="";}
 
 function renderHome(){
@@ -1761,19 +1767,185 @@ function plannerDateEventsSummary(date,d,t){
 function plannerEventPair(x){return x.pairId?`${x.pairId} пара`:(x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"без №");}
 function plannerMonthOwnCount(month,d,t){return db.schedule.filter(x=>String(x.date||"").slice(0,7)===month&&Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)).length;}
 function plannerMonthTabsHtml(d,t){return `<div class="scheduler-month-tabs">${schedulerMonthsForDiscipline(d).map(m=>{const c=plannerMonthOwnCount(m.value,d,t);return `<button class="${m.value===disciplinePlannerState.month?"active":""}" onclick="setDisciplinePlannerMonth('${m.value}')"><span>${esc(m.label)}</span>${c?`<b>${c}</b>`:""}</button>`;}).join("")}</div>`;}
-function plannerCalendarDayHtml(date,d,t){const inMonth=date.slice(0,7)===disciplinePlannerState.month,b=semesterDateBounds(d.semester),allowed=inMonth&&dateInBounds(date,b),own=allowed?plannerOwnEvents(date,d,t.id):[],te=allowed?plannerTeacherEvents(date,t.id):[],ge=allowed?plannerGroupEvents(date,d.group):[],day=Number(date.slice(8,10)),selected=date===disciplinePlannerState.date,today=date===localTodayISO();const otherT=te.filter(x=>!own.includes(x)),otherG=ge.filter(x=>!own.includes(x)&&!otherT.includes(x));return `<button type="button" class="scheduler-day ${inMonth?"":"outside-month"} ${allowed?"":"disabled"} ${selected?"selected":""} ${today?"today":""}" ${allowed?`onclick="selectDisciplinePlannerDate('${date}')"`:"disabled"}><div class="scheduler-day-head"><b>${day}</b>${today?`<span>сьогодні</span>`:""}</div><div class="scheduler-day-body">${own.slice(0,3).map(x=>`<div class="scheduler-own-event subject-colored" style="${scheduleColorVars(x)}"><b>${esc(plannerEventPair(x))}</b><span>${esc(x.type||"")}</span><small>${esc(x.room||"без ауд.")}</small></div>`).join("")}${own.length>3?`<div class="scheduler-more">+${own.length-3} своїх</div>`:""}${otherT.length?`<div class="scheduler-busy teacher">Викладач зайнятий: ${otherT.length}</div>`:""}${otherG.length?`<div class="scheduler-busy group">Група зайнята: ${otherG.length}</div>`:""}</div></button>`;}
-function plannerOccupancyCell(x,mode){if(!x)return `<span class="planner-free">вільно</span>`;const counterpart=mode==="teacher"?(x.group||"—"):(x.teacher||"—");return `<div class="planner-occupied"><b>${esc(counterpart)}</b><span>${esc(x.discipline||x.type||"Заняття")}</span><small>${esc(x.room?`ауд. ${x.room}`:"без ауд.")}</small></div>`;}
-function plannerDayOccupancyHtml(d,t,date){const te=plannerTeacherEvents(date,t.id),ge=plannerGroupEvents(date,d.group);return `<div class="planner-occupancy"><h4>Що вже є ${formatDate(date)}</h4><div class="table-wrap"><table><thead><tr><th>Пара</th><th>${esc(teacherDisplay(t))}</th><th>${esc(d.group)}</th></tr></thead><tbody>${bellPairs().map(p=>{const a=te.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(p.id)),g=ge.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(p.id));return `<tr><td><b>${esc(p.id)} пара</b><div class="small">${esc(p.start)}–${esc(p.end)}</div></td><td>${plannerOccupancyCell(a,"teacher")}</td><td>${plannerOccupancyCell(g,"group")}</td></tr>`;}).join("")}</tbody></table></div></div>`;}
+function plannerCalendarDayHtml(date,d,t){
+  const inMonth=date.slice(0,7)===disciplinePlannerState.month;
+  const bounds=semesterDateBounds(d.semester);
+  const allowed=inMonth&&dateInBounds(date,bounds);
+  const own=allowed?plannerOwnEvents(date,d,t.id):[];
+  const teacherEvents=allowed?plannerTeacherEvents(date,t.id):[];
+  const groupEvents=allowed?plannerGroupEvents(date,d.group):[];
+  const otherTeacher=teacherEvents.filter(x=>!own.includes(x));
+  const otherGroup=groupEvents.filter(x=>!own.includes(x)&&!otherTeacher.includes(x));
+  const day=Number(date.slice(8,10));
+  const selected=date===disciplinePlannerState.date;
+  const today=date===localTodayISO();
+
+  return `<button type="button"
+    class="scheduler-day ${inMonth?"":"outside-month"} ${allowed?"":"disabled"} ${selected?"selected":""} ${today?"today":""}"
+    ${allowed?`onclick="selectDisciplinePlannerDate('${date}')"`:"disabled"}>
+      <div class="scheduler-day-head">
+        <b>${day}</b>
+        ${today?`<span>сьогодні</span>`:""}
+      </div>
+      <div class="scheduler-day-summary">
+        ${own.length?`<span class="day-summary-chip own">${own.length} ${own.length===1?"своя":"свої"}</span>`:""}
+        ${otherTeacher.length?`<span class="day-summary-chip teacher">викл. ${otherTeacher.length}</span>`:""}
+        ${otherGroup.length?`<span class="day-summary-chip group">група ${otherGroup.length}</span>`:""}
+        ${allowed&&!own.length&&!otherTeacher.length&&!otherGroup.length?`<span class="day-summary-free">вільний день</span>`:""}
+      </div>
+    </button>`;
+}
+function plannerCompactEvent(x,mode){
+  if(!x){
+    return `<div class="planner-status-free"><b>${mode==="teacher"?"викладач вільний":"група вільна"}</b></div>`;
+  }
+  const counterpart=mode==="teacher"?(x.group||"—"):(x.teacher||"—");
+  return `<div class="planner-status-busy subject-colored" style="${scheduleColorVars(x)}">
+    <b>${esc(counterpart)}</b>
+    <span>${esc(x.discipline||x.type||"Заняття")}</span>
+    <small>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}</small>
+  </div>`;
+}
+function plannerFreeRoomsForPair(date,pairId){
+  const rooms=(typeof gridRooms==="function"?gridRooms():db.rooms.filter(r=>r.status!=="archived"));
+  return rooms.filter(r=>!plannerRoomBusy(date,pairId,r.name));
+}
+function plannerFreeRoomsText(date,pairId){
+  const rooms=plannerFreeRoomsForPair(date,pairId);
+  if(!rooms.length)return "немає вільних кафедральних аудиторій";
+  const first=rooms.slice(0,3).map(r=>r.name);
+  return `вільні ауд.: ${first.join(", ")}${rooms.length>3?` +${rooms.length-3}`:""}`;
+}
+function plannerDayOccupancyHtml(d,t,date){
+  const teacherEvents=plannerTeacherEvents(date,t.id);
+  const groupEvents=plannerGroupEvents(date,d.group);
+  const canSchedule=plannerTypes(d,t.id).some(x=>x.remaining>0);
+
+  return `<div class="planner-occupancy">
+    <div class="planner-occupancy-title">
+      <h4>Пари цього дня</h4>
+      <span>Видно весь день без додаткової прокрутки</span>
+    </div>
+    <div class="planner-slot-list">
+      ${bellPairs().map(pair=>{
+        const teacherEvent=teacherEvents.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pair.id));
+        const groupEvent=groupEvents.find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pair.id));
+        const free=!teacherEvent&&!groupEvent;
+        return `<div class="planner-slot ${free?"free":"busy"}">
+          <div class="planner-slot-top">
+            <div class="planner-slot-pair">
+              <b>${esc(pair.id)} пара</b>
+              <span>${esc(pair.start)}–${esc(pair.end)}</span>
+            </div>
+            ${free&&canSchedule
+              ? `<button type="button" class="planner-slot-add" onclick="plannerAddForPair('${esc(pair.id)}')">+ Додати</button>`
+              : `<span class="planner-slot-state">${free?"вільно":"зайнято"}</span>`}
+          </div>
+          <div class="planner-slot-statuses">
+            <div>
+              <small>Викладач</small>
+              ${plannerCompactEvent(teacherEvent,"teacher")}
+            </div>
+            <div>
+              <small>Група ${esc(d.group)}</small>
+              ${plannerCompactEvent(groupEvent,"group")}
+            </div>
+          </div>
+          ${free?`<div class="planner-free-rooms">${esc(plannerFreeRoomsText(date,pair.id))}</div>`:""}
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
 function plannerPairBusyInfo(date,pairId,d,t){const teacher=plannerTeacherEvents(date,t.id).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)),group=plannerGroupEvents(date,d.group).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));return {teacher,group};}
 function plannerPairOptions(date,d,t,selected=null){return bellPairs().map(p=>{const b=plannerPairBusyInfo(date,p.id,d,t),why=[b.teacher?"викладач зайнятий":"",b.group?"група зайнята":""].filter(Boolean).join(", ");return `<option value="${esc(p.id)}" ${String(selected)===String(p.id)?"selected":""} ${why?"disabled":""}>${esc(p.id)} пара · ${esc(p.start)}–${esc(p.end)}${why?` · ${esc(why)}`:""}</option>`;}).join("");}
 function plannerRoomBusy(date,pairId,room){return db.schedule.some(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))||db.roomBookings.some(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));}
 function plannerRoomOptions(date,pairId,selected=""){const rooms=(typeof gridRooms==="function"?gridRooms():db.rooms.filter(r=>r.status!=="archived"));return `<option value="">— обери аудиторію —</option>`+rooms.map(r=>{const busy=plannerRoomBusy(date,pairId,r.name);return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(r.name)}${busy?" · зайнята":""}</option>`;}).join("");}
 function plannerAvailableTypeOptions(d,t,selected=null){return plannerTypes(d,t.id).map(x=>`<option value="${esc(x.lt.name)}" ${x.lt.name===selected?"selected":""} ${x.remaining<=0?"disabled":""}>${esc(x.lt.name)} · залишок ${fmtHours(x.remaining)} год</option>`).join("");}
 function plannerNextFreePair(date,d,t){return bellPairs().find(p=>{const b=plannerPairBusyInfo(date,p.id,d,t);return !b.teacher&&!b.group;})?.id||bellPairs()[0]?.id||null;}
-function plannerNewRowHtml(d,t,index,typeName=null,pairId=null){const types=plannerTypes(d,t.id).filter(x=>x.remaining>0),selectedType=typeName||(types[0]?.lt.name||""),rem=types.find(x=>x.lt.name===selectedType)?.remaining||0,selectedPair=pairId||plannerNextFreePair(disciplinePlannerState.date,d,t),hours=plannerDefaultUnit(selectedType,rem);return `<div class="planner-entry-row" data-planner-entry><div class="planner-entry-number">${index+1}</div><label>Вид заняття<select data-planner-type>${plannerAvailableTypeOptions(d,t,selectedType)}</select></label><label>Пара<select data-planner-pair>${plannerPairOptions(disciplinePlannerState.date,d,t,selectedPair)}</select></label><label>Аудиторія<select data-planner-room>${plannerRoomOptions(disciplinePlannerState.date,selectedPair)}</select></label><div class="planner-entry-hours"><span>Списується</span><b data-planner-hours>${fmtHours(hours)} год</b></div><button type="button" class="danger small-btn" data-planner-remove>×</button></div>`;}
-function bindPlannerEntryRow(row,d,t){const type=row.querySelector("[data-planner-type]"),pair=row.querySelector("[data-planner-pair]"),room=row.querySelector("[data-planner-room]"),hours=row.querySelector("[data-planner-hours]");const refreshHours=()=>{const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type.value);hours.textContent=`${fmtHours(plannerDefaultUnit(type.value,stat?.remaining||0))} год`;};const refreshRoom=()=>{const old=room.value;room.innerHTML=plannerRoomOptions(disciplinePlannerState.date,pair.value,old);};type.onchange=refreshHours;pair.onchange=refreshRoom;row.querySelector("[data-planner-remove]").onclick=()=>{row.remove();renumberPlannerEntries();};refreshHours();refreshRoom();}
-function renumberPlannerEntries(){$$("[data-planner-entry]").forEach((r,i)=>{const n=r.querySelector(".planner-entry-number");if(n)n.textContent=i+1;});}
-function addPlannerEntry(){const d=disciplineById(disciplinePlannerState.disciplineId),t=teacherById(disciplinePlannerState.teacherId);if(!d||!t)return;const box=$("#plannerEntries"),i=$$("[data-planner-entry]").length;box.insertAdjacentHTML("beforeend",plannerNewRowHtml(d,t,i));bindPlannerEntryRow(box.lastElementChild,d,t);}
+function plannerNewRowHtml(d,t,index,typeName=null,pairId=null){
+  const types=plannerTypes(d,t.id).filter(x=>x.remaining>0);
+  const selectedType=typeName||(types[0]?.lt.name||"");
+  const remaining=types.find(x=>x.lt.name===selectedType)?.remaining||0;
+  const selectedPair=pairId||plannerNextFreePair(disciplinePlannerState.date,d,t);
+  const hours=plannerDefaultUnit(selectedType,remaining);
+
+  return `<div class="planner-entry-row" data-planner-entry>
+    <div class="planner-entry-number">${index+1}</div>
+    <div class="planner-entry-fields">
+      <label>Вид заняття
+        <select data-planner-type>${plannerAvailableTypeOptions(d,t,selectedType)}</select>
+      </label>
+      <label>Пара
+        <select data-planner-pair>${plannerPairOptions(disciplinePlannerState.date,d,t,selectedPair)}</select>
+      </label>
+      <label class="planner-room-field">Аудиторія
+        <select data-planner-room>${plannerRoomOptions(disciplinePlannerState.date,selectedPair)}</select>
+      </label>
+    </div>
+    <div class="planner-entry-side">
+      <div class="planner-entry-hours">
+        <span>списується</span>
+        <b data-planner-hours>${fmtHours(hours)} год</b>
+      </div>
+      <button type="button" class="danger small-btn" data-planner-remove title="Прибрати">×</button>
+    </div>
+  </div>`;
+}
+function bindPlannerEntryRow(row,d,t){
+  const type=row.querySelector("[data-planner-type]");
+  const pair=row.querySelector("[data-planner-pair]");
+  const room=row.querySelector("[data-planner-room]");
+  const hours=row.querySelector("[data-planner-hours]");
+
+  const refreshHours=()=>{
+    const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type.value);
+    hours.textContent=`${fmtHours(plannerDefaultUnit(type.value,stat?.remaining||0))} год`;
+  };
+  const refreshRoom=()=>{
+    const old=room.value;
+    room.innerHTML=plannerRoomOptions(disciplinePlannerState.date,pair.value,old);
+  };
+
+  type.onchange=refreshHours;
+  pair.onchange=refreshRoom;
+  row.querySelector("[data-planner-remove]").onclick=()=>{
+    row.remove();
+    renumberPlannerEntries();
+  };
+  refreshHours();
+  refreshRoom();
+}
+function renumberPlannerEntries(){
+  $$("[data-planner-entry]").forEach((row,i)=>{
+    const n=row.querySelector(".planner-entry-number");
+    if(n)n.textContent=i+1;
+  });
+  const empty=$("#plannerEntriesEmpty");
+  if(empty)empty.style.display=$$("[data-planner-entry]").length?"none":"block";
+}
+function addPlannerEntry(pairId=null){
+  const d=disciplineById(disciplinePlannerState.disciplineId);
+  const t=teacherById(disciplinePlannerState.teacherId);
+  if(!d||!t)return;
+  const box=$("#plannerEntries");
+  if(!box)return;
+
+  if(pairId){
+    const duplicate=$$("[data-planner-entry]").some(row=>String(row.querySelector("[data-planner-pair]")?.value)===String(pairId));
+    if(duplicate)return;
+  }
+
+  const i=$$("[data-planner-entry]").length;
+  box.insertAdjacentHTML("beforeend",plannerNewRowHtml(d,t,i,null,pairId));
+  bindPlannerEntryRow(box.lastElementChild,d,t);
+  renumberPlannerEntries();
+}
+function plannerAddForPair(pairId){
+  addPlannerEntry(pairId);
+  const box=$("#plannerEntries");
+  if(box)box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
 function plannerTypeSummaryHtml(d,t){return `<div class="planner-load-summary">${plannerTypes(d,t.id).map(x=>`<div class="planner-load-card"><span>${esc(x.lt.name)}</span><b>${fmtHours(x.remaining)} год</b><small>${fmtHours(x.scheduled)} виставлено з ${fmtHours(x.planned)}</small></div>`).join("")}</div>`;}
 function plannerSelectedDayPanel(d,t,totalRemaining){
   const date=disciplinePlannerState.date;
@@ -1790,7 +1962,7 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
         <div class="small">${ownCount?`Уже виставлено ${ownCount} занять цієї дисципліни.`:"Цього дня ця дисципліна ще не стоїть."}</div>
       </div>
       <div class="scheduler-day-kpis">
-        <div><b>${ownCount}</b><span>своїх занять</span></div>
+        <div><b>${ownCount}</b><span>цієї дисципліни</span></div>
         <div><b>${teacherOther}</b><span>інших у викладача</span></div>
         <div><b>${groupOther}</b><span>інших у групи</span></div>
       </div>
@@ -1802,14 +1974,17 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
       <div class="planner-add-section">
         <div class="section-head">
           <div>
-            <h4>Поставити заняття на ${formatDate(date)}</h4>
-            <div class="small">Можна одразу додати кілька пар різних видів.</div>
+            <h4>Додати заняття</h4>
+            <div class="small">Найшвидше — натисни «+ Додати» біля потрібної вільної пари вище.</div>
           </div>
-          <button type="button" class="secondary" id="plannerAddEntry">+ Ще одна пара</button>
+          <button type="button" class="secondary" id="plannerAddEntry">+ Додати вручну</button>
         </div>
 
         <form id="plannerDateForm">
-          <div id="plannerEntries">${plannerNewRowHtml(d,t,0)}</div>
+          <div id="plannerEntries"></div>
+          <div id="plannerEntriesEmpty" class="planner-entries-empty">
+            Обери вільну пару вище — вона одразу з’явиться тут для вибору виду заняття та аудиторії.
+          </div>
 
           <div class="planner-extra">
             <label>Охоплення
@@ -1822,11 +1997,11 @@ function plannerSelectedDayPanel(d,t,totalRemaining){
 
           <div id="plannerConflictMessage"></div>
           <div class="planner-save-row">
-            <button class="primary">Зберегти заняття на ${formatDate(date)}</button>
+            <button class="primary">Зберегти вибрані пари</button>
           </div>
         </form>
       </div>
-    `:`<div class="notice"><b>Усі розподілені аудиторні години цього викладача за цією дисципліною вже стоять у розкладі.</b> Календар залишається доступним для перегляду.</div>`}
+    `:`<div class="notice"><b>Усі розподілені аудиторні години цього викладача за цією дисципліною вже стоять у розкладі.</b></div>`}
   </div>`;
 }
 
@@ -1876,10 +2051,13 @@ function renderDisciplinePlannerModal(){
     </div>
   </div>`,true);
 
+  $("#modal").querySelector(".modal-card").classList.add("planner-modal-card");
+
   if(totalRemaining>0){
     $$("[data-planner-entry]").forEach(r=>bindPlannerEntryRow(r,d,t));
-    $("#plannerAddEntry").onclick=addPlannerEntry;
+    $("#plannerAddEntry").onclick=()=>addPlannerEntry();
     $("#plannerDateForm").onsubmit=e=>savePlannerDateEntries(e,d,t);
+    renumberPlannerEntries();
   }
 }
 function safeOpenDisciplineTeacherScheduler(disciplineId,teacherId){

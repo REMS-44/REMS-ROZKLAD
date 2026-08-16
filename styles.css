@@ -761,3 +761,244 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
     min-width:1155px;
   }
 }
+
+/* v1.0.14 · planner UX cleanup */
+.modal-card.planner-modal-card{
+  width:min(1500px,98.5vw)!important;
+  max-height:96vh!important;
+  padding:16px 18px!important;
+}
+.planner-modal-card .discipline-planner{gap:10px}
+.planner-modal-card .planner-load-summary{grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:6px}
+.planner-modal-card .planner-load-card{padding:8px 10px}
+.planner-modal-card .planner-load-card b{font-size:15px}
+.planner-modal-card .scheduler-month-tabs{overflow-x:visible;flex-wrap:wrap}
+
+/* Main screen fits inside the modal without left/right movement */
+.planner-modal-card .planner-main-layout{
+  grid-template-columns:minmax(0,1.2fr) minmax(430px,.8fr);
+  gap:12px;
+  align-items:start;
+}
+.planner-modal-card .scheduler-calendar-wrap{
+  overflow:visible!important;
+}
+.planner-modal-card .scheduler-weekdays,
+.planner-modal-card .scheduler-calendar{
+  grid-template-columns:repeat(7,minmax(0,1fr))!important;
+  min-width:0!important;
+}
+.planner-modal-card .scheduler-weekdays div{
+  padding:6px 3px;
+}
+.planner-modal-card .scheduler-day{
+  min-height:82px!important;
+  padding:5px!important;
+}
+.planner-modal-card .scheduler-day-head{
+  margin-bottom:3px;
+}
+.scheduler-day-summary{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.day-summary-chip,
+.day-summary-free{
+  display:block;
+  width:max-content;
+  max-width:100%;
+  padding:2px 5px;
+  border-radius:999px;
+  font-size:7.5px;
+  line-height:1.2;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.day-summary-chip.own{background:#efe7ff;color:#5f27a8;font-weight:800}
+.day-summary-chip.teacher{background:#fff1e7;color:#9a4a0d}
+.day-summary-chip.group{background:#eaf4ff;color:#1e6198}
+.day-summary-free{color:#bbb4c1;padding-left:1px}
+
+/* One modal scroll only. The right panel itself no longer has a nested scrollbar. */
+.planner-modal-card .scheduler-day-workspace{
+  position:sticky;
+  top:0;
+  max-height:none!important;
+  overflow:visible!important;
+  padding:11px;
+}
+.planner-modal-card .scheduler-day-workspace-head{
+  margin-bottom:8px;
+  padding-bottom:8px;
+}
+.planner-modal-card .scheduler-day-kpis div{
+  min-width:58px;
+  padding:6px;
+}
+
+/* Seven compact pair cards */
+.planner-occupancy-title{
+  display:flex;
+  align-items:end;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:6px;
+}
+.planner-occupancy-title h4{margin:0}
+.planner-occupancy-title span{font-size:8px;color:var(--muted)}
+.planner-slot-list{
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+}
+.planner-slot{
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:7px 8px;
+  background:#fff;
+}
+.planner-slot.free{background:#fbfdfb;border-color:#dce9df}
+.planner-slot.busy{background:#fcfbfd}
+.planner-slot-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:5px;
+}
+.planner-slot-pair{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+}
+.planner-slot-pair b{font-size:11px;color:var(--ink)}
+.planner-slot-pair span{font-size:8px;color:var(--muted)}
+.planner-slot-state{
+  font-size:8px;
+  font-weight:800;
+  color:#9a909f;
+  text-transform:uppercase;
+}
+.planner-slot-add{
+  border:0;
+  background:#edf8f0;
+  color:#267342;
+  border-radius:8px;
+  padding:5px 8px;
+  font-size:9px;
+  font-weight:850;
+}
+.planner-slot-add:hover{background:#dff2e4}
+.planner-slot-statuses{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+}
+.planner-slot-statuses>div>small{
+  display:block;
+  margin-bottom:2px;
+  font-size:7px;
+  text-transform:uppercase;
+  letter-spacing:.35px;
+  color:var(--muted);
+}
+.planner-status-free{
+  min-height:34px;
+  display:flex;
+  align-items:center;
+  padding:5px 7px;
+  border-radius:7px;
+  background:#f2faf4;
+  color:#43805a;
+}
+.planner-status-free b{font-size:8px}
+.planner-status-busy{
+  min-height:34px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:1px;
+  padding:4px 6px;
+  border-radius:7px;
+  border-left:3px solid var(--subject-border);
+}
+.planner-status-busy b{
+  font-size:8px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.planner-status-busy span{
+  font-size:7.5px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.planner-status-busy small{font-size:7px}
+.planner-free-rooms{
+  margin-top:4px;
+  padding-left:2px;
+  font-size:7.5px;
+  color:#718578;
+}
+
+/* Pending lessons: no horizontal scrolling */
+.planner-modal-card .planner-add-section{
+  margin-top:10px;
+  padding-top:10px;
+}
+.planner-entry-row{
+  display:grid!important;
+  grid-template-columns:28px minmax(0,1fr) 62px!important;
+  gap:7px!important;
+  align-items:start!important;
+  padding:7px!important;
+}
+.planner-entry-fields{
+  min-width:0;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+}
+.planner-entry-fields label{margin:0}
+.planner-entry-fields .planner-room-field{grid-column:1/-1}
+.planner-entry-side{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:5px;
+}
+.planner-entry-side .planner-entry-hours{
+  height:auto!important;
+  padding:5px 2px;
+  text-align:center;
+}
+.planner-entry-side .small-btn{width:100%}
+.planner-entries-empty{
+  padding:10px;
+  border:1px dashed #d8d0df;
+  border-radius:9px;
+  color:var(--muted);
+  font-size:9px;
+  text-align:center;
+}
+.planner-modal-card .planner-extra{
+  grid-template-columns:1fr 1fr!important;
+  gap:7px;
+}
+.planner-modal-card .planner-save-row .primary{
+  width:100%;
+}
+
+@media(max-width:1050px){
+  .planner-modal-card .planner-main-layout{grid-template-columns:1fr}
+  .planner-modal-card .scheduler-day-workspace{position:relative}
+}
+@media(max-width:650px){
+  .planner-slot-statuses{grid-template-columns:1fr}
+  .planner-entry-fields{grid-template-columns:1fr}
+  .planner-entry-fields .planner-room-field{grid-column:auto}
+  .planner-modal-card .planner-extra{grid-template-columns:1fr!important}
+}
