@@ -94,7 +94,41 @@ function clampAcademicMonth(month){const b=academicYearBounds();if(!month||month
 function academicDateMessage(bounds=academicYearBounds()){return `${formatDate(bounds.start)} — ${formatDate(bounds.end)}`;}
 function timeOverlap(aStart,aEnd,bStart,bEnd){return aStart<bEnd&&aEnd>bStart}
 function normIdentity(v){return String(v||"").trim().replace(/\s+/g," ").toLowerCase();}
+function uniqueStrings(values=[]){
+  const seen=new Set(),out=[];
+  (values||[]).forEach(v=>{
+    const raw=String(v||"").trim(),key=normIdentity(raw);
+    if(raw&&!seen.has(key)){seen.add(key);out.push(raw);}
+  });
+  return out;
+}
+function scheduleAudienceGroups(item){
+  return uniqueStrings([...(Array.isArray(item?.audienceGroups)?item.audienceGroups:[]),item?.group||""]);
+}
+function scheduleIncludesGroup(item,group){
+  const key=normIdentity(group);
+  return !!key&&scheduleAudienceGroups(item).some(g=>normIdentity(g)===key);
+}
+function scheduleAudienceLabel(item){
+  const groups=scheduleAudienceGroups(item);
+  return groups.length?groups.join(" + "):(item?.group||"");
+}
+function scheduleGroupsOverlap(a,b){
+  const A=new Set(scheduleAudienceGroups(a).map(normIdentity));
+  return scheduleAudienceGroups(b).some(g=>A.has(normIdentity(g)));
+}
+function scheduleDisciplineIds(item){
+  return [...new Set([...(Array.isArray(item?.disciplineIds)?item.disciplineIds:[]),item?.disciplineId].map(Number).filter(Boolean))];
+}
+function scheduleCoversDiscipline(item,disciplineId){
+  return scheduleDisciplineIds(item).includes(Number(disciplineId));
+}
+function isReadyExternalScheduleItem(item){
+  return !!item&&!item.specialSchedule&&(item.scheduleSource==="ready_external"||item.workloadHours===0||item.workloadHours==="0");
+}
+
 function resolvedScheduleDiscipline(item,state=db){
+  if(isReadyExternalScheduleItem(item))return null;
   if(item?.disciplineId!==null&&item?.disciplineId!==undefined&&String(item.disciplineId)!==""){
     const exact=(state?.disciplines||[]).find(d=>Number(d.id)===Number(item.disciplineId));
     if(exact)return exact;
@@ -105,6 +139,8 @@ function resolvedScheduleDiscipline(item,state=db){
   return matches.length===1?matches[0]:null;
 }
 function resolvedScheduleGroup(item,state=db){
+  const audiences=scheduleAudienceGroups(item);
+  if(audiences.length)return audiences[0];
   const d=resolvedScheduleDiscipline(item,state);
   if(d?.group)return d.group;
   const direct=normIdentity(item?.group);
@@ -165,27 +201,40 @@ function resolvedScheduleTeacherId(item,state=db){
 function repairScheduleLinks(state){
   let changed=0;
   (state?.schedule||[]).forEach(item=>{
-    if(item.scheduleSource==="ready_external"&&item.teacher){
-      let linked=teacherMatchByText(item.teacher,state);
-      if(!linked){
-        linked=ensureReadyExternalTeacher(item.teacher,state);
-        if(linked)changed++;
-      }
-      if(linked&&Number(item.teacherId)!==Number(linked.id)){
-        item.teacherId=linked.id;
-        changed++;
+    const ready=isReadyExternalScheduleItem(item);
+
+    if(ready){
+      if(item.scheduleSource!=="ready_external"){item.scheduleSource="ready_external";changed++;}
+      if(item.disciplineId!==null&&item.disciplineId!==undefined){item.disciplineId=null;changed++;}
+      if((item.disciplineIds||[]).length){item.disciplineIds=[];changed++;}
+      if(item.teacher){
+        let linked=teacherMatchByText(item.teacher,state);
+        if(!linked){linked=ensureReadyExternalTeacher(item.teacher,state);if(linked)changed++;}
+        if(linked&&Number(item.teacherId)!==Number(linked.id)){item.teacherId=linked.id;changed++;}
       }
     }
 
-    const d=resolvedScheduleDiscipline(item,state);
-    if(d){
-      if(Number(item.disciplineId)!==Number(d.id)){item.disciplineId=d.id;changed++;}
-      if(item.discipline!==d.name){item.discipline=d.name;changed++;}
-      if(d.group&&item.group!==d.group){item.group=d.group;changed++;}
-    }else{
-      const g=resolvedScheduleGroup(item,state);
-      if(g&&g!==item.group){item.group=g;changed++;}
+    const audiences=scheduleAudienceGroups(item);
+    if(!Array.isArray(item.audienceGroups)||JSON.stringify(item.audienceGroups)!==JSON.stringify(audiences)){
+      item.audienceGroups=audiences;changed++;
     }
+    if(audiences.length&&item.group!==audiences[0]){item.group=audiences[0];changed++;}
+
+    if(!ready){
+      const d=resolvedScheduleDiscipline(item,state);
+      if(d){
+        if(Number(item.disciplineId)!==Number(d.id)){item.disciplineId=d.id;changed++;}
+        if(item.discipline!==d.name){item.discipline=d.name;changed++;}
+        if(!item.audienceGroups.length&&d.group){item.group=d.group;item.audienceGroups=[d.group];changed++;}
+        const dids=scheduleDisciplineIds(item);
+        if(!dids.includes(Number(d.id))){dids.unshift(Number(d.id));item.disciplineIds=[...new Set(dids)];changed++;}
+        else if(!Array.isArray(item.disciplineIds)){item.disciplineIds=dids;changed++;}
+      }else{
+        const g=resolvedScheduleGroup(item,state);
+        if(g&&!item.group){item.group=g;item.audienceGroups=uniqueStrings([g,...item.audienceGroups]);changed++;}
+      }
+    }
+
     const tid=resolvedScheduleTeacherId(item,state);
     if(tid&&Number(item.teacherId)!==Number(tid)){item.teacherId=tid;changed++;}
     if(tid){
@@ -193,6 +242,7 @@ function repairScheduleLinks(state){
       const label=t?(t.shortName||t.name||""):"";
       if(label&&item.teacher!==label){item.teacher=label;changed++;}
     }
+
     if(item.pairId!==null&&item.pairId!==undefined&&String(item.pairId)!==""){
       const pair=(state.bellSchedule||[]).find(p=>String(p.id)===String(item.pairId));
       if(pair){
@@ -201,13 +251,8 @@ function repairScheduleLinks(state){
           const toMin=v=>{const [h,m]=String(v).split(":").map(Number);return h*60+m;};
           const toTime=v=>`${String(Math.floor(v/60)).padStart(2,"0")}:${String(v%60).padStart(2,"0")}`;
           const a=toMin(pair.start),b=toMin(pair.end),mid=Math.round((a+b)/2);
-          if(Number(item.specialHalf)===2){
-            desiredStart=toTime(mid);
-            desiredEnd=toTime(b);
-          }else{
-            desiredStart=toTime(a);
-            desiredEnd=toTime(mid);
-          }
+          if(Number(item.specialHalf)===2){desiredStart=toTime(mid);desiredEnd=toTime(b);}
+          else{desiredStart=toTime(a);desiredEnd=toTime(mid);}
         }
         if(desiredStart&&item.start!==desiredStart){item.start=desiredStart;changed++;}
         if(desiredEnd&&item.end!==desiredEnd){item.end=desiredEnd;changed++;}
@@ -283,6 +328,7 @@ function migrate(old){
   }:{...x,id:x.id||i+1});
   fresh.lessonTypes.forEach(lt=>{const n=normIdentity(lt.name);if(["лекція","семінар","практичне","лабораторне"].includes(n)){lt.countMode="academic_pair";lt.defaultUnit=2;if(!lt.description)lt.description="Аудиторні години; 2 академічні години = 1 пара";}});
   fresh.teachers=(old.teachers||[]).map((t,i)=>({
+    ...t,
     id:t.id||i+1,
     scope:t.scope||"department",
     name:t.name||"",
@@ -319,25 +365,32 @@ function migrate(old){
   fresh.curricula=mergeSeedCurricula(old.curricula||[],fresh.curricula||[]);
   fresh.schemaVersion=15;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
+    const ready=isReadyExternalScheduleItem(s);
     let teacherId=s.teacherId||null;
-    if(!teacherId && s.teacher){
-      const t=fresh.teachers.find(x=>(x.shortName||x.name)===s.teacher);
-      if(t) teacherId=t.id;
+    if(!teacherId&&s.teacher){
+      const t=fresh.teachers.find(x=>normIdentity(x.shortName||x.name)===normIdentity(s.teacher)||normIdentity(x.name)===normIdentity(s.teacher));
+      if(t)teacherId=t.id;
     }
-    let disciplineId=s.disciplineId||null;
-    if(!disciplineId && s.discipline){
-      const d=fresh.disciplines.find(x=>x.name===s.discipline&&(!x.group||x.group===s.group));
-      if(d) disciplineId=d.id;
+    let disciplineId=ready?null:(s.disciplineId||null);
+    if(!ready&&!disciplineId&&s.discipline){
+      const d=fresh.disciplines.find(x=>normIdentity(x.name)===normIdentity(s.discipline)&&(!x.group||normIdentity(x.group)===normIdentity(s.group)));
+      if(d)disciplineId=d.id;
     }
     const lt=fresh.lessonTypes.find(x=>x.name===s.type);
+    const audienceGroups=uniqueStrings([...(Array.isArray(s.audienceGroups)?s.audienceGroups:[]),s.group||""]);
+    const disciplineIds=ready?[]:[...new Set([...(Array.isArray(s.disciplineIds)?s.disciplineIds:[]),disciplineId].map(Number).filter(Boolean))];
     return {
+      ...s,
       id:s.id||i+1,date:s.date||"",start:s.start||"",end:s.end||"",
-      pairId:s.pairId||fresh.bellSchedule.find(p=>p.start===s.start&&p.end===s.end)?.id||null,group:s.group||"",
-      disciplineId,discipline:s.discipline||"",type:s.type||"",coverage:s.coverage||"Вся група",
+      pairId:s.pairId||fresh.bellSchedule.find(p=>p.start===s.start&&p.end===s.end)?.id||null,
+      group:s.group||audienceGroups[0]||"",audienceGroups,
+      disciplineId,disciplineIds,discipline:s.discipline||"",type:s.type||"",coverage:s.coverage||"Вся група",
       students:s.students||"",studentId:s.studentId||null,teacherId,teacher:s.teacher||"",room:s.room||"",
       workloadHours:s.workloadHours??lt?.defaultUnit??1,note:s.note||"",repeatBatchId:s.repeatBatchId||null,
       specialSchedule:s.specialSchedule===true,specialKind:s.specialKind||"",specialHalf:s.specialHalf||null,
-      scheduleSource:s.scheduleSource||""
+      scheduleSource:ready?"ready_external":(s.scheduleSource||""),
+      sourceCurriculumId:s.sourceCurriculumId||null,sourceComponentId:s.sourceComponentId||null,
+      sourceSemester:s.sourceSemester||null,sourcePlanRef:s.sourcePlanRef||""
     };
   });
   repairScheduleLinks(fresh);
@@ -665,7 +718,10 @@ function addGroup(){
 function editGroup(id){
   const g=db.groups.find(x=>x.id===id);
   openModal(`<h2>Редагувати групу</h2><form id="f" class="form-grid"><label>Курс<select id="gc">${[1,2,3,4,5,6].map(x=>`<option ${x===g.course?"selected":""}>${x}</option>`).join("")}</select></label><label>Шифр<input id="gn" value="${esc(g.code)}" required></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
-  $("#f").onsubmit=e=>{e.preventDefault();const old=g.code,neu=$("#gn").value.trim();g.course=+$("#gc").value;g.code=neu;db.students.forEach(s=>{if(s.group===old)s.group=neu});db.schedule.forEach(s=>{if(s.group===old)s.group=neu});db.disciplines.forEach(d=>{if(d.group===old)d.group=neu});closeModal();save();};
+  $("#f").onsubmit=e=>{e.preventDefault();const old=g.code,neu=$("#gn").value.trim();g.course=+$("#gc").value;g.code=neu;db.students.forEach(s=>{if(s.group===old)s.group=neu});db.schedule.forEach(s=>{
+    if(s.group===old)s.group=neu;
+    if(Array.isArray(s.audienceGroups))s.audienceGroups=s.audienceGroups.map(g=>g===old?neu:g);
+  });db.disciplines.forEach(d=>{if(d.group===old)d.group=neu});closeModal();save();};
 }
 function deleteGroup(id){
   const g=db.groups.find(x=>x.id===id);if(groupStudentCount(g.code))return alert("Спочатку переведіть або видаліть студентів.");
@@ -806,7 +862,7 @@ function roomEventCard(ev){
     if(x.specialSchedule){
       return `<button class="room-event room-event-lesson room-event-special subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openSpecialEventFromRoom(${x.id})"><span class="room-event-badge room-event-special-kind">${esc(specialRoomGridKindLabel(x))}</span><b>${esc(specialStudentName(x))}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")} · ${esc(x.start||"")}–${esc(x.end||"")}</small></button>`;
     }
-    return `<button class="room-event room-event-lesson subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(x.group||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
+    return `<button class="room-event room-event-lesson subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(scheduleAudienceLabel(x)||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
   }
   return `<button class="room-event room-event-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><span class="room-event-badge">${esc((x.kind||"БРОНЮВАННЯ").toUpperCase())}</span><b>${esc(x.group||roomBookingLabel(x))}</b><span>${esc(x.group?roomBookingLabel(x):(x.teacher||""))}</span>${x.teacher&&x.group?`<small>${esc(x.teacher)}</small>`:""}</button>`;
 }
@@ -956,7 +1012,7 @@ function externalTeacherScheduleRows(t){
 function externalTeacherStats(t){
   const rows=externalTeacherScheduleRows(t);
   const disciplines=[...new Set(rows.map(x=>x.discipline).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
-  const groups=[...new Set(rows.map(x=>x.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+  const groups=[...new Set(rows.flatMap(x=>scheduleAudienceGroups(x)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
   const hours=rows.reduce((sum,x)=>sum+readyAcademicHours(x),0);
   return {rows,disciplines,groups,pairs:rows.length,hours};
 }
@@ -1734,41 +1790,50 @@ function loadDisciplineStatusHtml(d){
 }
 function readyExternalRowsForGroup(group){
   return db.schedule
-    .filter(x=>x.scheduleSource==="ready_external"&&!x.specialSchedule&&dateInBounds(x.date))
-    .filter(x=>normIdentity(x.group)===normIdentity(group));
+    .filter(x=>isReadyExternalScheduleItem(x)&&dateInBounds(x.date))
+    .filter(x=>scheduleIncludesGroup(x,group));
 }
 function readyExternalDisciplineSummaries(group){
   const rows=readyExternalRowsForGroup(group);
+  const plans=readyPlanRecords(group).filter(rec=>rec.scope==="external");
   const map=new Map();
+  const keyFor=(name,semester)=>`${normIdentity(name)}|${String(semester||"")}`;
+
+  plans.forEach(rec=>{
+    const key=keyFor(rec.name,rec.semester);
+    map.set(key,{
+      key,planRef:rec.ref,group,discipline:rec.name,semester:rec.semester||null,rows:[],
+      sourceCurriculumId:rec.curriculumId||null,sourceComponentId:rec.componentId||null
+    });
+  });
 
   rows.forEach(x=>{
-    const key=[
-      normIdentity(x.discipline||""),
-      String(x.sourceSemester||"")
-    ].join("|");
-
+    let semester=x.sourceSemester||null;
+    let matchingPlan=null;
+    if(!semester){
+      const matches=plans.filter(p=>normIdentity(p.name)===normIdentity(x.discipline));
+      if(matches.length===1){matchingPlan=matches[0];semester=matchingPlan.semester;}
+    }else{
+      matchingPlan=plans.find(p=>normIdentity(p.name)===normIdentity(x.discipline)&&Number(p.semester)===Number(semester))||null;
+    }
+    const key=keyFor(x.discipline||"Без назви",semester);
     if(!map.has(key)){
       map.set(key,{
-        key,
-        group:x.group,
-        discipline:x.discipline||"Без назви",
-        semester:x.sourceSemester||null,
-        rows:[],
-        sourceCurriculumId:x.sourceCurriculumId||null,
-        sourceComponentId:x.sourceComponentId||null
+        key,planRef:matchingPlan?.ref||x.sourcePlanRef||"",group,
+        discipline:x.discipline||"Без назви",semester:semester||null,rows:[],
+        sourceCurriculumId:matchingPlan?.curriculumId||x.sourceCurriculumId||null,
+        sourceComponentId:matchingPlan?.componentId||x.sourceComponentId||null
       });
     }
     map.get(key).rows.push(x);
   });
 
-  return [...map.values()]
-    .map(s=>{
-      const teachers=[...new Set(s.rows.map(x=>x.teacher).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
-      const types=[...new Set(s.rows.map(x=>x.type).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
-      const hours=s.rows.reduce((sum,x)=>sum+readyAcademicHours(x),0);
-      return {...s,teachers,types,hours,pairs:s.rows.length};
-    })
-    .sort((a,b)=>a.discipline.localeCompare(b.discipline,"uk"));
+  return [...map.values()].map(s=>{
+    const teachers=[...new Set(s.rows.map(x=>x.teacher).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+    const types=[...new Set(s.rows.map(x=>x.type).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+    const hours=s.rows.reduce((sum,x)=>sum+readyAcademicHours(x),0);
+    return {...s,teachers,types,hours,pairs:s.rows.length};
+  }).sort((a,b)=>Number(a.semester||99)-Number(b.semester||99)||a.discipline.localeCompare(b.discipline,"uk"));
 }
 function compactTeacherChips(names=[]){
   if(!names.length)return `<span class="teacher-palette-chip empty">ще не вказано</span>`;
@@ -1799,8 +1864,8 @@ function readyExternalDisciplineCardHtml(s){
     </div>
 
     <div class="compact-discipline-actions">
-      <button class="secondary" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" onclick="openReadyExternalManager(this.dataset.group,this.dataset.discipline)">Редагувати пари</button>
-      <button class="primary-inline" onclick="openReadyScheduleModal()">+ Додати</button>
+      <button class="secondary" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" data-semester="${esc(s.semester||"")}" data-ref="${esc(s.planRef||"")}" onclick="openReadyExternalManager(this.dataset.group,this.dataset.discipline,this.dataset.semester,this.dataset.ref)">${s.pairs?"Редагувати пари":"Відкрити дисципліну"}</button>
+      <button class="primary-inline" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" data-ref="${esc(s.planRef||"")}" onclick="openReadyScheduleForDiscipline(this.dataset.group,this.dataset.ref,this.dataset.discipline)">+ Додати</button>
     </div>
   </article>`;
 }
@@ -2445,7 +2510,7 @@ function specialDisciplineChoices(kind=specialScheduleState.kind,group=specialSc
     .forEach(x=>byId.set(Number(x.d.id),x.d));
 
   specialEventRows(kind)
-    .filter(x=>!group||normIdentity(x.group)===normIdentity(group))
+    .filter(x=>!group||scheduleIncludesGroup(x,group))
     .forEach(x=>{
       const d=disciplineById(x.disciplineId);
       if(d)byId.set(Number(d.id),d);
@@ -2950,7 +3015,7 @@ function teacherTypePlan(d,teacherId,typeName){
   return load?num(load[id]):0;
 }
 function scheduledLoad(disciplineId,teacherId,typeName,ignoreId=null){
-  return db.schedule.filter(s=>s.id!==ignoreId&&Number(s.disciplineId)===Number(disciplineId)&&Number(s.teacherId)===Number(teacherId)&&s.type===typeName).reduce((a,s)=>a+num(s.workloadHours),0);
+  return db.schedule.filter(s=>s.id!==ignoreId&&scheduleCoversDiscipline(s,disciplineId)&&Number(s.teacherId)===Number(teacherId)&&s.type===typeName).reduce((a,s)=>a+num(s.workloadHours),0);
 }
 function remainingLoad(d,teacherId,typeName,ignoreId=null){return teacherTypePlan(d,teacherId,typeName)-scheduledLoad(d.id,teacherId,typeName,ignoreId);}
 function allocatedTeachersForType(d,typeName){
@@ -3564,7 +3629,9 @@ function readyBuildItem(row,common){
     start:pair?.start||"",
     end:pair?.end||"",
     group:common.group,
+    audienceGroups:uniqueStrings(common.audienceGroups||[common.group]),
     disciplineId:null,
+    disciplineIds:[],
     discipline:common.discipline,
     type:row.querySelector("[data-ready-type]").value,
     workloadHours:0,
@@ -3578,7 +3645,8 @@ function readyBuildItem(row,common){
     scheduleSource:"ready_external",
     sourceCurriculumId:common.plan?.curriculumId||null,
     sourceComponentId:common.plan?.componentId||null,
-    sourceSemester:common.plan?.semester||null
+    sourceSemester:common.plan?.semester||null,
+    sourcePlanRef:common.plan?.ref||""
   };
 }
 function readyRefreshPlanFields(){
@@ -3594,27 +3662,28 @@ function readyRefreshPlanFields(){
   }
   applyReadyDateBounds();
 }
-let readyExternalManagerState={group:"",discipline:""};
-function readyExternalManagerRows(group,discipline){
+let readyExternalManagerState={group:"",discipline:"",semester:"",planRef:""};
+function readyExternalManagerRows(group,discipline,semester=""){
   return db.schedule
-    .filter(x=>x.scheduleSource==="ready_external"&&!x.specialSchedule)
-    .filter(x=>normIdentity(x.group)===normIdentity(group))
+    .filter(x=>isReadyExternalScheduleItem(x)&&!x.specialSchedule)
+    .filter(x=>scheduleIncludesGroup(x,group))
     .filter(x=>normIdentity(x.discipline)===normIdentity(discipline))
+    .filter(x=>!semester||!x.sourceSemester||Number(x.sourceSemester)===Number(semester))
     .slice()
     .sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||Number(a.pairId||99)-Number(b.pairId||99));
 }
-function openReadyExternalManager(group,discipline){
-  readyExternalManagerState={group,discipline};
-  const rows=readyExternalManagerRows(group,discipline);
+function openReadyExternalManager(group,discipline,semester="",planRef=""){
+  readyExternalManagerState={group,discipline,semester,planRef};
+  const rows=readyExternalManagerRows(group,discipline,semester);
 
   openModal(`<div class="ready-manager">
     <div class="ready-manager-head" style="${scheduleColorVars({group,discipline})}">
       <div>
         <span>ГОТОВИЙ РОЗКЛАД · ІНША КАФЕДРА</span>
         <h2>${esc(discipline)}</h2>
-        <p>${esc(group)} · ${rows.length} пар · ${fmtHours(rows.reduce((s,x)=>s+readyAcademicHours(x),0))} академічних годин</p>
+        <p>${esc(group)}${semester?` · ${esc(semester)} семестр`:""} · ${rows.length} пар · ${fmtHours(rows.reduce((s,x)=>s+readyAcademicHours(x),0))} академічних годин</p>
       </div>
-      <button class="primary" onclick="closeModal();openReadyScheduleModal()">+ Додати пари</button>
+      <button class="primary" data-group="${esc(group)}" data-ref="${esc(planRef||"")}" data-discipline="${esc(discipline)}" onclick="closeModal();openReadyScheduleForDiscipline(this.dataset.group,this.dataset.ref,this.dataset.discipline)">+ Додати пари</button>
     </div>
 
     ${rows.length?`<div class="ready-manager-list">${rows.map(x=>`<div class="ready-manager-row">
@@ -3623,12 +3692,13 @@ function openReadyExternalManager(group,discipline){
       <div class="ready-manager-main">
         <b>${esc(x.type||"Заняття")}</b>
         <span>${esc(x.teacher||"викладач не вказаний")} · ${esc(x.room||"без аудиторії")}</span>
+        ${scheduleAudienceGroups(x).length>1?`<small>Потік: ${esc(scheduleAudienceLabel(x))}</small>`:""}
       </div>
       <div class="ready-manager-actions">
         <button onclick="openReadyScheduleModal(${x.id})">Редагувати</button>
         <button class="quiet-danger" onclick="deleteReadyExternalItem(${x.id})">Видалити</button>
       </div>
-    </div>`).join("")}</div>`:`<div class="empty">Для цієї дисципліни пар уже немає.</div>`}
+    </div>`).join("")}</div>`:`<div class="empty">Пар ще немає. Дисципліна вже є в навчальному плані — натисни «+ Додати пари».</div>`}
   </div>`,true);
 }
 function deleteReadyExternalItem(id){
@@ -3637,17 +3707,45 @@ function deleteReadyExternalItem(id){
   if(!confirm(`Видалити ${formatDate(x.date)} · ${pairDisplay(x)} · ${x.discipline}?`))return;
   db.schedule=db.schedule.filter(r=>Number(r.id)!==Number(id));
   save();
-  openReadyExternalManager(readyExternalManagerState.group,readyExternalManagerState.discipline);
+  openReadyExternalManager(readyExternalManagerState.group,readyExternalManagerState.discipline,readyExternalManagerState.semester,readyExternalManagerState.planRef);
+}
+
+let readyAudienceSelection=[];
+let readySchedulePreset=null;
+function readyAudienceButtonsHtml(selected=[]){
+  const set=new Set((selected||[]).map(normIdentity));
+  return `<div class="ready-audience-buttons">${sortedGroups().map(g=>`<button type="button" class="ready-audience-btn ${set.has(normIdentity(g.code))?"active":""}" data-ready-audience="${esc(g.code)}" onclick="toggleReadyAudienceGroup('${String(g.code).replaceAll("'","\\'")}')"><b>${esc(g.code)}</b><span>${esc(g.course)} курс</span></button>`).join("")}</div>`;
+}
+function renderReadyAudienceButtons(){
+  const box=$("#readyAudienceButtons");if(box)box.innerHTML=readyAudienceButtonsHtml(readyAudienceSelection);
+  const label=$("#readyAudienceSummary");if(label)label.textContent=readyAudienceSelection.length>1?`Потік: ${readyAudienceSelection.join(" + ")}`:`Одна група: ${readyAudienceSelection[0]||"—"}`;
+}
+function toggleReadyAudienceGroup(code){
+  const primary=$("#readyGroup")?.value||code,key=normIdentity(code),exists=readyAudienceSelection.some(g=>normIdentity(g)===key);
+  if(exists){if(normIdentity(code)===normIdentity(primary))return;readyAudienceSelection=readyAudienceSelection.filter(g=>normIdentity(g)!==key);}
+  else readyAudienceSelection=uniqueStrings([...readyAudienceSelection,code]);
+  if(!readyAudienceSelection.some(g=>normIdentity(g)===normIdentity(primary)))readyAudienceSelection.unshift(primary);
+  renderReadyAudienceButtons();
+}
+function openReadyScheduleForDiscipline(group,planRef="",discipline=""){
+  readySchedulePreset={group,planRef,discipline};
+  openReadyScheduleModal();
 }
 
 function openReadyScheduleModal(editId=null){
   const existing=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
   const editing=!!existing;
-  const defaultGroup=existing?.group||currentWorkloadGroup()||db.groups[0]?.code||"";
+  const preset=(!existing&&readySchedulePreset)?readySchedulePreset:null;
+  const defaultGroup=existing?.group||preset?.group||currentWorkloadGroup()||db.groups[0]?.code||"";
+  readyAudienceSelection=uniqueStrings(existing?.audienceGroups?.length?existing.audienceGroups:[defaultGroup]);
 
   let selectedRef="__custom__";
   if(existing?.sourceCurriculumId&&existing?.sourceComponentId&&existing?.sourceSemester){
     selectedRef=`plan:${existing.sourceCurriculumId}:${existing.sourceComponentId}:${existing.sourceSemester}`;
+  }else if(!existing&&preset?.planRef){
+    selectedRef=preset.planRef;
+  }else if(!existing&&preset?.discipline){
+    selectedRef="__custom__";
   }else if(!existing){
     selectedRef="";
   }
@@ -3671,7 +3769,7 @@ function openReadyScheduleModal(editId=null){
       <label class="ready-discipline-field">Дисципліна
         <select id="readyDiscipline">${readyPlanOptions(defaultGroup,selectedRef)}</select>
         <input id="readyCustomDiscipline" placeholder="Назва дисципліни"
-          value="${esc(existing&&!existing.sourceComponentId?(existing.discipline||""):"")}"
+          value="${esc(existing&&!existing.sourceComponentId?(existing.discipline||""):(preset?.discipline||""))}"
           style="display:${selectedRef==="__custom__"?"":"none"}">
       </label>
       <label>Викладач
@@ -3681,6 +3779,10 @@ function openReadyScheduleModal(editId=null){
       <label>Охоплення
         <select id="readyCoverage">${db.coverageTypes.map(v=>`<option ${v===(existing?.coverage||"Вся група")?"selected":""}>${esc(v)}</option>`).join("")}</select>
       </label>
+      <div class="wide ready-audience-section">
+        <div class="ready-audience-head"><div><b>Хто слухає цю пару</b><span id="readyAudienceSummary"></span></div><small>Можна вибрати кілька груп. У базі це буде одна реальна пара для потоку.</small></div>
+        <div id="readyAudienceButtons"></div>
+      </div>
       <label class="wide">Примітка
         <input id="readyNote" placeholder="необов’язково" value="${esc(existing?.note||"")}">
       </label>
@@ -3712,7 +3814,10 @@ function openReadyScheduleModal(editId=null){
   readyRefreshPlanFields();
 
   $("#readyGroup").onchange=()=>{
-    $("#readyDiscipline").innerHTML=readyPlanOptions($("#readyGroup").value,"");
+    const primary=$("#readyGroup").value;
+    readyAudienceSelection=[primary];
+    renderReadyAudienceButtons();
+    $("#readyDiscipline").innerHTML=readyPlanOptions(primary,"");
     $("#readyDiscipline").value="";
     readyRefreshPlanFields();
     if(readyScheduleMode)setReadyScheduleMode(readyScheduleMode,editing?existing:null);
@@ -3723,11 +3828,10 @@ function openReadyScheduleModal(editId=null){
     if(readyScheduleMode==="series")setReadyScheduleMode("series");
   };
 
-  if(editing){
-    setReadyScheduleMode("single",existing);
-  }else{
-    setReadyScheduleMode(null);
-  }
+  renderReadyAudienceButtons();
+  if(editing)setReadyScheduleMode("single",existing);
+  else setReadyScheduleMode(null);
+  readySchedulePreset=null;
 }
 function saveReadySchedule(e,editId=null){
   e.preventDefault();
@@ -3751,8 +3855,10 @@ function saveReadySchedule(e,editId=null){
   const rows=$$("[data-ready-row]");
   if(!rows.length)return alert("Додайте хоча б одне заняття.");
 
+  const audienceGroups=uniqueStrings(readyAudienceSelection.length?readyAudienceSelection:[group]);
+  if(!audienceGroups.some(g=>normIdentity(g)===normIdentity(group)))audienceGroups.unshift(group);
   const batchId=`READY-${Date.now()}`;
-  const common={group,plan,discipline,teacher,coverage,note,batchId};
+  const common={group,audienceGroups,plan,discipline,teacher,coverage,note,batchId};
   const draft=[],errors=[],warnings=[];
 
   rows.forEach((row,i)=>{
@@ -3798,7 +3904,7 @@ function saveReadySchedule(e,editId=null){
   save();
 
   if(editId&&readyExternalManagerState.group&&readyExternalManagerState.discipline){
-    setTimeout(()=>openReadyExternalManager(readyExternalManagerState.group,readyExternalManagerState.discipline),0);
+    setTimeout(()=>openReadyExternalManager(readyExternalManagerState.group,readyExternalManagerState.discipline,readyExternalManagerState.semester,readyExternalManagerState.planRef),0);
   }
 }
 
@@ -3873,8 +3979,8 @@ function scheduleJournalFilteredRows(){
     .filter(x=>!discipline||String(x.discipline||"")===discipline)
     .filter(x=>{
       if(!source)return true;
-      if(source==="ready_external")return x.scheduleSource==="ready_external";
-      if(source==="department")return x.scheduleSource!=="ready_external";
+      if(source==="ready_external")return isReadyExternalScheduleItem(x);
+      if(source==="department")return !isReadyExternalScheduleItem(x);
       return true;
     })
     .filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q))
@@ -3886,7 +3992,7 @@ function scheduleJournalFilteredRows(){
     });
 }
 function scheduleJournalSourceBadge(x){
-  if(x.scheduleSource==="ready_external")return `<span class="badge ready-badge">ГОТОВА ПАРА</span>`;
+  if(isReadyExternalScheduleItem(x))return `<span class="badge ready-badge">ГОТОВА ПАРА</span>`;
   return `<span class="badge journal-dept-badge">КАФЕДРАЛЬНА</span>`;
 }
 
@@ -4041,14 +4147,14 @@ function renderScheduleTable(){
         <tbody>${visible.map(x=>`<tr>
           <td><b>${formatDate(x.date)}</b></td>
           <td><b>${esc(pairDisplay(x))}</b>${pairTimeDisplay(x)?`<div class="small">${esc(pairTimeDisplay(x))}</div>`:""}</td>
-          <td>${esc(x.group||"—")}</td>
+          <td>${esc(scheduleAudienceLabel(x)||"—")}</td>
           <td><b>${esc(x.discipline||"—")}</b></td>
           <td>${esc(x.type||"—")}</td>
           <td><b>${esc(x.room||"—")}</b></td>
           <td>${esc(x.teacher||"—")}</td>
           <td>${scheduleJournalSourceBadge(x)}</td>
           <td class="actions">
-            <button onclick="${x.scheduleSource==="ready_external"?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">Редагувати</button>
+            <button onclick="${isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">Редагувати</button>
             <button onclick="deleteLesson(${x.id})">Видалити</button>
           </td>
         </tr>`).join("")}</tbody>
@@ -4064,7 +4170,7 @@ function conflictEventTimeLabel(x){
 }
 function conflictEventContext(x){
   const parts=[];
-  if(x?.group)parts.push(x.group);
+  if(scheduleAudienceGroups(x).length)parts.push(scheduleAudienceLabel(x));
   if(x?.discipline||x?.title||x?.kind)parts.push(x.discipline||x.title||x.kind);
   if(x?.teacher)parts.push(x.teacher);
   if(x?.specialSchedule){
@@ -4103,10 +4209,10 @@ function conflictReasonLines(item,conflicts=[]){
       add(`Студент ${student?.name||item.students||"—"} уже зайнятий у цей час${tail?` — ${tail}`:""}.`);
     }
 
-    const sameGroup=item.group&&c.group&&normIdentity(item.group)===normIdentity(c.group);
+    const sameGroup=scheduleGroupsOverlap(item,c);
     const groupIsConflict=sameGroup&&!(item.specialSchedule&&c.specialSchedule);
     if(groupIsConflict){
-      add(`У групи ${item.group} уже є заняття в цей час${tail?` — ${tail}`:""}.`);
+      add(`У групи/потоку ${scheduleAudienceLabel(item)} уже є заняття в цей час${tail?` — ${tail}`:""}.`);
     }
   });
 
@@ -4151,8 +4257,8 @@ function roomBusyOptionLabel(room,record){
 
 function conflictsFor(item,ignore=null,extra=[]){
   const sameSlot=x=>{if(x.date!==item.date)return false;if(item.specialSchedule||x.specialSchedule)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);};
-  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||(item.group&&normIdentity(x.group)===normIdentity(item.group)&&!(item.specialSchedule&&x.specialSchedule))||(item.studentId&&x.studentId&&Number(item.studentId)===Number(x.studentId))||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
-  const bookingConflicts=db.roomBookings.filter(x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))).filter(x=>(item.room&&x.room===item.room)||(item.group&&x.group&&normIdentity(x.group)===normIdentity(item.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
+  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||(scheduleGroupsOverlap(item,x)&&!(item.specialSchedule&&x.specialSchedule))||(item.studentId&&x.studentId&&Number(item.studentId)===Number(x.studentId))||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
+  const bookingConflicts=db.roomBookings.filter(x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))).filter(x=>(item.room&&x.room===item.room)||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }
 function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
@@ -4253,7 +4359,9 @@ function renderLoadHint(){
 function lessonItemFromValues({date,pairId,start,end,group,disciplineId,discipline,type,workloadHours,coverage,students,teacherId,room,note,repeatBatchId=null}){
   const d=disciplineId?disciplineById(Number(disciplineId)):null;
   const t=teacherById(teacherId),pair=pairById(pairId);
-  return {date,pairId:pairId&&pairId!=="__custom__"?Number(pairId):null,start:pair?.start||start||"",end:pair?.end||end||"",group:d?.group||group,disciplineId:d?Number(d.id):(disciplineId?Number(disciplineId):null),discipline:d?.name||discipline,type,workloadHours:num(workloadHours),coverage,students:students||"",teacherId:teacherId?Number(teacherId):null,teacher:t?teacherDisplay(t):"",room:room||"",note:note||"",repeatBatchId};
+  const primaryGroup=d?.group||group;
+  const did=d?Number(d.id):(disciplineId?Number(disciplineId):null);
+  return {date,pairId:pairId&&pairId!=="__custom__"?Number(pairId):null,start:pair?.start||start||"",end:pair?.end||end||"",group:primaryGroup,audienceGroups:uniqueStrings([primaryGroup]),disciplineId:did,disciplineIds:did?[did]:[],discipline:d?.name||discipline,type,workloadHours:num(workloadHours),coverage,students:students||"",teacherId:teacherId?Number(teacherId):null,teacher:t?teacherDisplay(t):"",room:room||"",note:note||"",repeatBatchId};
 }
 function openLessonModal(id=null,preset={}){
   currentEditingLessonId=id;const existing=id?db.schedule.find(s=>s.id===id):null;
@@ -4274,7 +4382,7 @@ function openLessonModal(id=null,preset={}){
   if(!x.disciplineId&&x.discipline)$("#ldiCustom").value=x.discipline;
   const applyLessonDateBounds=()=>{const did=$("#ldi").value,d=did&&did!=="__custom__"?disciplineById(Number(did)):null,b=d?semesterDateBounds(d.semester):academicYearBounds(),input=$("#ld");input.min=b.start;input.max=b.end;if(!dateInBounds(input.value,b))input.value=clampDate(input.value,b);};
   applyLessonDateBounds();
-  const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;return lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:$("#lr").value,note:$("#ln").value.trim()});};
+  const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;const item=lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:$("#lr").value,note:$("#ln").value.trim()});if(id&&existing){item.audienceGroups=existing.audienceGroups||item.audienceGroups;item.disciplineIds=existing.disciplineIds||item.disciplineIds;}return item;};
   const check=()=>{const item=readLesson(),cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);let html="";if(cs.length||info.warnings.length)html+=conflictDetailsHtml(item,cs,info.warnings);if(info.notes.length)html+=`<div class="notice">${info.notes.map(esc).join("<br>")}</div>`;$("#conflictBox").innerHTML=html;};
   $("#lg").onchange=()=>{$("#ldi").innerHTML=disciplineOptionsForGroup($("#lg").value,null,true);populateLessonFormFromLoad({});check();};$("#ldi").onchange=()=>{populateLessonFormFromLoad({});applyLessonDateBounds();check();};$("#lt").onchange=()=>{refreshTeachersAndLoad(null);check();};$("#ltea").onchange=()=>{renderLoadHint();check();};
   $("#lpair").onchange=()=>{$("#customTimeBox").style.display=$("#lpair").value==="__custom__"?"grid":"none";check();};["ld","lr","lwh"].forEach(k=>$("#"+k).onchange=check);check();
@@ -4290,8 +4398,8 @@ function plannerTypes(d,teacherId){return schedulableTypes(d).map(lt=>{const pla
 function plannerDefaultUnit(typeName,remaining){const lt=lessonTypeByName(typeName),unit=isAuditoriumPairType(lt)?2:num(lt?.defaultUnit||1);return Math.max(0,Math.min(unit,remaining));}
 function plannerScheduleForDate(date){return db.schedule.filter(x=>x.date===date);}
 function plannerTeacherEvents(date,teacherId){return plannerScheduleForDate(date).filter(x=>Number(resolvedScheduleTeacherId(x,db))===Number(teacherId));}
-function plannerGroupEvents(date,group){return plannerScheduleForDate(date).filter(x=>normIdentity(resolvedScheduleGroup(x,db))===normIdentity(group));}
-function plannerOwnEvents(date,d,teacherId){return plannerScheduleForDate(date).filter(x=>Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(teacherId));}
+function plannerGroupEvents(date,group){return plannerScheduleForDate(date).filter(x=>scheduleIncludesGroup(x,group));}
+function plannerOwnEvents(date,d,teacherId){return plannerScheduleForDate(date).filter(x=>scheduleCoversDiscipline(x,d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(teacherId));}
 function plannerDateEventsSummary(date,d,t){
   const own=plannerOwnEvents(date,d,t.id);
   const teacher=plannerTeacherEvents(date,t.id);
@@ -4299,7 +4407,7 @@ function plannerDateEventsSummary(date,d,t){
   return {own,teacher,group};
 }
 function plannerEventPair(x){return x.pairId?`${x.pairId} пара`:(x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"без №");}
-function plannerMonthOwnCount(month,d,t){return db.schedule.filter(x=>String(x.date||"").slice(0,7)===month&&Number(x.disciplineId)===Number(d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)).length;}
+function plannerMonthOwnCount(month,d,t){return db.schedule.filter(x=>String(x.date||"").slice(0,7)===month&&scheduleCoversDiscipline(x,d.id)&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)).length;}
 function plannerMonthTabsHtml(d,t){return `<div class="scheduler-month-tabs">${schedulerMonthsForDiscipline(d).map(m=>{const c=plannerMonthOwnCount(m.value,d,t);return `<button class="${m.value===disciplinePlannerState.month?"active":""}" onclick="setDisciplinePlannerMonth('${m.value}')"><span>${esc(m.label)}</span>${c?`<b>${c}</b>`:""}</button>`;}).join("")}</div>`;}
 function plannerCalendarChip(x,kind){
   const pair=x?.pairId||pairIdForTimes(x?.start||"",x?.end||"");
@@ -4751,6 +4859,11 @@ function plannerSeriesPanelHtml(d,t){
       <div id="plannerSeriesSummary" class="planner-series-summary"></div>
       <div id="plannerSeriesRows" class="planner-series-rows"></div>
 
+      <div class="planner-stream-audience">
+        <div><b>Групи / потік</b><span>Вибрані групи слухатимуть кожну пару серії разом.</span></div>
+        ${plannerAudienceButtonsHtml(d,t,[d.group])}
+      </div>
+
       <div class="planner-extra planner-series-extra">
         <label>Охоплення
           <select id="plannerSeriesCoverage">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select>
@@ -5034,6 +5147,7 @@ function savePlannerSeries(d,t){
   if(!selected.length)return alert("Немає вибраних дат для збереження.");
 
   const bounds=plannerSeriesBounds(d);
+  const audienceGroups=plannerSelectedAudienceGroups(d);
   const stats=plannerTypes(d,t.id);
   const byType={};
   const draft=[];
@@ -5064,20 +5178,18 @@ function savePlannerSeries(d,t){
       continue;
     }
 
+    const coverageIds=plannerDisciplineIdsForAudience(d,t,x.type,audienceGroups);
+    if(coverageIds.missing.length){
+      problems.push(`${formatDate(x.date)} · ${x.type}: у ${coverageIds.missing.join(", ")} цей вид не розподілений викладачу ${teacherDisplay(t)}.`);
+      continue;
+    }
     const item=lessonItemFromValues({
-      date:x.date,
-      pairId:x.pairId,
-      group:d.group,
-      disciplineId:d.id,
-      discipline:d.name,
-      type:x.type,
-      workloadHours:hours,
-      coverage:$("#plannerSeriesCoverage").value,
-      teacherId:t.id,
-      room:x.room,
-      note:$("#plannerSeriesNote").value.trim(),
-      repeatBatchId:batchId
+      date:x.date,pairId:x.pairId,group:d.group,disciplineId:d.id,discipline:d.name,type:x.type,
+      workloadHours:hours,coverage:$("#plannerSeriesCoverage").value,teacherId:t.id,room:x.room,
+      note:$("#plannerSeriesNote").value.trim(),repeatBatchId:batchId
     });
+    item.audienceGroups=audienceGroups;
+    item.disciplineIds=coverageIds.ids;
 
     const cs=conflictsFor(item,null,draft);
     const info=teacherAvailabilityInfo(item,null,draft);
@@ -5457,6 +5569,33 @@ function savePlannerAvailabilityPopup(disciplineId,teacherId){
   refreshPlannerAfterAction(d,t);
 }
 
+function sharedDisciplineCandidateForGroup(d,group){
+  return db.disciplines.find(x=>x.status!=="archived"&&normIdentity(x.group)===normIdentity(group)&&normIdentity(x.name)===normIdentity(d.name)&&Number(x.semester)===Number(d.semester))||null;
+}
+function plannerCompatibleStreamGroups(d,t){
+  return sortedGroups().filter(g=>{
+    const peer=sharedDisciplineCandidateForGroup(d,g.code);
+    if(!peer)return false;
+    return schedulableTypes(peer).some(lt=>teacherTypePlan(peer,t.id,lt.name)>0);
+  });
+}
+function plannerAudienceButtonsHtml(d,t,selected=[d.group]){
+  const set=new Set((selected||[]).map(normIdentity));
+  return `<div class="planner-audience-buttons">${plannerCompatibleStreamGroups(d,t).map(g=>`<label class="planner-audience-btn ${set.has(normIdentity(g.code))?"active":""}"><input type="checkbox" data-planner-audience value="${esc(g.code)}" ${set.has(normIdentity(g.code))?"checked":""} ${normIdentity(g.code)===normIdentity(d.group)?"disabled":""} onchange="this.closest('.planner-audience-btn').classList.toggle('active',this.checked)"><b>${esc(g.code)}</b><span>${esc(g.course)} курс</span></label>`).join("")}</div>`;
+}
+function plannerSelectedAudienceGroups(d){
+  return uniqueStrings([d.group,...$$('[data-planner-audience]').filter(x=>x.checked).map(x=>x.value)]);
+}
+function plannerDisciplineIdsForAudience(d,t,type,audienceGroups){
+  const ids=[],missing=[];
+  (audienceGroups||[]).forEach(group=>{
+    const peer=sharedDisciplineCandidateForGroup(d,group);
+    if(!peer||teacherTypePlan(peer,t.id,type)<=0){missing.push(group);return;}
+    ids.push(Number(peer.id));
+  });
+  return {ids:[...new Set(ids)],missing};
+}
+
 function openPlannerSingleDatePopup(disciplineId,teacherId){
   const d=disciplineById(disciplineId);
   const t=teacherById(teacherId);
@@ -5498,6 +5637,11 @@ function openPlannerSingleDatePopup(disciplineId,teacherId){
 
       <div id="plannerEntries"></div>
       <div id="plannerEntriesEmpty" class="planner-entries-empty">Додай хоча б одну пару.</div>
+
+      <div class="planner-stream-audience">
+        <div><b>Групи / потік</b><span>Якщо дисципліну слухають кілька груп разом — познач їх. Це буде одна реальна пара в розкладі всіх вибраних груп.</span></div>
+        ${plannerAudienceButtonsHtml(d,t,[d.group])}
+      </div>
 
       <div class="planner-popup-two">
         <label>Охоплення
@@ -5684,7 +5828,34 @@ function selectDisciplinePlannerDate(date){
   renderDisciplinePlannerModal();
   requestAnimationFrame(()=>$("#schedulerDayWorkspace")?.scrollIntoView({behavior:"smooth",block:"nearest"}));
 }
-function savePlannerDateEntries(e,d,t){e.preventDefault();const rows=$$("[data-planner-entry]");if(!rows.length)return alert("Додай хоча б одну пару.");const date=disciplinePlannerState.date,byType={},draft=[],problems=[];rows.forEach((row,i)=>{const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}byType[type]=used+hours;const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`}),cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: ${conflictReasonLines(item,cs).join(" ")}`);return;}if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}draft.push(item);});if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));refreshPlannerAfterAction(d,t);}
+function savePlannerDateEntries(e,d,t){
+  e.preventDefault();
+  const rows=$$("[data-planner-entry]");
+  if(!rows.length)return alert("Додай хоча б одну пару.");
+  const audienceGroups=plannerSelectedAudienceGroups(d);
+  const date=disciplinePlannerState.date,byType={},draft=[],problems=[];
+
+  rows.forEach((row,i)=>{
+    const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;
+    if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}
+    const coverageIds=plannerDisciplineIdsForAudience(d,t,type,audienceGroups);
+    if(coverageIds.missing.length){problems.push(`${type}: у ${coverageIds.missing.join(", ")} цей вид не розподілений викладачу ${teacherDisplay(t)}.`);return;}
+    const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);
+    if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}
+    byType[type]=used+hours;
+    const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`});
+    item.audienceGroups=audienceGroups;
+    item.disciplineIds=coverageIds.ids;
+    const cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);
+    if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: ${conflictReasonLines(item,cs).join(" ")}`);return;}
+    if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}
+    draft.push(item);
+  });
+
+  if(problems.length){$("#plannerConflictMessage").innerHTML=`<div class="conflict"><b>Не можу зберегти:</b><br>${problems.map(esc).join("<br>")}</div>`;return;}
+  draft.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));
+  refreshPlannerAfterAction(d,t);
+}
 function openAllocationScheduler(disciplineId,typeName,teacherId){openDisciplineTeacherScheduler(disciplineId,teacherId);}
 function addDays(dateStr,days){const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
 function datesForPattern(pattern,from,to,weekday,specific,bounds=academicYearBounds()){if(pattern==="dates")return [...new Set((specific||"").split(/[\s,;]+/).map(x=>x.trim()).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&dateInBounds(x,bounds)))].sort();const result=[];if(!from||!to)return result;let d=from;while(d<=to){if(dateInBounds(d,bounds)&&weekdayId(d)===Number(weekday))result.push(d);d=addDays(d,1);}return pattern==="biweekly"?result.filter((_,i)=>i%2===0):result;}
@@ -5722,8 +5893,7 @@ function scheduleColorVars(x){
   return `--subject-h:${hue};--subject-s:${sat}%;--subject-bg:hsl(${hue} ${sat}% ${bgLight}%);--subject-border:hsl(${hue} ${Math.min(78,sat+8)}% ${borderLight}%);--subject-text:hsl(${hue} 48% 23%);--subject-muted:hsl(${hue} 28% 42%)`;
 }
 function scheduleLessonsForGroup(group){
-  const key=normGroup(group);
-  return db.schedule.filter(x=>!x.specialSchedule&&normGroup(resolvedScheduleGroup(x,db))===key&&dateInBounds(x.date));
+  return db.schedule.filter(x=>!x.specialSchedule&&scheduleIncludesGroup(x,group)&&dateInBounds(x.date));
 }
 function timetableBookingsForGroup(group){
   const key=normGroup(group);
@@ -5763,7 +5933,7 @@ function groupEventSlotId(ev){
 function groupMonthEventCard(ev){
   const x=ev.data;
   if(ev.source==="schedule"){
-    return `<button class="group-slot-event" style="${scheduleColorVars(x)}" onclick="openLessonModal(${x.id})">
+    return `<button class="group-slot-event" style="${scheduleColorVars(x)}" onclick="${isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">
       <div class="group-slot-event-main">
         <b>${esc(x.discipline||"Заняття")}</b>
         <span>${esc(x.teacher||"—")}</span>
@@ -5946,7 +6116,7 @@ function teacherPairSlotEventCard(ev,source){
       return `<div class="teacher-slot-event teacher-slot-special subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-slot-event-main"><b>${esc(specialStudentName(x))}</b><span>${esc(x.discipline||"Заняття")}</span></div><div class="teacher-slot-event-meta"><strong>${esc(x.start||"")}–${esc(x.end||"")}${x.room?` · ауд. ${esc(x.room)}`:""}</strong><small>½ пари · ${esc(x.type||specialKindMeta(x.specialKind).short)}</small></div></div>`;
     }
     return `<div class="teacher-slot-event subject-colored" style="${scheduleColorVars(x)}">
-      <div class="teacher-slot-event-main"><b>${esc(x.group||"—")}</b><span>${esc(x.discipline||"Заняття")}</span></div>
+      <div class="teacher-slot-event-main"><b>${esc(scheduleAudienceLabel(x)||"—")}</b><span>${esc(x.discipline||"Заняття")}</span></div>
       <div class="teacher-slot-event-meta"><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong>${x.type?`<small>${esc(x.type)}</small>`:""}</div>
     </div>`;
   }
@@ -6010,7 +6180,7 @@ function teacherMonthEventCard(ev,source){
     }
     return `<div class="teacher-month-event subject-colored" style="${scheduleColorVars(x)}">
       <div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div>
-      <span class="teacher-month-group">${esc(x.group||"—")}</span><span class="teacher-month-discipline">${esc(x.discipline||"Заняття")}</span>${x.type?`<small>${esc(x.type)}</small>`:""}
+      <span class="teacher-month-group">${esc(scheduleAudienceLabel(x)||"—")}</span><span class="teacher-month-discipline">${esc(x.discipline||"Заняття")}</span>${x.type?`<small>${esc(x.type)}</small>`:""}
     </div>`;
   }
   return `<div class="teacher-month-event booking">

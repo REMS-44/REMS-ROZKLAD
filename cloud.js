@@ -398,7 +398,10 @@ function lockSpecs(x){
     if(x.room)specs.push(["room",x.room]);
     if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
   }else{
-    if(x.group)specs.push(["group",x.group]);
+    const groups=[...(Array.isArray(x.audienceGroups)?x.audienceGroups:[]),x.group||""]
+      .map(v=>String(v||"").trim()).filter(Boolean)
+      .filter((v,i,a)=>a.findIndex(z=>z.toLowerCase()===v.toLowerCase())===i);
+    groups.forEach(g=>specs.push(["group",g]));
     if(x.room)specs.push(["room",x.room]);
     if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
   }

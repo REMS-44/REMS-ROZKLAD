@@ -6432,3 +6432,46 @@ td .small{font-size:12px}
     grid-template-columns:1fr!important;
   }
 }
+
+
+/* ================================================================
+   v1.6.0 · compact schedule authoring + group streams
+   ================================================================ */
+.schedule-discipline-list{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:10px!important;
+  align-items:start!important;
+}
+.schedule-discipline-card{min-width:0!important;border-radius:14px!important;overflow:hidden;}
+.schedule-discipline-head{padding:12px!important;gap:10px!important;}
+.schedule-discipline-accent{width:9px!important;flex:0 0 9px!important;height:42px!important;}
+.schedule-discipline-head h3{font-size:16px!important;line-height:1.15!important;}
+.schedule-discipline-meta{font-size:9px!important;gap:7px!important;}
+.schedule-discipline-summary{gap:6px!important;}
+.schedule-discipline-summary b{font-size:11px!important;}
+.schedule-discipline-summary span{font-size:8px!important;}
+.schedule-discipline-summary strong{font-size:8px!important;padding:5px 7px!important;}
+.schedule-discipline-teachers-grid{grid-template-columns:1fr!important;gap:7px!important;padding:8px!important;}
+.schedule-discipline-teacher{padding:9px!important;gap:7px!important;background:color-mix(in srgb,var(--subject-bg) 54%,#fff)!important;}
+.schedule-discipline-teacher:nth-child(2){background:color-mix(in srgb,var(--subject-border) 8%,#fff)!important;}
+.schedule-discipline-teacher:nth-child(3){background:color-mix(in srgb,var(--subject-border) 13%,#fff)!important;}
+.schedule-discipline-teacher-head h4{font-size:13px!important;}
+.schedule-discipline-teacher-total b{font-size:10px!important;}
+.schedule-discipline-teacher-total span{font-size:7px!important;}
+.schedule-discipline-teacher-types{display:flex!important;flex-wrap:wrap!important;gap:5px!important;}
+.schedule-teacher-type{flex:1 1 115px!important;min-width:0!important;padding:6px 7px!important;}
+.schedule-teacher-type span{font-size:8px!important}.schedule-teacher-type b{font-size:10px!important}.schedule-teacher-type small{font-size:7px!important}
+.schedule-discipline-teacher-foot{gap:6px!important}.schedule-remaining{font-size:8px!important}
+
+.ready-audience-section,.planner-stream-audience{padding:11px;border:1px solid #e0d7e5;border-radius:12px;background:#faf8fc;}
+.ready-audience-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:8px;}
+.ready-audience-head>div{display:flex;flex-direction:column;gap:2px}.ready-audience-head b,.planner-stream-audience b{font-size:12px}.ready-audience-head span,.ready-audience-head small,.planner-stream-audience span{font-size:9px;color:#776b7e;line-height:1.35}
+.ready-audience-buttons,.planner-audience-buttons{display:flex;flex-wrap:wrap;gap:6px;}
+.ready-audience-btn,.planner-audience-btn{min-width:112px;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:7px 10px;border:1px solid #ddd3e4;border-radius:10px;background:#fff;color:#40284f;cursor:pointer;}
+.ready-audience-btn b,.planner-audience-btn b{font-size:11px}.ready-audience-btn span,.planner-audience-btn span{font-size:8px;color:#7a6d80}
+.ready-audience-btn.active,.planner-audience-btn.active{border-color:#7530ad;background:#f1e8fa;box-shadow:inset 0 0 0 1px #7530ad;}
+.planner-audience-btn{position:relative}.planner-audience-btn input{position:absolute;opacity:0;pointer-events:none}.planner-stream-audience{display:flex;flex-direction:column;gap:8px;margin:9px 0;}
+.ready-manager-main small{font-size:8px;color:#765f84;}
+
+@media(max-width:1280px){.schedule-discipline-list{grid-template-columns:1fr!important;}}
