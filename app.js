@@ -10,6 +10,13 @@ const UI_TEACHER_VIEW_KEY="remsUiTeacherView_v1";
 const UI_LOAD_PAGE_GROUP_KEY="remsUiLoadPageGroup_v1";
 const UI_LOAD_PAGE_FILTER_KEY="remsUiLoadPageFilter_v1";
 const UI_LOAD_PAGE_SEMESTER_KEY="remsUiLoadPageSemester_v1";
+
+const BACKUP_DB_NAME="remsScheduleBackups_v1";
+const BACKUP_STORE="snapshots";
+const BACKUP_LIMIT=10;
+const BACKUP_EXPORT_KEY="remsLastJsonExport_v1";
+const BACKUP_AUTO_DELAY=45*1000;
+let automaticBackupTimer=null;
 function rememberWorkloadGroup(group){
   try{if(group)sessionStorage.setItem(UI_WORKLOAD_GROUP_KEY,group);else sessionStorage.removeItem(UI_WORKLOAD_GROUP_KEY);}catch(e){}
 }
@@ -411,6 +418,354 @@ function migrate(old){
   repairScheduleLinks(fresh);
   return fresh;
 }
+
+function backupSummary(state){
+  const s=state||{};
+  const schedule=(s.schedule||[]);
+  return {
+    groups:(s.groups||[]).filter(x=>x.status!=="archived").length,
+    students:(s.students||[]).filter(x=>x.status!=="archived").length,
+    teachers:(s.teachers||[]).filter(x=>x.status!=="archived").length,
+    curricula:(s.curricula||[]).filter(x=>x.status!=="archived").length,
+    disciplines:(s.disciplines||[]).filter(x=>x.status!=="archived").length,
+    schedule:schedule.length,
+    regular:schedule.filter(x=>!x.specialSchedule).length,
+    special:schedule.filter(x=>x.specialSchedule).length,
+    rooms:(s.rooms||[]).filter(x=>x.status!=="archived").length
+  };
+}
+function backupSummaryInline(summary={}){
+  return `${summary.groups||0} груп · ${summary.students||0} студентів · ${summary.teachers||0} викладачів · ${summary.disciplines||0} дисциплін · ${summary.schedule||0} записів розкладу`;
+}
+function backupBytes(state){
+  try{return new Blob([JSON.stringify(state)]).size;}catch(e){return 0;}
+}
+function backupSizeLabel(bytes=0){
+  if(bytes<1024)return `${bytes} Б`;
+  if(bytes<1024*1024)return `${(bytes/1024).toFixed(bytes<10240?1:0)} КБ`;
+  return `${(bytes/1024/1024).toFixed(1)} МБ`;
+}
+function backupDateLabel(value){
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime()))return "—";
+  return new Intl.DateTimeFormat("uk-UA",{
+    day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"
+  }).format(d);
+}
+function openBackupDB(){
+  return new Promise((resolve,reject)=>{
+    if(!("indexedDB" in window))return reject(new Error("IndexedDB недоступний у цьому браузері."));
+    const req=indexedDB.open(BACKUP_DB_NAME,1);
+    req.onupgradeneeded=()=>{
+      const idb=req.result;
+      if(!idb.objectStoreNames.contains(BACKUP_STORE)){
+        const store=idb.createObjectStore(BACKUP_STORE,{keyPath:"id"});
+        store.createIndex("createdAt","createdAt",{unique:false});
+      }
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error||new Error("Не вдалося відкрити локальне сховище."));
+  });
+}
+async function backupStoreAction(mode,callback){
+  const idb=await openBackupDB();
+  try{
+    return await new Promise((resolve,reject)=>{
+      const tx=idb.transaction(BACKUP_STORE,mode);
+      const store=tx.objectStore(BACKUP_STORE);
+      let result;
+      try{result=callback(store,tx,resolve,reject);}catch(e){reject(e);return;}
+      tx.onerror=()=>reject(tx.error||new Error("Помилка локального сховища."));
+      tx.onabort=()=>reject(tx.error||new Error("Операцію резервної копії скасовано."));
+      if(result!==undefined&&typeof result?.then!=="function"){}
+    });
+  }finally{
+    idb.close();
+  }
+}
+async function localBackupList(){
+  const idb=await openBackupDB();
+  try{
+    return await new Promise((resolve,reject)=>{
+      const tx=idb.transaction(BACKUP_STORE,"readonly");
+      const req=tx.objectStore(BACKUP_STORE).getAll();
+      req.onsuccess=()=>resolve((req.result||[]).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))));
+      req.onerror=()=>reject(req.error);
+    });
+  }finally{idb.close();}
+}
+async function localBackupGet(id){
+  const idb=await openBackupDB();
+  try{
+    return await new Promise((resolve,reject)=>{
+      const tx=idb.transaction(BACKUP_STORE,"readonly");
+      const req=tx.objectStore(BACKUP_STORE).get(id);
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>reject(req.error);
+    });
+  }finally{idb.close();}
+}
+async function trimLocalBackups(){
+  const list=await localBackupList();
+  if(list.length<=BACKUP_LIMIT)return;
+  const remove=list.slice(BACKUP_LIMIT);
+  const idb=await openBackupDB();
+  try{
+    await new Promise((resolve,reject)=>{
+      const tx=idb.transaction(BACKUP_STORE,"readwrite");
+      const store=tx.objectStore(BACKUP_STORE);
+      remove.forEach(x=>store.delete(x.id));
+      tx.oncomplete=()=>resolve();
+      tx.onerror=()=>reject(tx.error);
+    });
+  }finally{idb.close();}
+}
+async function createLocalBackup(reason="Контрольна точка",state=null,kind="manual"){
+  const snapshot=clone(state||db);
+  const createdAt=new Date().toISOString();
+  const record={
+    id:`${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+    createdAt,
+    reason,
+    kind,
+    summary:backupSummary(snapshot),
+    bytes:backupBytes(snapshot),
+    data:snapshot
+  };
+  const idb=await openBackupDB();
+  try{
+    await new Promise((resolve,reject)=>{
+      const tx=idb.transaction(BACKUP_STORE,"readwrite");
+      tx.objectStore(BACKUP_STORE).put(record);
+      tx.oncomplete=()=>resolve();
+      tx.onerror=()=>reject(tx.error);
+    });
+  }finally{idb.close();}
+  await trimLocalBackups();
+  return record;
+}
+function scheduleAutomaticBackup(){
+  if(automaticBackupTimer)return;
+  automaticBackupTimer=setTimeout(async()=>{
+    automaticBackupTimer=null;
+    try{
+      await createLocalBackup("Автоматична контрольна точка",db,"auto");
+    }catch(e){
+      console.warn("Automatic backup failed",e);
+    }
+  },BACKUP_AUTO_DELAY);
+}
+async function deleteLocalBackup(id){
+  const rec=await localBackupGet(id);
+  if(!rec)return;
+  if(!confirm(`Видалити контрольну точку від ${backupDateLabel(rec.createdAt)}?`))return;
+
+  const idb=await openBackupDB();
+  try{
+    await new Promise((resolve,reject)=>{
+      const tx=idb.transaction(BACKUP_STORE,"readwrite");
+      tx.objectStore(BACKUP_STORE).delete(id);
+      tx.oncomplete=()=>resolve();
+      tx.onerror=()=>reject(tx.error);
+    });
+  }finally{idb.close();}
+  await refreshBackupCenter();
+}
+async function createManualBackup(){
+  try{
+    await createLocalBackup("Створено вручну",db,"manual");
+    await refreshBackupCenter();
+  }catch(e){
+    alert(`Не вдалося створити локальну копію: ${e.message||e}`);
+  }
+}
+async function restoreLocalBackup(id){
+  const rec=await localBackupGet(id);
+  if(!rec)return alert("Контрольну точку не знайдено.");
+
+  const warning=window.REMS_CLOUD?.canWrite?.()
+    ?"\n\nУВАГА: після відновлення цей стан буде синхронізовано у спільну Firebase-базу."
+    :"\n\nСтан буде відновлено в цьому браузері.";
+
+  if(!confirm(
+    `Відновити базу станом на ${backupDateLabel(rec.createdAt)}?\n\n${backupSummaryInline(rec.summary)}${warning}`
+  ))return;
+
+  try{
+    await createLocalBackup("Перед відновленням старої версії",db,"safety");
+    db=migrate(clone(rec.data));
+    normalizeCurricula();
+    save();
+    closeModal();
+    go("settings");
+    alert("Контрольну точку відновлено.");
+  }catch(e){
+    alert(`Не вдалося відновити: ${e.message||e}`);
+  }
+}
+function lastJsonExport(){
+  try{return localStorage.getItem(BACKUP_EXPORT_KEY)||"";}catch(e){return"";}
+}
+function markJsonExport(){
+  try{localStorage.setItem(BACKUP_EXPORT_KEY,new Date().toISOString());}catch(e){}
+}
+function backupExportPayload(){
+  return {
+    format:"REMS-ROZKLAD-BACKUP",
+    formatVersion:1,
+    createdAt:new Date().toISOString(),
+    appVersion:"1.8.0",
+    summary:backupSummary(db),
+    data:clone(db)
+  };
+}
+function exportData(){
+  const payload=backupExportPayload();
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  const url=URL.createObjectURL(blob);
+  a.href=url;
+  a.download=`REMS-ROZKLAD-backup-${localTodayISO()}-${String(new Date().getHours()).padStart(2,"0")}${String(new Date().getMinutes()).padStart(2,"0")}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  markJsonExport();
+  refreshBackupCenter();
+}
+function extractImportedState(parsed){
+  if(parsed?.format==="REMS-ROZKLAD-BACKUP"&&parsed?.data)return parsed.data;
+  return parsed;
+}
+async function importBackupFile(file){
+  if(!file)return;
+  try{
+    const text=await file.text();
+    const parsed=JSON.parse(text);
+    const candidate=extractImportedState(parsed);
+    const migrated=migrate(candidate);
+    const summary=backupSummary(migrated);
+
+    if(!Array.isArray(migrated.groups)||!Array.isArray(migrated.schedule)||!Array.isArray(migrated.teachers)){
+      throw new Error("Файл не схожий на резервну копію РЕМС-Розкладу.");
+    }
+
+    const cloudWarning=window.REMS_CLOUD?.canWrite?.()
+      ?"\n\nПісля імпорту дані будуть синхронізовані у спільну Firebase-базу."
+      :"";
+
+    if(!confirm(
+      `Імпортувати цю резервну копію?\n\n${backupSummaryInline(summary)}${cloudWarning}\n\nПоточний стан буде автоматично збережено окремою контрольною точкою.`
+    ))return;
+
+    await createLocalBackup("Перед імпортом JSON",db,"safety");
+    db=migrated;
+    normalizeCurricula();
+    save();
+    closeModal();
+    go("settings");
+    alert("Резервну копію імпортовано.");
+  }catch(e){
+    alert(`Не вдалося імпортувати файл: ${e.message||e}`);
+  }
+}
+function backupKindLabel(kind){
+  return ({
+    auto:"АВТО",
+    manual:"ВРУЧНУ",
+    safety:"СТРАХУВАЛЬНА"
+  })[kind]||"КОПІЯ";
+}
+function backupRowHtml(rec){
+  return `<article class="backup-history-row">
+    <div class="backup-history-time">
+      <b>${esc(backupDateLabel(rec.createdAt))}</b>
+      <span class="backup-kind ${esc(rec.kind||"")}">${esc(backupKindLabel(rec.kind))}</span>
+    </div>
+    <div class="backup-history-main">
+      <b>${esc(rec.reason||"Контрольна точка")}</b>
+      <span>${esc(backupSummaryInline(rec.summary||{}))}</span>
+    </div>
+    <div class="backup-history-size">${esc(backupSizeLabel(rec.bytes||0))}</div>
+    <div class="backup-history-actions">
+      <button class="secondary" onclick="restoreLocalBackup('${esc(rec.id)}')">Відновити</button>
+      <button class="quiet-danger" onclick="deleteLocalBackup('${esc(rec.id)}')">×</button>
+    </div>
+  </article>`;
+}
+async function refreshBackupCenter(){
+  const mount=$("#backupHistoryMount");
+  const count=$("#backupCountValue");
+  const last=$("#backupLastValue");
+  if(!mount&&!count&&!last)return;
+
+  try{
+    const list=await localBackupList();
+    if(count)count.textContent=String(list.length);
+    if(last)last.textContent=list[0]?backupDateLabel(list[0].createdAt):"ще немає";
+    if(mount){
+      mount.innerHTML=list.length
+        ?list.map(backupRowHtml).join("")
+        :`<div class="backup-empty">
+            <b>Контрольних точок ще немає</b>
+            <span>Натисни «Створити контрольну точку». Далі система також робитиме їх автоматично під час роботи.</span>
+          </div>`;
+    }
+  }catch(e){
+    if(mount)mount.innerHTML=`<div class="notice warn-notice">Локальні контрольні точки недоступні: ${esc(e.message||e)}</div>`;
+  }
+}
+function openBackupCenter(){
+  const summary=backupSummary(db);
+  openModal(`<div class="backup-center">
+    <div class="backup-center-head">
+      <div>
+        <span>ЗАХИСТ ДАНИХ</span>
+        <h2>Резервні копії</h2>
+        <p>Локальні контрольні точки для швидкого відкату + повний JSON-файл, який можна зберігати окремо від браузера і Firebase.</p>
+      </div>
+      <div class="backup-current-badge">
+        <b>${summary.schedule}</b>
+        <span>записів розкладу зараз</span>
+      </div>
+    </div>
+
+    <div class="backup-kpis">
+      <div><span>Локальних точок</span><b id="backupCountValue">…</b><small>зберігаємо останні ${BACKUP_LIMIT}</small></div>
+      <div><span>Остання точка</span><b id="backupLastValue">…</b><small>лише в цьому браузері</small></div>
+      <div><span>Останній JSON</span><b>${esc(lastJsonExport()?backupDateLabel(lastJsonExport()):"ще не створювався")}</b><small>окремий файл на комп’ютері</small></div>
+    </div>
+
+    <div class="backup-actions-grid">
+      <button class="backup-action-card primary-card" onclick="createManualBackup()">
+        <i>●</i>
+        <div><b>Створити контрольну точку</b><span>Швидка локальна копія поточного стану. Firebase не використовується.</span></div>
+      </button>
+      <button class="backup-action-card" onclick="exportData()">
+        <i>↓</i>
+        <div><b>Завантажити повний JSON</b><span>Найнадійніша зовнішня копія всієї бази одним файлом.</span></div>
+      </button>
+      <button class="backup-action-card" onclick="document.querySelector('#importFile').click()">
+        <i>↑</i>
+        <div><b>Відновити з JSON</b><span>Перед імпортом поточний стан автоматично збережеться окремою точкою.</span></div>
+      </button>
+    </div>
+
+    <div class="backup-safety-note">
+      <b>Як це працює</b>
+      <span>Система тримає до ${BACKUP_LIMIT} локальних контрольних точок у браузері. Під час активної роботи нова автоматична точка створюється не частіше ніж приблизно раз на хвилину. Старі видаляються автоматично. Для справжньої зовнішньої страховки періодично завантажуй JSON.</span>
+    </div>
+
+    <div class="backup-history-head">
+      <div><span>ІСТОРІЯ</span><h3>Останні контрольні точки</h3></div>
+      <button class="secondary" onclick="refreshBackupCenter()">Оновити</button>
+    </div>
+    <div id="backupHistoryMount"><div class="backup-empty">Завантаження…</div></div>
+  </div>`,true);
+
+  refreshBackupCenter();
+}
+
 function loadData(){
   try{
     const cur=localStorage.getItem(KEY);
@@ -432,6 +787,7 @@ function save(){
   repairScheduleLinks(db);
   db.schemaVersion=15;
   localStorage.setItem(KEY,JSON.stringify(db));
+  scheduleAutomaticBackup();
   renderCurrent();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
   if(window.REMS_CLOUD?.configured){
@@ -6466,16 +6822,13 @@ function renderSettings(){
             <button class="primary" style="margin-top:12px" onclick="savePeriod()">Зберегти період</button>
           </div>
 
-          <div class="card settings-card">
-            <h3>Резервна копія</h3>
-            <p class="small">Експорт усієї бази одним JSON-файлом.</p>
-            <button class="primary" onclick="exportData()">Експорт даних</button>
-          </div>
-
-          <div class="card settings-card">
-            <h3>Імпорт</h3>
-            <p class="small">Відновити дані з резервної копії.</p>
-            <button class="secondary" onclick="document.querySelector('#importFile').click()">Імпортувати</button>
+          <div class="card settings-card settings-backup-entry">
+            <div class="settings-backup-entry-icon">↺</div>
+            <div>
+              <h3>Резервні копії</h3>
+              <p class="small">10 локальних контрольних точок, автоматичне страхування та повний JSON-експорт.</p>
+            </div>
+            <button class="primary" onclick="openBackupCenter()">Відкрити центр копій</button>
           </div>
 
           <div class="card settings-card settings-card-danger">
@@ -6494,9 +6847,19 @@ function saveBellSchedule(){db.bellSchedule=$$("[data-bell-row]").map(r=>({id:Nu
 function addBellPair(){const next=bellPairs().length?Math.max(...bellPairs().map(p=>Number(p.id)||0))+1:1;db.bellSchedule.push({id:next,start:"",end:""});save();}
 function removeBellPair(id){if((db.schedule.some(s=>String(s.pairId)===String(id))||db.roomBookings.some(b=>String(b.pairId)===String(id)))&&!confirm("На цій парі вже є заняття. Видалити пару з довідника? Самі заняття не видаляться."))return;db.bellSchedule=db.bellSchedule.filter(p=>String(p.id)!==String(id));save();}
 function savePeriod(){db.academicYear=$("#setYear").value.trim();db.semester=+$("#setSem").value;save();alert("Збережено.");}
-function exportData(){const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`REMS-ROZKLAD-backup-${localTodayISO()}.json`;a.click();URL.revokeObjectURL(a.href);}
-$("#importFile").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{db=migrate(JSON.parse(r.result));save();alert("Дані імпортовано.");}catch(err){alert("Не вдалося прочитати файл.");}};r.readAsText(f);e.target.value="";};
-function resetData(){if(confirm("Повернути початкові дані?")){db=clone(window.REMS_INITIAL_DATA);save();go("home");}}
+$("#importFile").onchange=async e=>{
+  const f=e.target.files[0];
+  e.target.value="";
+  if(!f)return;
+  await importBackupFile(f);
+};
+async function resetData(){
+  if(!confirm("Повернути початкові дані? Поточний стан буде спочатку збережено страховою контрольною точкою."))return;
+  try{await createLocalBackup("Перед скиданням даних",db,"safety");}catch(e){}
+  db=clone(window.REMS_INITIAL_DATA);
+  save();
+  go("home");
+}
 
 const startPage=(()=>{
   const rawHash=(location.hash||"").replace(/^#/,"");
