@@ -6603,6 +6603,68 @@ function deleteLesson(id){
   currentEditingLessonId=null;closeModal();save();
 }
 
+
+/* Word export — course fragment in the same table language as faculty schedule */
+let courseWordExportState={course:null,semester:null};
+function wordSemesterFromMonth(month){
+  const m=Number(String(month||"").slice(5,7));
+  return m>=9&&m<=12?1:2;
+}
+function wordExportCourses(){
+  return [...new Set((db.groups||[]).filter(g=>g.status!=="archived").map(g=>Number(g.course)).filter(Boolean))].sort((a,b)=>a-b);
+}
+function wordExportGroups(course){
+  return (db.groups||[]).filter(g=>g.status!=="archived"&&Number(g.course)===Number(course)).slice();
+}
+function wordExportStudentCount(code){
+  return (db.students||[]).filter(s=>s.status!=="archived"&&normIdentity(s.group)===normIdentity(code)).length;
+}
+function wordExportPreviewHtml(){
+  const course=Number(courseWordExportState.course),semester=Number(courseWordExportState.semester);
+  const groups=wordExportGroups(course);
+  let preview={events:0,groups:[]};
+  try{preview=window.REMS_WORD_EXPORT?.preview?.(db,{course,semester})||preview;}catch(e){}
+  return `<div class="word-export-preview">
+    <div class="word-export-preview-head"><span>У WORD ПОТРАПЛЯТЬ</span><b>${course} курс · ${semester===2?"II":"I"} семестр</b></div>
+    <div class="word-export-group-list">${groups.map(g=>`<div><b>${esc(g.code)}</b><span>${wordExportStudentCount(g.code)} студентів</span></div>`).join("")||`<div class="empty">Немає груп цього курсу.</div>`}</div>
+    <div class="word-export-preview-foot"><b>${preview.events||0}</b><span>агрегованих блоків занять у документі</span></div>
+  </div>`;
+}
+function refreshCourseWordExportModal(){
+  const courses=wordExportCourses();
+  const coursesMount=$("#wordExportCourseButtons"),semMount=$("#wordExportSemesterButtons"),previewMount=$("#wordExportPreview");
+  if(coursesMount)coursesMount.innerHTML=courses.map(c=>{const gs=wordExportGroups(c);return `<button type="button" class="word-course-btn ${Number(courseWordExportState.course)===c?"active":""}" onclick="setCourseWordExportCourse(${c})"><b>${c} курс</b><span>${esc(gs.map(g=>g.code).join(" · ")||"без груп")}</span></button>`;}).join("");
+  if(semMount)semMount.innerHTML=[1,2].map(s=>`<button type="button" class="word-semester-btn ${Number(courseWordExportState.semester)===s?"active":""}" onclick="setCourseWordExportSemester(${s})"><b>${s===1?"I":"II"} семестр</b><span>${s===1?"вересень — грудень":"січень — червень"}</span></button>`).join("");
+  if(previewMount)previewMount.innerHTML=wordExportPreviewHtml();
+}
+function setCourseWordExportCourse(course){courseWordExportState.course=Number(course);refreshCourseWordExportModal();}
+function setCourseWordExportSemester(semester){courseWordExportState.semester=Number(semester);refreshCourseWordExportModal();}
+function openCourseWordExport(){
+  const currentCourse=Number(groupCourse(timetableState.group))||wordExportCourses()[0]||1;
+  courseWordExportState={course:currentCourse,semester:wordSemesterFromMonth(timetableState.month)};
+  openModal(`<div class="word-export-modal">
+    <div class="word-export-hero">
+      <div><span>ЕКСПОРТ ДЛЯ ЗАГАЛЬНОГО РОЗКЛАДУ</span><h2>Word по курсу</h2><p>Один документ містить тільки групи нашої спеціальності вибраного курсу. Формат повторює факультетський зразок: № пари, тривалість, окремі колонки груп, дисципліна, вид заняття, дати, викладач і аудиторія.</p></div>
+      <div class="word-export-icon">W</div>
+    </div>
+    <div class="word-export-section"><div class="word-export-section-title"><span>1</span><div><b>Оберіть курс</b><small>У документ підуть усі групи цього курсу з бази.</small></div></div><div id="wordExportCourseButtons" class="word-course-grid"></div></div>
+    <div class="word-export-section"><div class="word-export-section-title"><span>2</span><div><b>Оберіть семестр</b><small>Дати автоматично відбираються з готового розкладу.</small></div></div><div id="wordExportSemesterButtons" class="word-semester-grid"></div></div>
+    <div id="wordExportPreview"></div>
+    <div class="word-export-note"><b>Для вставки у факультетський файл</b><span>Ширина кожної групової колонки збережена такою самою, як у надісланому зразку. Ми не додаємо блок «ЗАТВЕРДЖУЮ» та факультетські підписи — це саме фрагмент нашої спеціальності.</span></div>
+    <div class="word-export-actions"><button class="secondary" type="button" onclick="closeModal()">Скасувати</button><button class="word-download-btn" type="button" onclick="downloadCourseWordExport()"><b>↓ Завантажити Word</b><span>.docx · готовий розклад курсу</span></button></div>
+  </div>`,true);
+  refreshCourseWordExportModal();
+}
+function downloadCourseWordExport(){
+  const course=Number(courseWordExportState.course),semester=Number(courseWordExportState.semester);
+  if(!window.REMS_WORD_EXPORT)return alert("Модуль Word-експорту не завантажився. Оновіть сторінку.");
+  try{
+    window.REMS_WORD_EXPORT.downloadCourseSchedule(db,{course,semester});
+  }catch(e){
+    alert(e?.message||"Не вдалося створити Word-файл.");
+  }
+}
+
 /* Group timetable calendar — monthly, fed by the same db.schedule as scheduling and teacher calendars */
 let timetableState={group:rememberedTimetableGroup()||null,month:null};
 function normGroup(v){return normIdentity(v);}
@@ -6738,7 +6800,7 @@ function renderTimetable(){
   const weekdays=["Пн","Вт","Ср","Чт","Пт","Сб","Нд"],today=localTodayISO();
   $("#page-timetable").innerHTML=`<div class="teacher-month-page group-month-page">
     <div class="card section teacher-month-header">
-      <div class="section-head"><div><h2>Розклад групи</h2><div class="small">Усі виставлені заняття беруться безпосередньо зі «Складання розкладу».</div></div></div>
+      <div class="section-head"><div><h2>Розклад групи</h2><div class="small">Усі виставлені заняття беруться безпосередньо зі «Складання розкладу».</div></div><div class="actions"><button class="word-course-export-btn" onclick="openCourseWordExport()"><span>WORD</span><b>↓ Word по курсу</b></button></div></div>
       <div class="group-timetable-switch-head">
         <div>
           <span>Група</span>

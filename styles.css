@@ -7155,3 +7155,84 @@ td .small{font-size:12px}
     margin-left:0;
   }
 }
+
+
+/* ================================================================
+   v1.9.0 · Word export by course
+   ================================================================ */
+.word-course-export-btn{
+  display:flex!important;
+  align-items:center;
+  gap:8px;
+  min-height:44px;
+  padding:8px 13px!important;
+  border:1px solid #21549a!important;
+  border-radius:12px!important;
+  background:linear-gradient(135deg,#1f5ea8,#153e78)!important;
+  color:#fff!important;
+  box-shadow:0 8px 20px rgba(21,62,120,.18);
+}
+.word-course-export-btn>span{
+  display:grid;place-items:center;
+  width:31px;height:27px;
+  border-radius:6px;
+  background:#fff;color:#18519a;
+  font-size:9px;font-weight:950;letter-spacing:.3px;
+}
+.word-course-export-btn>b{font-size:12px}
+.word-course-export-btn:hover{transform:translateY(-1px);box-shadow:0 11px 24px rgba(21,62,120,.24)!important}
+
+.word-export-modal{display:flex;flex-direction:column;gap:12px;min-width:0}
+.word-export-hero{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:16px 17px;border-radius:15px;
+  background:radial-gradient(circle at 90% 0,rgba(255,255,255,.18),transparent 36%),linear-gradient(135deg,#164e91,#21356f);
+  color:#fff;
+}
+.word-export-hero>div:first-child{max-width:790px}
+.word-export-hero>div:first-child>span{display:block;margin-bottom:3px;font-size:8px;font-weight:950;letter-spacing:.9px;opacity:.78}
+.word-export-hero h2{margin:0 0 5px!important;color:#fff!important;font-size:26px!important}
+.word-export-hero p{margin:0;font-size:10px;line-height:1.45;color:rgba(255,255,255,.83)}
+.word-export-icon{
+  flex:0 0 66px;width:66px;height:66px;display:grid;place-items:center;border-radius:15px;
+  background:#fff;color:#18519a;font-size:30px;font-weight:950;box-shadow:0 10px 25px rgba(0,0,0,.16)
+}
+.word-export-section{padding:11px;border:1px solid #e0dae6;border-radius:12px;background:#fbfafc}
+.word-export-section-title{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.word-export-section-title>span{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;background:#e8e0f0;color:#572785;font-size:11px;font-weight:900}
+.word-export-section-title b{display:block;font-size:12px}
+.word-export-section-title small{display:block;margin-top:1px;font-size:9px;color:#817486}
+.word-course-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.word-course-btn,.word-semester-btn{
+  min-height:58px;padding:8px 9px!important;border:1px solid #ded5e5!important;border-radius:10px!important;background:#fff!important;color:#422254!important;text-align:left!important
+}
+.word-course-btn b,.word-semester-btn b{display:block;font-size:12px}
+.word-course-btn span,.word-semester-btn span{display:block;margin-top:3px;font-size:8px;line-height:1.25;color:#807287;font-weight:600}
+.word-course-btn.active,.word-semester-btn.active{border-color:#7650a1!important;background:#eee5f7!important;box-shadow:inset 0 0 0 1px #7650a1}
+.word-semester-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.word-semester-btn{min-height:52px;text-align:center!important}
+.word-export-preview{display:grid;grid-template-columns:210px minmax(0,1fr) 125px;gap:8px;align-items:stretch}
+.word-export-preview>div{padding:10px 11px;border:1px solid #e0dae6;border-radius:11px;background:#fff}
+.word-export-preview-head span{display:block;font-size:7px;font-weight:950;letter-spacing:.7px;color:#817287}
+.word-export-preview-head b{display:block;margin-top:4px;font-size:14px;color:#341645}
+.word-export-group-list{display:flex;gap:6px;flex-wrap:wrap}
+.word-export-group-list>div{min-width:105px;padding:7px 8px;border-radius:8px;background:#f5f1f8}
+.word-export-group-list b{display:block;font-size:10px}
+.word-export-group-list span{display:block;margin-top:2px;font-size:8px;color:#796d80}
+.word-export-preview-foot{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.word-export-preview-foot b{font-size:24px;color:#245a9b}
+.word-export-preview-foot span{font-size:8px;line-height:1.25;color:#7c7082}
+.word-export-note{display:grid;grid-template-columns:180px minmax(0,1fr);gap:11px;padding:10px 12px;border-left:4px solid #2b6baa;border-radius:9px;background:#edf4fb}
+.word-export-note b{font-size:10px;color:#285d91}
+.word-export-note span{font-size:9px;line-height:1.45;color:#56718b}
+.word-export-actions{display:flex;justify-content:flex-end;gap:8px;align-items:stretch}
+.word-download-btn{
+  min-width:250px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;
+  padding:9px 14px!important;border:0!important;border-radius:11px!important;background:linear-gradient(135deg,#1f5ea8,#153e78)!important;color:#fff!important;box-shadow:0 8px 20px rgba(21,62,120,.18)
+}
+.word-download-btn b{font-size:12px}.word-download-btn span{font-size:8px;margin-top:2px;opacity:.78}
+@media(max-width:900px){
+  .word-course-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .word-export-preview{grid-template-columns:1fr}
+  .word-export-note{grid-template-columns:1fr}
+}
