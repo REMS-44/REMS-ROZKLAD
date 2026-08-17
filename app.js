@@ -333,7 +333,9 @@ function mergeSeedStudents(existing=[],seed=[]){
   (seed||[]).forEach(s=>{
     const key=studentSeedKey(s);
     if(key&&!keys.has(key)){
-      result.push(clone(s));
+      const copy=clone(s);
+      copy.id=uid(result);
+      result.push(copy);
       keys.add(key);
     }
   });
@@ -450,7 +452,7 @@ function migrate(old){
     ...c,
     programId:c.programId||fresh.groups.find(g=>(c.applicableGroups||[]).some(code=>normIdentity(code)===normIdentity(g.code)))?.programId||((fresh.programs||[]).find(p=>normIdentity(p.name)===normIdentity(c.program))?.id)||"rems"
   }));
-  fresh.schemaVersion=20;
+  fresh.schemaVersion=21;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     const ready=isReadyExternalScheduleItem(s);
     let teacherId=s.teacherId||null;
@@ -865,7 +867,7 @@ let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
   repairScheduleLinks(db);
-  db.schemaVersion=20;
+  db.schemaVersion=21;
   localStorage.setItem(KEY,JSON.stringify(db));
   scheduleAutomaticBackup();
   renderCurrent();
@@ -921,7 +923,7 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     &&!remoteTeacherKeys.has(normIdentity(t.name||t.shortName))
   );
 
-  db.schemaVersion=20;
+  db.schemaVersion=21;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
 
