@@ -7099,3 +7099,59 @@ td .small{font-size:12px}
   .schedule-action-btn b{font-size:16px}
   .schedule-action-btn small{font-size:10px}
 }
+
+
+/* ================================================================
+   v1.8.2 · consistent per-item delete system
+   ================================================================ */
+.entity-form-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:10px;
+  flex-wrap:wrap;
+  padding-top:4px;
+}
+.entity-form-actions .primary{
+  min-width:170px;
+}
+.entity-delete-btn{
+  margin-left:auto;
+  border:1px solid #f0c9cf!important;
+  background:#fff2f3!important;
+  color:#a22535!important;
+  box-shadow:none!important;
+}
+.entity-delete-btn:hover{
+  background:#ffe5e8!important;
+  border-color:#e7aab3!important;
+  transform:translateY(-1px);
+}
+.quiet-danger,
+.compact-delete{
+  border:1px solid #efd4d8!important;
+  background:#fff7f8!important;
+  color:#a33a48!important;
+}
+.quiet-danger:hover,
+.compact-delete:hover{
+  background:#ffe9ec!important;
+  color:#8e2231!important;
+}
+.compact-discipline-actions .compact-delete,
+.ready-schedule-actions .compact-delete{
+  flex:0 0 auto;
+}
+.curriculum-card .actions .quiet-danger{
+  font-weight:800;
+}
+@media(max-width:700px){
+  .entity-form-actions{
+    align-items:stretch;
+  }
+  .entity-form-actions .primary,
+  .entity-form-actions .entity-delete-btn{
+    width:100%;
+    margin-left:0;
+  }
+}

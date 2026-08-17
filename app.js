@@ -1119,15 +1119,47 @@ function addGroup(){
 }
 function editGroup(id){
   const g=db.groups.find(x=>x.id===id);
-  openModal(`<h2>Редагувати групу</h2><form id="f" class="form-grid"><label>Курс<select id="gc">${[1,2,3,4,5,6].map(x=>`<option ${x===g.course?"selected":""}>${x}</option>`).join("")}</select></label><label>Шифр<input id="gn" value="${esc(g.code)}" required></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
+  openModal(`<h2>Редагувати групу</h2><form id="f" class="form-grid"><label>Курс<select id="gc">${[1,2,3,4,5,6].map(x=>`<option ${x===g.course?"selected":""}>${x}</option>`).join("")}</select></label><label>Шифр<input id="gn" value="${esc(g.code)}" required></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button><button type="button" class="danger entity-delete-btn" onclick="deleteGroup(${g.id})">Видалити групу</button></div></form>`);
   $("#f").onsubmit=e=>{e.preventDefault();const old=g.code,neu=$("#gn").value.trim();g.course=+$("#gc").value;g.code=neu;db.students.forEach(s=>{if(s.group===old)s.group=neu});db.schedule.forEach(s=>{
     if(s.group===old)s.group=neu;
     if(Array.isArray(s.audienceGroups))s.audienceGroups=s.audienceGroups.map(g=>g===old?neu:g);
   });db.disciplines.forEach(d=>{if(d.group===old)d.group=neu});closeModal();save();};
 }
 function deleteGroup(id){
-  const g=db.groups.find(x=>x.id===id);if(groupStudentCount(g.code))return alert("Спочатку переведіть або видаліть студентів.");
-  if(confirm(`Видалити ${g.code}?`)){db.groups=db.groups.filter(x=>x.id!==id);save();}
+  const g=db.groups.find(x=>Number(x.id)===Number(id));if(!g)return;
+  const students=db.students.filter(s=>normIdentity(s.group)===normIdentity(g.code));
+  const disciplines=db.disciplines.filter(d=>normIdentity(d.group)===normIdentity(g.code));
+  const disciplineIds=new Set(disciplines.map(d=>Number(d.id)));
+  const lessons=db.schedule.filter(s=>scheduleIncludesGroup(s,g.code)||disciplineIds.has(Number(s.disciplineId)));
+  const bookings=db.roomBookings.filter(b=>normIdentity(b.group)===normIdentity(g.code));
+  const lines=[];
+  if(students.length)lines.push(`Разом буде видалено: ${deleteCountLabel(students.length,"студента","студенти","студентів")}.`);
+  if(disciplines.length)lines.push(`${deleteCountLabel(disciplines.length,"дисципліну","дисципліни","дисциплін")} кафедрального навантаження.`);
+  if(lessons.length)lines.push(`${deleteCountLabel(lessons.length,"пару/запис","пари/записи","пар/записів")} розкладу.`);
+  if(bookings.length)lines.push(`${deleteCountLabel(bookings.length,"бронювання","бронювання","бронювань")} аудиторій.`);
+  if(!confirmCascadeDelete(`Видалити групу ${g.code}?`,lines))return;
+
+  const studentIds=new Set(students.map(s=>Number(s.id)));
+  db.groups=db.groups.filter(x=>Number(x.id)!==Number(id));
+  db.students=db.students.filter(s=>!studentIds.has(Number(s.id)));
+  db.disciplines=db.disciplines.filter(d=>!disciplineIds.has(Number(d.id)));
+  db.schedule=db.schedule.filter(s=>!scheduleIncludesGroup(s,g.code)&&!disciplineIds.has(Number(s.disciplineId))&&!studentIds.has(Number(s.studentId)));
+  db.roomBookings=db.roomBookings.filter(b=>normIdentity(b.group)!==normIdentity(g.code));
+  (db.curricula||[]).forEach(c=>c.applicableGroups=(c.applicableGroups||[]).filter(code=>normIdentity(code)!==normIdentity(g.code)));
+  closeModal();save();
+}
+
+
+function deleteCountLabel(n,one,few,many){
+  n=Number(n)||0;
+  const n10=n%10,n100=n%100;
+  const word=n10===1&&n100!==11?one:(n10>=2&&n10<=4&&(n100<12||n100>14)?few:many);
+  return `${n} ${word}`;
+}
+function confirmCascadeDelete(title,lines=[]){
+  const meaningful=(lines||[]).filter(Boolean);
+  const text=[title,meaningful.length?"":"",...meaningful,"","Цю дію не можна скасувати. Продовжити?"].join("\n");
+  return confirm(text);
 }
 
 /* Students */
@@ -1143,10 +1175,23 @@ function addStudent(){
 }
 function editStudent(id){
   const s=db.students.find(x=>x.id===id);
-  openModal(`<h2>Редагувати студента</h2><form id="f" class="form-grid"><label class="wide">ПІБ<input id="sn" value="${esc(s.name)}" required></label><label>Група<select id="sg">${groupOptions(s.group)}</select></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
+  openModal(`<h2>Редагувати студента</h2><form id="f" class="form-grid"><label class="wide">ПІБ<input id="sn" value="${esc(s.name)}" required></label><label>Група<select id="sg">${groupOptions(s.group)}</select></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button><button type="button" class="danger entity-delete-btn" onclick="deleteStudent(${s.id})">Видалити студента</button></div></form>`);
   $("#f").onsubmit=e=>{e.preventDefault();s.name=$("#sn").value.trim();s.group=$("#sg").value;closeModal();save();};
 }
-function deleteStudent(id){const s=db.students.find(x=>x.id===id);if(confirm(`Видалити ${s.name}?`)){db.students=db.students.filter(x=>x.id!==id);save();}}
+function deleteStudent(id){
+  const s=db.students.find(x=>Number(x.id)===Number(id));if(!s)return;
+  const special=db.schedule.filter(x=>Number(x.studentId)===Number(id));
+  const lines=special.length?[`Разом буде видалено ${deleteCountLabel(special.length,"персональний запис","персональні записи","персональних записів")} (індивідуальні/консультації).`]:[];
+  if(!confirmCascadeDelete(`Видалити студента ${s.name}?`,lines))return;
+  db.students=db.students.filter(x=>Number(x.id)!==Number(id));
+  db.schedule=db.schedule.filter(x=>Number(x.studentId)!==Number(id));
+  db.disciplines.forEach(d=>{
+    Object.values(d.teacherStudentLoads||{}).forEach(byType=>{
+      Object.keys(byType||{}).forEach(typeId=>byType[typeId]=(byType[typeId]||[]).filter(sid=>Number(sid)!==Number(id)));
+    });
+  });
+  closeModal();save();
+}
 
 /* Rooms */
 function roomAreaTabs(active="grid"){
@@ -1208,7 +1253,7 @@ function openRoomModal(id=null){
     <label>Позиція в сітці<input id="roomGridOrder" type="number" min="1" max="${Math.max(1,gridRooms().length+(id?0:1))}" value="${esc(currentPos||gridRooms().length+1)}"></label>
     <label class="wide check-label"><span>Сітка кафедри</span><span class="check-inline"><input id="roomGridFlag" type="checkbox" ${r.showInGrid!==false?"checked":""}> Показувати у сітці зайнятості</span></label>
     <label class="wide">Примітка<textarea id="roomNote" rows="3">${esc(r.note||"")}</textarea></label>
-    <div class="wide"><button class="primary">Зберегти</button></div>
+    <div class="wide entity-form-actions"><button class="primary">Зберегти</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteRoom(${id})">Видалити аудиторію</button>`:""}</div>
   </form>`);
   $("#roomForm").onsubmit=e=>{
     e.preventDefault();
@@ -1236,10 +1281,16 @@ function toggleRoomGrid(id,checked){
 }
 function deleteRoom(id){
   const r=db.rooms.find(x=>Number(x.id)===Number(id));if(!r)return;
-  const used=db.schedule.some(x=>x.room===r.name)||db.roomBookings.some(x=>x.room===r.name);
-  if(used&&!confirm(`Аудиторія ${r.name} уже використовується у заняттях або бронюваннях. Видалити її з довідника? Існуючі записи залишаться.`))return;
-  if(!used&&!confirm(`Видалити аудиторію ${r.name}?`))return;
-  db.rooms=db.rooms.filter(x=>Number(x.id)!==Number(id));normalizeRoomGridOrder();save();
+  const lessons=db.schedule.filter(x=>x.room===r.name);
+  const bookings=db.roomBookings.filter(x=>x.room===r.name);
+  const lines=[];
+  if(lessons.length)lines.push(`${deleteCountLabel(lessons.length,"заняття","заняття","занять")} залишаться, але поле аудиторії буде очищене.`);
+  if(bookings.length)lines.push(`${deleteCountLabel(bookings.length,"бронювання","бронювання","бронювань")} цієї аудиторії буде видалено.`);
+  if(!confirmCascadeDelete(`Видалити аудиторію ${r.name}?`,lines))return;
+  db.rooms=db.rooms.filter(x=>Number(x.id)!==Number(id));
+  db.schedule.forEach(x=>{if(x.room===r.name)x.room="";});
+  db.roomBookings=db.roomBookings.filter(x=>x.room!==r.name);
+  normalizeRoomGridOrder();closeModal();save();
 }
 
 /* Room occupancy grid */
@@ -1502,7 +1553,7 @@ function teacherCard(t){
 }
 function openExternalTeacherModal(id=null){
   const t=id?teacherById(id):{scope:"external",name:"",shortName:"",note:"",status:"active"};
-  openModal(`<h2>${id?"Редагувати":"Новий"} зовнішній викладач</h2><div class="notice">Цей викладач буде доступний у розкладі, але його кафедральне навантаження не рахується.</div><form id="etf" class="form-grid"><label class="wide">ПІБ<input id="etn" value="${esc(t.name)}" required></label><label>Коротке ім’я<input id="ets" value="${esc(t.shortName||"")}"></label><label class="wide">Примітка<textarea id="etnote" rows="3">${esc(t.note||"")}</textarea></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
+  openModal(`<h2>${id?"Редагувати":"Новий"} зовнішній викладач</h2><div class="notice">Цей викладач буде доступний у розкладі, але його кафедральне навантаження не рахується.</div><form id="etf" class="form-grid"><label class="wide">ПІБ<input id="etn" value="${esc(t.name)}" required></label><label>Коротке ім’я<input id="ets" value="${esc(t.shortName||"")}"></label><label class="wide">Примітка<textarea id="etnote" rows="3">${esc(t.note||"")}</textarea></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteTeacher(${id})">Видалити викладача</button>`:""}</div></form>`);
   $("#etf").onsubmit=e=>{e.preventDefault();const obj={scope:"external",name:$("#etn").value.trim(),shortName:$("#ets").value.trim(),note:$("#etnote").value.trim(),status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save();};
 }
 function openTeacherAvailabilityModal(id){
@@ -1612,7 +1663,7 @@ function openTeacherModal(id=null){
     <label>Максимум занять на день<input id="tmax" type="number" min="0" value="${esc(t.maxPerDay||"")}"></label>
     <label>Максимум занять підряд<input id="tcon" type="number" min="0" value="${esc(t.maxConsecutive||"")}"></label>
     <label class="wide">Примітка<textarea id="tnote" rows="3">${esc(t.note||"")}</textarea></label>
-    <div class="wide"><button class="primary">${id?"Зберегти":"Додати"}</button></div>
+    <div class="wide entity-form-actions"><button class="primary">${id?"Зберегти":"Додати"}</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteTeacher(${id})">Видалити викладача</button>`:""}</div>
   </form>`,true);
   [["tp","tpOther"],["ta","taOther"],["td","tdOther"],["th","thOther"]].forEach(([s,i])=>{$("#"+s).onchange=()=>{$("#"+i).style.display=$("#"+s).value==="__other__"?"":"none"};});
   bindRuleRows();
@@ -1633,15 +1684,24 @@ function openTeacherModal(id=null){
 }
 function deleteTeacher(id){
   const t=teacherById(id);if(!t)return;
-  if(confirm(`Видалити ${t.name}?`)){
-    db.teachers=db.teachers.filter(x=>Number(x.id)!==Number(id));
-    db.disciplines.forEach(d=>{
-      d.teacherIds=(d.teacherIds||[]).filter(x=>Number(x)!==Number(id));
-      if(d.teacherLoads){delete d.teacherLoads[id];delete d.teacherLoads[String(id)];}
-    });
-    db.schedule.forEach(s=>{if(Number(s.teacherId)===Number(id)){s.teacherId=null;s.teacher="";}});
-    save();
-  }
+  const lessons=db.schedule.filter(s=>Number(resolvedScheduleTeacherId(s,db))===Number(id));
+  const allocations=db.disciplines.filter(d=>
+    (d.teacherIds||[]).some(x=>Number(x)===Number(id))
+    ||Object.keys(d.teacherLoads||{}).some(k=>Number(k)===Number(id))
+  );
+  const lines=[];
+  if(lessons.length)lines.push(`Разом буде видалено ${deleteCountLabel(lessons.length,"пару/запис","пари/записи","пар/записів")} цього викладача.`);
+  if(allocations.length)lines.push(`Викладача буде прибрано з розподілу ${deleteCountLabel(allocations.length,"дисципліни","дисциплін","дисциплін")}.`);
+  if(!confirmCascadeDelete(`Видалити викладача ${t.name}?`,lines))return;
+
+  db.teachers=db.teachers.filter(x=>Number(x.id)!==Number(id));
+  db.disciplines.forEach(d=>{
+    d.teacherIds=(d.teacherIds||[]).filter(x=>Number(x)!==Number(id));
+    if(d.teacherLoads){delete d.teacherLoads[id];delete d.teacherLoads[String(id)];}
+    if(d.teacherStudentLoads){delete d.teacherStudentLoads[id];delete d.teacherStudentLoads[String(id)];}
+  });
+  db.schedule=db.schedule.filter(s=>Number(resolvedScheduleTeacherId(s,db))!==Number(id));
+  closeModal();save();
 }
 function plannedForDisciplineTeacher(d,teacherId){
   const load=explicitTeacherLoad(d,teacherId);
@@ -1741,10 +1801,22 @@ function renderLessonTypes(){
 }
 function openLessonTypeModal(id=null){
   const x=id?db.lessonTypes.find(v=>v.id===id):{name:"",countMode:"manual",defaultUnit:1,description:""};
-  openModal(`<h2>${id?"Редагувати":"Новий"} вид заняття</h2><form id="ltf" class="form-grid"><label class="wide">Назва<input id="ltn" value="${esc(x.name)}" required></label><label>Правило підрахунку<select id="ltm"><option value="academic_pair" ${x.countMode==="academic_pair"?"selected":""}>Аудиторні / парами</option><option value="contingent" ${x.countMode==="contingent"?"selected":""}>За контингентом</option><option value="per_student" ${x.countMode==="per_student"?"selected":""}>Індивідуально кожному студенту</option><option value="fixed" ${x.countMode==="fixed"?"selected":""}>Фіксована кількість годин</option><option value="manual" ${x.countMode==="manual"?"selected":""}>Ручний підрахунок</option></select></label><label>Базове значення<input id="ltu" type="number" min="0" step="0.01" value="${esc(x.defaultUnit||1)}"></label><label class="wide">Пояснення / примітка<textarea id="ltd" rows="3">${esc(x.description||"")}</textarea></label><div class="wide"><button class="primary">Зберегти</button></div></form>`);
+  openModal(`<h2>${id?"Редагувати":"Новий"} вид заняття</h2><form id="ltf" class="form-grid"><label class="wide">Назва<input id="ltn" value="${esc(x.name)}" required></label><label>Правило підрахунку<select id="ltm"><option value="academic_pair" ${x.countMode==="academic_pair"?"selected":""}>Аудиторні / парами</option><option value="contingent" ${x.countMode==="contingent"?"selected":""}>За контингентом</option><option value="per_student" ${x.countMode==="per_student"?"selected":""}>Індивідуально кожному студенту</option><option value="fixed" ${x.countMode==="fixed"?"selected":""}>Фіксована кількість годин</option><option value="manual" ${x.countMode==="manual"?"selected":""}>Ручний підрахунок</option></select></label><label>Базове значення<input id="ltu" type="number" min="0" step="0.01" value="${esc(x.defaultUnit||1)}"></label><label class="wide">Пояснення / примітка<textarea id="ltd" rows="3">${esc(x.description||"")}</textarea></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteLessonType(${id})">Видалити вид занять</button>`:""}</div></form>`);
   $("#ltf").onsubmit=e=>{e.preventDefault();const obj={name:$("#ltn").value.trim(),countMode:$("#ltm").value,defaultUnit:+$("#ltu").value||0,description:$("#ltd").value.trim()};if(id)Object.assign(x,obj);else db.lessonTypes.push({id:uid(db.lessonTypes),...obj});closeModal();save();};
 }
-function deleteLessonType(id){const x=db.lessonTypes.find(v=>v.id===id);if(confirm(`Видалити вид «${x.name}»?`)){db.lessonTypes=db.lessonTypes.filter(v=>v.id!==id);save();}}
+function deleteLessonType(id){
+  const x=db.lessonTypes.find(v=>Number(v.id)===Number(id));if(!x)return;
+  const scheduleCount=db.schedule.filter(s=>normIdentity(s.type)===normIdentity(x.name)).length;
+  const loadCount=db.disciplines.filter(d=>
+    num(d.hours?.[id])>0||num(d.extraHours?.[id])>0||Object.values(d.teacherLoads||{}).some(load=>num(load?.[id])>0)
+  ).length;
+  if(scheduleCount||loadCount){
+    return alert(`Вид «${x.name}» зараз використовується: ${scheduleCount} записів розкладу, ${loadCount} дисциплін із годинами. Спочатку видаліть або перенесіть ці записи.`);
+  }
+  if(!confirmCascadeDelete(`Видалити вид занять «${x.name}»?`,[]))return;
+  db.lessonTypes=db.lessonTypes.filter(v=>Number(v.id)!==Number(id));
+  closeModal();save();
+}
 
 /* Disciplines + teacher load distribution */
 
@@ -1835,7 +1907,7 @@ function renderCurricula(){
   plans.forEach(ensureCurriculumShape);
   $("#page-curricula").innerHTML=`<div class="card section">
     <div class="section-head"><div><h2>Робочі навчальні плани</h2><span class="small">План є першоджерелом: зміни тут автоматично оновлюють активовані дисципліни та навантаження.</span></div><button class="primary" onclick="openCurriculumMetaModal()">+ Новий план</button></div>
-    ${plans.length?`<div class="curriculum-grid">${plans.map(c=>{const t=curriculumTotalsFromRows(c);return `<div class="curriculum-card"><div class="curriculum-title"><div><span class="badge ok">${c.course||"—"} курс</span><h3>${esc(c.program||"Без назви")}</h3><div class="small">${esc(c.academicYear||"")} · ${esc(c.studyForm||"")} форма</div></div><div class="actions"><button class="primary" onclick="openCurriculum(${c.id})">Відкрити</button><button onclick="openCurriculumMetaModal(${c.id})">Редагувати</button></div></div><div class="curriculum-kpis"><div><b>${fmtHours(t.credits)}</b><span>кредитів</span></div><div><b>${fmtHours(t.totalHours)}</b><span>загальних годин</span></div><div><b>${fmtHours(t.auditoriumHours)}</b><span>аудиторних</span></div><div><b>${fmtHours(t.selfStudy)}</b><span>самостійних</span></div></div><div class="small" style="margin-top:12px">Групи: ${esc((c.applicableGroups||[]).join(", ")||"—")}</div></div>`;}).join("")}</div>`:`<div class="empty">Планів ще немає.</div>`}
+    ${plans.length?`<div class="curriculum-grid">${plans.map(c=>{const t=curriculumTotalsFromRows(c);return `<div class="curriculum-card"><div class="curriculum-title"><div><span class="badge ok">${c.course||"—"} курс</span><h3>${esc(c.program||"Без назви")}</h3><div class="small">${esc(c.academicYear||"")} · ${esc(c.studyForm||"")} форма</div></div><div class="actions"><button class="primary" onclick="openCurriculum(${c.id})">Відкрити</button><button onclick="openCurriculumMetaModal(${c.id})">Редагувати</button><button class="quiet-danger" onclick="deleteCurriculum(${c.id})">Видалити</button></div></div><div class="curriculum-kpis"><div><b>${fmtHours(t.credits)}</b><span>кредитів</span></div><div><b>${fmtHours(t.totalHours)}</b><span>загальних годин</span></div><div><b>${fmtHours(t.auditoriumHours)}</b><span>аудиторних</span></div><div><b>${fmtHours(t.selfStudy)}</b><span>самостійних</span></div></div><div class="small" style="margin-top:12px">Групи: ${esc((c.applicableGroups||[]).join(", ")||"—")}</div></div>`;}).join("")}</div>`:`<div class="empty">Планів ще немає.</div>`}
   </div>`;
 }
 function openCurriculumMetaModal(id=null){
@@ -1853,10 +1925,18 @@ function openCurriculumMetaModal(id=null){
   $("#cmf").onsubmit=e=>{e.preventDefault();const weeks={};$$('.cmweek').forEach(i=>{if(i.value!=="")weeks[i.dataset.sem]=num(i.value);});const obj={academicYear:$("#cmy").value.trim(),course:+$("#cmc").value,specialty:$("#cmspec").value.trim(),program:$("#cmprog").value.trim(),degree:$("#cmdeg").value.trim(),studyForm:$("#cmform").value.trim(),applicableGroups:[...$("#cmgroups").selectedOptions].map(o=>o.value),semesterWeeks:weeks};if(existing){Object.assign(existing,obj);syncAllCurriculumLinks(existing);}else{db.curricula.push({id:uid(db.curricula),...obj,components:[],blocks:[]});}closeModal();save();};
 }
 function deleteCurriculum(id){
-  const c=curriculumById(id);if(!c)return;const linked=db.disciplines.filter(d=>Number(d.sourceCurriculumId)===Number(id));const linkedIds=new Set(linked.map(d=>Number(d.id)));const scheduled=db.schedule.filter(s=>linkedIds.has(Number(s.disciplineId)));
-  if(scheduled.length)return alert(`Не можна видалити план: у розкладі є ${scheduled.length} пов’язаних занять. Спочатку видаліть або перенесіть їх.`);
-  if(!confirm(`Видалити навчальний план «${c.program}», а також ${linked.length} створених із нього записів навантаження?`))return;
-  db.disciplines=db.disciplines.filter(d=>Number(d.sourceCurriculumId)!==Number(id));db.curricula=db.curricula.filter(x=>Number(x.id)!==Number(id));closeModal();save();
+  const c=curriculumById(id);if(!c)return;
+  const linked=db.disciplines.filter(d=>Number(d.sourceCurriculumId)===Number(id));
+  const linkedIds=new Set(linked.map(d=>Number(d.id)));
+  const scheduled=db.schedule.filter(s=>linkedIds.has(Number(s.disciplineId))||Number(s.sourceCurriculumId)===Number(id));
+  const lines=[];
+  if(linked.length)lines.push(`${deleteCountLabel(linked.length,"активовану дисципліну","активовані дисципліни","активованих дисциплін")} навантаження буде видалено.`);
+  if(scheduled.length)lines.push(`${deleteCountLabel(scheduled.length,"пару/запис","пари/записи","пар/записів")} з цього плану буде видалено.`);
+  if(!confirmCascadeDelete(`Видалити навчальний план «${c.program}»?`,lines))return;
+  db.schedule=db.schedule.filter(s=>!linkedIds.has(Number(s.disciplineId))&&Number(s.sourceCurriculumId)!==Number(id));
+  db.disciplines=db.disciplines.filter(d=>Number(d.sourceCurriculumId)!==Number(id));
+  db.curricula=db.curricula.filter(x=>Number(x.id)!==Number(id));
+  closeModal();save();
 }
 function curriculumBlocks(c){ensureCurriculumShape(c);return c.blocks.slice().sort((a,b)=>(a.order||0)-(b.order||0));}
 function activatedGroupsForPlanRow(c,comp,r){return (c.applicableGroups||[]).filter(group=>db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&(Number(d.sourceRowId)===Number(r.id)||(!d.sourceRowId&&Number(d.semester)===Number(r.semester)))&&d.group===group&&d.status!=="archived"));}
@@ -1900,12 +1980,29 @@ function readCurriculumRows(comp){
 function openCurriculumComponentModal(curriculumId,componentId=null,blockId=null){
   const c=curriculumById(curriculumId);if(!c)return;ensureCurriculumShape(c);const comp=componentId?curriculumComponent(c,componentId):null;const selectedBlock=comp?c.blocks.find(b=>b.section===comp.section&&b.name===comp.category):c.blocks.find(b=>Number(b.id)===Number(blockId));
   if(!c.blocks.length)return alert("Спочатку створіть блок навчального плану.");
-  openModal(`<h2>${comp?"Редагувати":"Нова"} дисципліна в навчальному плані</h2><form id="ccf"><div class="form-grid"><label class="wide">Назва дисципліни<input id="ccname" value="${esc(comp?.name||"")}" required></label><label>Тип<select id="ccscope"><option value="department" ${comp?.scope!=="external"?"selected":""}>Кафедральна</option><option value="external" ${comp?.scope==="external"?"selected":""}>Не кафедральна / загальноосвітня</option></select></label><label>Блок<select id="ccblock">${c.blocks.map(b=>`<option value="${b.id}" ${Number(b.id)===Number(selectedBlock?.id)?"selected":""}>${esc(b.section)} → ${esc(b.name)}</option>`).join("")}</select></label></div><div class="section-head compact" style="margin-top:18px"><div><b>Семестри та години</b><div class="small">Можна змінювати всі цифри або додати ще один семестр.</div></div><button type="button" class="secondary" onclick="addCurriculumRow()">+ Семестр</button></div><div id="curriculumRows">${(comp?.rows?.length?comp.rows:[{semester:1,control:"Немає"}]).map(curriculumRowEditor).join("")}</div><div class="modal-footer-actions"><button class="primary">Зберегти дисципліну</button></div></form>`,true);
+  openModal(`<h2>${comp?"Редагувати":"Нова"} дисципліна в навчальному плані</h2><form id="ccf"><div class="form-grid"><label class="wide">Назва дисципліни<input id="ccname" value="${esc(comp?.name||"")}" required></label><label>Тип<select id="ccscope"><option value="department" ${comp?.scope!=="external"?"selected":""}>Кафедральна</option><option value="external" ${comp?.scope==="external"?"selected":""}>Не кафедральна / загальноосвітня</option></select></label><label>Блок<select id="ccblock">${c.blocks.map(b=>`<option value="${b.id}" ${Number(b.id)===Number(selectedBlock?.id)?"selected":""}>${esc(b.section)} → ${esc(b.name)}</option>`).join("")}</select></label></div><div class="section-head compact" style="margin-top:18px"><div><b>Семестри та години</b><div class="small">Можна змінювати всі цифри або додати ще один семестр.</div></div><button type="button" class="secondary" onclick="addCurriculumRow()">+ Семестр</button></div><div id="curriculumRows">${(comp?.rows?.length?comp.rows:[{semester:1,control:"Немає"}]).map(curriculumRowEditor).join("")}</div><div class="modal-footer-actions"><button class="primary">Зберегти дисципліну</button>${comp?`<button type="button" class="danger entity-delete-btn" onclick="deleteCurriculumComponent(${c.id},${comp.id})">Видалити дисципліну</button>`:""}</div></form>`,true);
   $("#ccf").onsubmit=e=>{e.preventDefault();const rows=readCurriculumRows(comp);if(!rows.length)return alert("Додайте хоча б один семестровий рядок.");const sems=rows.map(r=>r.semester);if(new Set(sems).size!==sems.length)return alert("У межах однієї дисципліни не може бути два однакові семестрові рядки.");const b=c.blocks.find(x=>Number(x.id)===Number($("#ccblock").value));const oldRowIds=new Set((comp?.rows||[]).map(r=>Number(r.id)));const newRowIds=new Set(rows.map(r=>Number(r.id)));const removed=[...oldRowIds].filter(id=>!newRowIds.has(id));for(const rid of removed){const linked=db.disciplines.filter(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(rid));const ids=new Set(linked.map(d=>Number(d.id)));if(db.schedule.some(s=>ids.has(Number(s.disciplineId))))return alert("Не можна видалити семестровий рядок, бо для нього вже є заняття в розкладі. Спочатку видаліть ці заняття.");db.disciplines=db.disciplines.filter(d=>!ids.has(Number(d.id)));}
     const obj={name:$("#ccname").value.trim(),scope:$("#ccscope").value,section:b.section,category:b.name,rows};if(comp){Object.assign(comp,obj);}else c.components.push({id:nextLocalId(c.components),...obj});syncAllCurriculumLinks(c);closeModal();save();openCurriculum(c.id);};
 }
 function deleteCurriculumComponent(curriculumId,componentId){
-  const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);if(!c||!comp)return;const linked=db.disciplines.filter(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id));const ids=new Set(linked.map(d=>Number(d.id)));const scheduled=db.schedule.filter(s=>ids.has(Number(s.disciplineId)));if(scheduled.length)return alert(`Не можна видалити дисципліну: у розкладі є ${scheduled.length} пов’язаних занять.`);if(!confirm(`Видалити «${comp.name}» із навчального плану і ${linked.length} пов’язаних записів навантаження?`))return;db.disciplines=db.disciplines.filter(d=>!ids.has(Number(d.id)));c.components=c.components.filter(x=>Number(x.id)!==Number(componentId));save();openCurriculum(c.id);
+  const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);if(!c||!comp)return;
+  const linked=db.disciplines.filter(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id));
+  const ids=new Set(linked.map(d=>Number(d.id)));
+  const scheduled=db.schedule.filter(s=>
+    ids.has(Number(s.disciplineId))
+    ||(Number(s.sourceCurriculumId)===Number(c.id)&&Number(s.sourceComponentId)===Number(comp.id))
+  );
+  const lines=[];
+  if(linked.length)lines.push(`${deleteCountLabel(linked.length,"активований запис","активовані записи","активованих записів")} навантаження буде видалено.`);
+  if(scheduled.length)lines.push(`${deleteCountLabel(scheduled.length,"пару/запис","пари/записи","пар/записів")} цієї дисципліни буде видалено.`);
+  if(!confirmCascadeDelete(`Видалити дисципліну «${comp.name}» з навчального плану?`,lines))return;
+  db.schedule=db.schedule.filter(s=>
+    !ids.has(Number(s.disciplineId))
+    &&!(Number(s.sourceCurriculumId)===Number(c.id)&&Number(s.sourceComponentId)===Number(comp.id))
+  );
+  db.disciplines=db.disciplines.filter(d=>!ids.has(Number(d.id)));
+  c.components=c.components.filter(x=>Number(x.id)!==Number(componentId));
+  closeModal();save();openCurriculum(c.id);
 }
 function createLoadFromPlan(curriculumId,componentId,rowId){
   const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);ensureCurriculumShape(c);const r=comp?.rows?.find(x=>Number(x.id)===Number(rowId));if(!c||!comp||!r)return;const availableGroups=(c.applicableGroups||[]).filter(g=>db.groups.some(x=>x.code===g));
@@ -2328,6 +2425,7 @@ function readyExternalDisciplineCardHtml(s){
     <div class="compact-discipline-actions">
       <button class="secondary" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" data-semester="${esc(s.semester||"")}" data-ref="${esc(s.planRef||"")}" onclick="openReadyExternalManager(this.dataset.group,this.dataset.discipline,this.dataset.semester,this.dataset.ref)">${s.pairs?"Редагувати пари":"Відкрити дисципліну"}</button>
       <button class="primary-inline" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" data-ref="${esc(s.planRef||"")}" onclick="openReadyScheduleForDiscipline(this.dataset.group,this.dataset.ref,this.dataset.discipline)">+ Додати</button>
+      <button class="quiet-danger compact-delete" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" data-semester="${esc(s.semester||"")}" data-ref="${esc(s.planRef||"")}" onclick="deleteReadyExternalDiscipline(this.dataset.group,this.dataset.discipline,this.dataset.semester,this.dataset.ref)">Видалити</button>
     </div>
   </article>`;
 }
@@ -2890,7 +2988,7 @@ function openDisciplineModal(id=null){
       <div class="allocation-add-teacher"><select id="allocationTeacherPicker"></select><button type="button" class="primary-inline" id="allocationAddTeacher">+ Додати викладача</button></div>
     </div>
     <label class="wide">Примітка<textarea id="dnote" rows="3">${esc(d.note||"")}</textarea></label>
-    <div class="wide"><button class="primary">Зберегти навантаження</button></div>
+    <div class="wide entity-form-actions"><button class="primary">Зберегти навантаження</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteDiscipline(${id})">Видалити дисципліну</button>`:""}</div>
   </form>`,true);
   if(!fromPlan)$("#dg").onchange=()=>{const g=db.groups.find(x=>x.code===$("#dg").value);if(g)$("#dc").value=g.course;};
   renderDisciplineExtraHours(d);
@@ -2929,7 +3027,15 @@ function openDisciplineModal(id=null){
   };
 }
 
-function deleteDiscipline(id){const d=disciplineById(id);if(confirm(`Видалити «${d.name}»?`)){db.disciplines=db.disciplines.filter(x=>x.id!==id);db.schedule.forEach(s=>{if(Number(s.disciplineId)===Number(id))s.disciplineId=null;});save();}}
+function deleteDiscipline(id){
+  const d=disciplineById(id);if(!d)return;
+  const lessons=db.schedule.filter(s=>scheduleCoversDiscipline(s,id));
+  const lines=lessons.length?[`Разом буде видалено ${deleteCountLabel(lessons.length,"пару/запис","пари/записи","пар/записів")} цієї дисципліни.`]:[];
+  if(!confirmCascadeDelete(`Видалити дисципліну «${d.name}» із навантаження ${d.group}?`,lines))return;
+  db.schedule=db.schedule.filter(s=>!scheduleCoversDiscipline(s,id));
+  db.disciplines=db.disciplines.filter(x=>Number(x.id)!==Number(id));
+  closeModal();save();
+}
 
 /* ================================================================
    Individual + consultation schedules
@@ -3355,6 +3461,7 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
       <div class="special-modal-actions">
         <button type="button" class="secondary" onclick="specialEditEventId=null;closeModal()">Скасувати</button>
         <button class="primary">${editing?"Зберегти зміни":"Зберегти 1 академічну годину"}</button>
+        ${editing?`<button type="button" class="danger entity-delete-btn" onclick="deleteSpecialScheduleEvent(${existing.id})">Видалити запис</button>`:""}
       </div>
     </form>
   </div>`,true);
@@ -3730,6 +3837,7 @@ function readyExternalScheduleCardHtml(s){
         onclick="openReadyScheduleForDiscipline(this.dataset.group,this.dataset.ref,this.dataset.discipline)">
         + Додати пари
       </button>
+      <button class="quiet-danger compact-delete" data-group="${esc(s.group)}" data-discipline="${esc(s.discipline)}" data-semester="${esc(s.semester||"")}" data-ref="${esc(s.planRef||"")}" onclick="deleteReadyExternalDiscipline(this.dataset.group,this.dataset.discipline,this.dataset.semester,this.dataset.ref)">Видалити</button>
     </div>
   </section>`;
 }
@@ -3828,6 +3936,7 @@ function readySingleModeHtml(existing=null){
       <div id="readyConflictBox"></div>
       <div class="modal-footer-actions">
         <button class="primary">${existing?"Зберегти зміни":"Додати в розклад"}</button>
+        ${existing?`<button type="button" class="danger entity-delete-btn" onclick="deleteReadyExternalItem(${existing.id})">Видалити пару</button>`:""}
       </div>
     </form>
   </div>`;
@@ -4250,6 +4359,19 @@ function readyRefreshPlanFields(){
   applyReadyDateBounds();
 }
 let readyExternalManagerState={group:"",discipline:"",semester:"",planRef:""};
+function deleteReadyExternalDiscipline(group,discipline,semester="",planRef=""){
+  const rec=planRef?readyPlanRecordByRef(group,planRef):null;
+  if(rec?.curriculumId&&rec?.componentId){
+    return deleteCurriculumComponent(rec.curriculumId,rec.componentId);
+  }
+  const rows=readyExternalManagerRows(group,discipline,semester,planRef);
+  const lines=rows.length?[`Разом буде видалено ${deleteCountLabel(rows.length,"готову пару","готові пари","готових пар")}.`]:[];
+  if(!confirmCascadeDelete(`Видалити некафедральну дисципліну «${discipline}»?`,lines))return;
+  const ids=new Set(rows.map(x=>Number(x.id)));
+  db.schedule=db.schedule.filter(x=>!ids.has(Number(x.id)));
+  closeModal();save();
+}
+
 function readyExternalManagerRows(group,discipline,semester="",planRef=""){
   const rec=planRef?readyPlanRecordByRef(group,planRef):null;
   const identity=readyPlanIdentity(rec);
@@ -4983,7 +5105,7 @@ function openLessonModal(id=null,preset={}){
     <div id="customTimeBox" class="wide form-grid" style="display:${pairSelected==="__custom__"?"grid":"none"}"><label>Початок<input id="ls" type="time" value="${esc(x.start||"")}"></label><label>Кінець<input id="le" type="time" value="${esc(x.end||"")}"></label></div>
     <label>Аудиторія<select id="lr"><option value="">—</option>${db.rooms.filter(r=>r.status!=="archived").map(r=>`<option ${r.name===x.room?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label><label>Годин у навантаження<input id="lwh" type="number" min="0.01" step="0.01" value="${esc(x.workloadHours||2)}"></label>
     <label>Охоплення<select id="lc">${db.coverageTypes.map(v=>`<option ${v===x.coverage?"selected":""}>${esc(v)}</option>`).join("")}</select></label><label>Студент(и) / підгрупа<input id="lst" value="${esc(x.students||"")}"></label>
-    <label class="wide">Примітка<input id="ln" value="${esc(x.note||"")}"></label><div id="conflictBox" class="wide"></div><div class="wide"><button class="primary">${id?"Зберегти":"Додати"}</button></div>
+    <label class="wide">Примітка<input id="ln" value="${esc(x.note||"")}"></label><div id="conflictBox" class="wide"></div><div class="wide entity-form-actions"><button class="primary">${id?"Зберегти":"Додати"}</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteLesson(${id})">Видалити заняття</button>`:""}</div>
   </form>`,true);
   populateLessonFormFromLoad({type:x.type,teacherId:x.teacherId});
   if(x.disciplineId)$("#ldi").value=x.disciplineId;else if(x.discipline)$("#ldi").value="__custom__";
@@ -6473,7 +6595,13 @@ function openBulkScheduleModal(presetGroup=null){
   $("#bg").onchange=refreshDisc;$("#bd").onchange=refreshType;$("#bt").onchange=refreshTeacher;$("#btea").onchange=bulkHint;$("#bpattern").onchange=()=>{const dates=$("#bpattern").value==="dates";$("#bdatesLabel").style.display=dates?"":"none";$("#bweekday").disabled=dates;$("#bfrom").disabled=dates;$("#bto").disabled=dates;};refreshDisc();
   $("#bf").onsubmit=e=>{e.preventDefault();const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid)return alert("Немає розподіленого навантаження.");let rem=remainingLoad(d,tid,type,null);if(rem<=0)return alert("Години вже вичерпані.");const bounds=semesterDateBounds(d.semester),dates=datesForPattern($("#bpattern").value,$("#bfrom").value,$("#bto").value,$("#bweekday").value,$("#bdates").value,bounds);if(!dates.length)return alert("Не знайдено дат.");const unit=num($("#bwh").value),valid=[],blocked=[],batchId=`B${Date.now()}`;for(const date of dates){if(rem<=0.0001)break;const wh=Math.min(unit,rem),item=lessonItemFromValues({date,pairId:$("#bpair").value,group:$("#bg").value,disciplineId:d.id,discipline:d.name,type,workloadHours:wh,coverage:$("#bc").value,teacherId:tid,room:$("#br").value,note:$("#bn").value.trim(),repeatBatchId:batchId}),cs=conflictsFor(item,null,valid),info=teacherAvailabilityInfo(item,null);if(cs.length||info.warnings.length){blocked.push({date,reasons:[...conflictReasonLines(item,cs),...info.warnings]});continue;}valid.push(item);rem-=wh;}if(!valid.length)return alert("Усі дати мають конфлікти:\n\n"+blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n"));if(blocked.length&&!confirm(`${blocked.length} дат буде пропущено:\n\n${blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n")}${blocked.length>8?"\n…":""}\n\nПродовжити?`))return;valid.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));closeModal();save();go("schedule");};
 }
-function deleteLesson(id){if(confirm("Видалити заняття? Години автоматично повернуться у залишок навантаження.")){db.schedule=db.schedule.filter(x=>x.id!==id);save();}}
+function deleteLesson(id){
+  const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x)return;
+  const label=[x.date?formatDate(x.date):"",pairDisplay(x),x.discipline].filter(Boolean).join(" · ");
+  if(!confirmCascadeDelete(`Видалити заняття${label?` ${label}`:""}?`,["Години автоматично повернуться у залишок навантаження."]))return;
+  db.schedule=db.schedule.filter(s=>Number(s.id)!==Number(id));
+  currentEditingLessonId=null;closeModal();save();
+}
 
 /* Group timetable calendar — monthly, fed by the same db.schedule as scheduling and teacher calendars */
 let timetableState={group:rememberedTimetableGroup()||null,month:null};
