@@ -2429,7 +2429,7 @@ function renderLoadDisciplinePanel(){
             <h3>Інші кафедри / готовий розклад</h3>
             <p>Ці дисципліни існують у розкладі групи, але не входять у кафедральне навантаження наших викладачів.</p>
           </div>
-          <button class="ready-import-btn" onclick="openReadyScheduleModal()">+ Внести готові пари</button>
+          <button class="ready-import-btn schedule-action-btn ready-action-prominent compact" onclick="openReadyScheduleModal()"><span class="action-kicker">Швидко</span><b>+ Внести готові пари</b><small>одразу в розклад групи</small></button>
         </div>
         <div class="load-discipline-list ready-load-grid">${ready.map(readyExternalDisciplineCardHtml).join("")}</div>
       </section>`:"";
@@ -4613,7 +4613,7 @@ function renderSchedule(){
   $("#page-schedule").innerHTML=`<div class="card section">
     <div class="section-head">
       <div><h2>Складання розкладу</h2><div class="small">Кафедральні пари йдуть із «Навантаження». Пари інших кафедр можна внести одразу кнопкою «Внести готові пари» — без активації та розподілу годин.</div></div>
-      <div class="actions"><button class="ready-import-btn" onclick="openReadyScheduleModal()">+ Внести готові пари</button><button class="secondary" onclick="openLessonModal(null,{group:currentWorkloadGroup()})">+ Одне заняття</button></div>
+      <div class="actions schedule-hero-actions"><button class="ready-import-btn schedule-action-btn ready-action-prominent" onclick="openReadyScheduleModal()"><span class="action-kicker">Швидко</span><b>+ Внести готові пари</b><small>некафедральні дисципліни / готовий розклад</small></button><button class="secondary schedule-action-btn single-lesson-action" onclick="openLessonModal(null,{group:currentWorkloadGroup()})"><span class="action-kicker">Вручну</span><b>+ Одне заняття</b><small>додати окрему кафедральну пару</small></button></div>
     </div>
     <div class="workflow-status-strip workflow-context-strip">
       <div class="workflow-load-count">
