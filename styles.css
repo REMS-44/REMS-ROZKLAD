@@ -7475,3 +7475,8 @@ td .small{font-size:12px}
 .faculty-room-block{border-top:1px solid #eee8f2;padding-top:12px}
 .faculty-room-block p{margin:6px 0 0;color:#605768;line-height:1.55}
 @media(max-width:1050px){.faculty-department-grid{grid-template-columns:1fr}}
+
+/* v2.0.1 — cross-program room occupancy */
+.room-event-external{background:#f3f4f6;border-left:4px solid #9ca3af;cursor:default;color:#374151}
+.room-event-external .room-event-badge{color:#6b7280!important}
+.room-event-external b{color:#374151}
