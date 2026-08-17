@@ -900,6 +900,7 @@ const meta={
   schedule:["Складання розкладу","Розподілені години → дати, пари та аудиторії"],
   specialSchedule:["Індивідуальні та консультації","Окремі розклади студентів по одній академічній годині"],
   timetable:["Розклад","Готовий календар занять конкретної групи"],
+  dayPlanner:["Розклад по днях","Курс → група → день тижня → усі дати та вільні пари"],
   mySchedule:["Мій розклад","Індивідуальний календар викладача"],
   groups:["Групи і студенти","Групи, курси та склад студентів"],
   students:["Групи і студенти","Групи, курси та склад студентів"],
@@ -950,7 +951,7 @@ function go(p,options={}){
   renderCurrent();
 }
 function renderCurrent(){
-  ({home:renderHome,schedule:renderSchedule,specialSchedule:renderSpecialSchedule,timetable:renderTimetable,mySchedule:renderMySchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,bellSchedule:renderBellSchedule,settings:renderSettings}[currentPage])();
+  ({home:renderHome,schedule:renderSchedule,specialSchedule:renderSpecialSchedule,timetable:renderTimetable,dayPlanner:renderDayPlanner,mySchedule:renderMySchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,bellSchedule:renderBellSchedule,settings:renderSettings}[currentPage])();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
 }
 function openModal(html,wide=false){
@@ -3932,7 +3933,11 @@ function readySingleModeHtml(existing=null){
         type:existing.type,
         pairId:existing.pairId||firstPair,
         room:existing.room
-      }:{})}</div>
+      }:{
+        date:readySchedulePreset?.date||"",
+        pairId:readySchedulePreset?.pairId||firstPair,
+        room:readySchedulePreset?.room||""
+      })}</div>
       <div id="readyConflictBox"></div>
       <div class="modal-footer-actions">
         <button class="primary">${existing?"Зберегти зміни":"Додати в розклад"}</button>
@@ -4473,7 +4478,7 @@ function openReadyScheduleModal(editId=null){
   }
 
   const teacherText=existing?.teacher||"";
-  readyScheduleMode=editing?"single":null;
+  readyScheduleMode=editing||preset?.date||preset?.pairId?"single":null;
 
   openModal(`<div class="ready-schedule-modal">
     <div class="allocation-scheduler-head">
@@ -4560,6 +4565,7 @@ function openReadyScheduleModal(editId=null){
 
   renderReadyAudienceButtons();
   if(editing)setReadyScheduleMode("single",existing);
+  else if(preset?.date||preset?.pairId)setReadyScheduleMode("single");
   else setReadyScheduleMode(null);
   readySchedulePreset=null;
 }
@@ -6792,6 +6798,70 @@ function setTimetableGroup(code){
 function setGroupTimetableMonth(month){if(!academicMonthTabs().some(x=>x.value===month))return;timetableState.month=month;renderTimetable();}
 function shiftGroupTimetableMonth(delta){const months=academicMonthTabs(),idx=months.findIndex(x=>x.value===timetableState.month),next=months[idx+Number(delta)];if(next)setGroupTimetableMonth(next.value);}
 function timetableToday(){setGroupTimetableMonth(groupCurrentMonth());}
+
+/* ================================================================
+   v1.9.1 · GROUP DAY PLANNER
+   course → group → weekday → all semester dates × pairs 1..7
+   ================================================================ */
+const DAY_PLANNER_KEY="remsDayPlannerState_v1";
+function loadDayPlannerState(){try{return JSON.parse(localStorage.getItem(DAY_PLANNER_KEY)||"{}")||{};}catch(e){return{};}}
+let dayPlannerState={course:null,group:"",semester:null,weekday:null,...loadDayPlannerState()};
+function rememberDayPlanner(){try{localStorage.setItem(DAY_PLANNER_KEY,JSON.stringify(dayPlannerState));}catch(e){}}
+function dayPlannerCourses(){return [...new Set(sortedGroups().map(g=>Number(g.course)).filter(Number.isFinite))].sort((a,b)=>a-b);}
+function dayPlannerGroups(course){return sortedGroups().filter(g=>Number(g.course)===Number(course));}
+function dayPlannerSemesterForToday(){const d=currentAcademicDate(),b=academicYearBounds();return d<=`${b.startYear}-12-31`?1:2;}
+function normalizeDayPlannerState(){
+  const courses=dayPlannerCourses();if(!courses.length)return;
+  if(!courses.includes(Number(dayPlannerState.course)))dayPlannerState.course=courses[0];
+  const groups=dayPlannerGroups(dayPlannerState.course);
+  if(!groups.some(g=>normGroup(g.code)===normGroup(dayPlannerState.group)))dayPlannerState.group=groups[0]?.code||"";
+  if(![1,2].includes(Number(dayPlannerState.semester)))dayPlannerState.semester=dayPlannerSemesterForToday();
+  if(![0,1,2,3,4,5,6].includes(Number(dayPlannerState.weekday)))dayPlannerState.weekday=weekdayId(currentAcademicDate());
+  rememberDayPlanner();
+}
+function setDayPlannerCourse(course){dayPlannerState.course=Number(course);dayPlannerState.group=dayPlannerGroups(course)[0]?.code||"";rememberDayPlanner();renderDayPlanner();}
+function setDayPlannerGroup(group){if(!dayPlannerGroups(dayPlannerState.course).some(g=>normGroup(g.code)===normGroup(group)))return;dayPlannerState.group=group;rememberDayPlanner();renderDayPlanner();}
+function setDayPlannerSemester(semester){dayPlannerState.semester=Number(semester)===2?2:1;rememberDayPlanner();renderDayPlanner();}
+function setDayPlannerWeekday(weekday){const n=Number(weekday);dayPlannerState.weekday=[0,1,2,3,4,5,6].includes(n)?n:1;rememberDayPlanner();renderDayPlanner();}
+function dayPlannerWeekdayName(id){return ({0:"Неділя",1:"Понеділок",2:"Вівторок",3:"Середа",4:"Четвер",5:"П’ятниця",6:"Субота"})[Number(id)]||"";}
+function dayPlannerWeekdayShort(id){return ({0:"Нд",1:"Пн",2:"Вт",3:"Ср",4:"Чт",5:"Пт",6:"Сб"})[Number(id)]||"";}
+function dayPlannerDates(semester,weekday){const b=semesterDateBounds(semester),out=[];let d=b.start;while(d<=b.end){if(weekdayId(d)===Number(weekday))out.push(d);d=addDays(d,1);}return out;}
+function dayPlannerEvents(group,date,pairId){return groupEventsForDate(group,date).filter(ev=>String(groupEventSlotId(ev)||"")===String(pairId));}
+function dayPlannerEventHtml(ev){
+  const x=ev.data;
+  if(ev.source==="schedule"){
+    const click=isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`;
+    return `<button type="button" class="day-planner-event subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();${click}"><b>${esc(x.discipline||"Заняття")}</b><span>${esc(x.teacher||"викладач не вказаний")}</span><strong>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}</strong>${x.type?`<small>${esc(x.type)}</small>`:""}${scheduleAudienceGroups(x).length>1?`<em>Потік: ${esc(scheduleAudienceLabel(x))}</em>`:""}</button>`;
+  }
+  return `<button type="button" class="day-planner-event booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><b>${esc(x.title||roomBookingLabel(x))}</b><span>${esc(x.teacher||x.kind||"Бронювання")}</span><strong>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}</strong><small>${esc(x.kind||"")}</small></button>`;
+}
+function openDayPlannerSlot(date,pairId,group){
+  const pair=pairById(pairId),safeGroup=String(group).replaceAll("'","\\'");
+  openModal(`<div class="day-slot-choice"><span class="day-slot-choice-kicker">ВІЛЬНЕ МІСЦЕ</span><h2>${esc(group)} · ${formatDate(date)}</h2><p>${esc(dayPlannerWeekdayName(weekdayId(date)))} · ${esc(pair?.id||pairId)} пара · ${esc(pair?.start||"")}–${esc(pair?.end||"")}</p><div class="day-slot-choice-grid"><button type="button" class="day-slot-choice-btn department" onclick="closeModal();openLessonModal(null,{group:'${safeGroup}',date:'${date}',pairId:${Number(pairId)}})"><span>КАФЕДРА</span><b>+ Кафедральна пара</b><small>із уже розподіленого навантаження</small></button><button type="button" class="day-slot-choice-btn external" onclick="closeModal();readySchedulePreset={group:'${safeGroup}',date:'${date}',pairId:${Number(pairId)}};openReadyScheduleModal()"><span>ГОТОВИЙ РОЗКЛАД</span><b>+ Пара іншої кафедри</b><small>без списання нашого навантаження</small></button></div></div>`);
+}
+function dayPlannerCellHtml(group,date,pair){
+  const events=dayPlannerEvents(group,date,pair.id);
+  if(events.length)return `<div class="day-planner-cell occupied">${events.map(dayPlannerEventHtml).join("")}</div>`;
+  const safeGroup=String(group).replaceAll("'","\\'");
+  return `<button type="button" class="day-planner-cell free" onclick="openDayPlannerSlot('${date}',${Number(pair.id)},'${safeGroup}')"><span>+</span><b>Вільно</b><small>поставити пару</small></button>`;
+}
+function dayPlannerDateHeadHtml(group,date){
+  const count=groupEventsForDate(group,date).length,[y,m,d]=date.split("-");
+  const months={"01":"січ","02":"лют","03":"бер","04":"кві","05":"тра","06":"чер","07":"лип","08":"сер","09":"вер","10":"жов","11":"лис","12":"гру"};
+  return `<div class="day-planner-date-head ${count?"has-events":""} ${date===localTodayISO()?"today":""}" data-dayplanner-date="${date}"><b>${d}.${m}</b><span>${months[m]||y}</span><small>${count?`${count} подій`:"вільно"}</small></div>`;
+}
+function dayPlannerCourseButtonsHtml(){return `<div class="day-planner-course-row">${dayPlannerCourses().map(c=>`<button type="button" class="day-planner-course ${Number(dayPlannerState.course)===Number(c)?"active":""}" onclick="setDayPlannerCourse(${c})"><span>${c}</span><b>${c} курс</b><small>${dayPlannerGroups(c).map(g=>g.code).join(" · ")}</small></button>`).join("")}</div>`;}
+function dayPlannerGroupButtonsHtml(){const list=dayPlannerGroups(dayPlannerState.course);return `<div class="day-planner-group-row">${list.map(g=>`<button type="button" class="day-planner-group ${normGroup(g.code)===normGroup(dayPlannerState.group)?"active":""}" onclick="setDayPlannerGroup('${String(g.code).replaceAll("'","\\'")}')"><b>${esc(g.code)}</b><span>${groupStudentCount(g.code)} студентів</span></button>`).join("")}</div>`;}
+function dayPlannerWeekdayButtonsHtml(){const order=[1,2,3,4,5,6,0];return `<div class="day-planner-weekdays">${order.map(id=>`<button type="button" class="${Number(dayPlannerState.weekday)===id?"active":""}" onclick="setDayPlannerWeekday(${id})"><b>${dayPlannerWeekdayShort(id)}</b><span>${dayPlannerWeekdayName(id)}</span></button>`).join("")}</div>`;}
+function dayPlannerScrollCurrent(){const wrap=$("#dayPlannerGridWrap");if(!wrap)return;const dates=dayPlannerDates(dayPlannerState.semester,dayPlannerState.weekday),today=currentAcademicDate(),target=dates.find(d=>d>=today)||dates[dates.length-1],el=target?wrap.querySelector(`[data-dayplanner-date="${target}"]`):null;if(el)wrap.scrollTo({left:Math.max(0,el.offsetLeft-180),behavior:"smooth"});}
+function renderDayPlanner(){
+  normalizeDayPlannerState();const group=dayPlannerState.group;
+  if(!group){$("#page-dayPlanner").innerHTML=`<div class="card section"><div class="empty">Спочатку додай групи.</div></div>`;return;}
+  const dates=dayPlannerDates(dayPlannerState.semester,dayPlannerState.weekday),pairs=bellPairs().slice().sort((a,b)=>Number(a.id)-Number(b.id)).slice(0,7),occupied=dates.reduce((sum,date)=>sum+pairs.filter(p=>dayPlannerEvents(group,date,p.id).length).length,0),free=Math.max(0,dates.length*pairs.length-occupied),semLabel=Number(dayPlannerState.semester)===1?"І семестр":"ІІ семестр",bounds=semesterDateBounds(dayPlannerState.semester);
+  $("#page-dayPlanner").innerHTML=`<div class="day-planner-page"><div class="card section day-planner-control-card"><div class="section-head"><div><span class="day-planner-eyebrow">РОЗКЛАД ПО ДНЯХ</span><h2>Де ще можна поставити пару</h2><div class="small">Обери курс, групу, семестр і день тижня. Тут видно всі дати цього дня одразу.</div></div><div class="day-planner-summary"><div><b>${occupied}</b><span>зайнято</span></div><div><b>${free}</b><span>вільно</span></div></div></div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>1</span><b>Курс</b></div>${dayPlannerCourseButtonsHtml()}</div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>2</span><b>Група</b></div>${dayPlannerGroupButtonsHtml()}</div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>3</span><b>Семестр</b></div><div class="day-planner-semesters"><button class="${Number(dayPlannerState.semester)===1?"active":""}" onclick="setDayPlannerSemester(1)"><b>І семестр</b><span>${formatDate(semesterDateBounds(1).start)} — ${formatDate(semesterDateBounds(1).end)}</span></button><button class="${Number(dayPlannerState.semester)===2?"active":""}" onclick="setDayPlannerSemester(2)"><b>ІІ семестр</b><span>${formatDate(semesterDateBounds(2).start)} — ${formatDate(semesterDateBounds(2).end)}</span></button></div></div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>4</span><b>День</b></div>${dayPlannerWeekdayButtonsHtml()}</div></div><div class="card section day-planner-table-card"><div class="day-planner-table-head"><div><span>${esc(group)} · ${esc(groupCourse(group))} курс · ${esc(semLabel)}</span><h3>${esc(dayPlannerWeekdayName(dayPlannerState.weekday))}</h3><p>Усі дати цього дня · ${formatDate(bounds.start)} — ${formatDate(bounds.end)}</p></div><button class="secondary" onclick="dayPlannerScrollCurrent()">До актуальної дати →</button></div><div id="dayPlannerGridWrap" class="day-planner-grid-wrap"><div class="day-planner-grid" style="--day-count:${dates.length}"><div class="day-planner-corner"><b>Пара</b><span>час</span></div>${dates.map(date=>dayPlannerDateHeadHtml(group,date)).join("")}${pairs.map(pair=>`<div class="day-planner-pair-head"><b>${esc(pair.id)}</b><span>${esc(pair.start||"")}–${esc(pair.end||"")}</span></div>${dates.map(date=>dayPlannerCellHtml(group,date,pair)).join("")}`).join("")}</div></div><div class="day-planner-legend"><span><i class="occupied"></i> заняття вже стоїть</span><span><i class="free"></i> вільна дата</span><b>Клік по заняттю — редагувати · клік по «Вільно» — додати</b></div></div></div>`;
+  requestAnimationFrame(()=>dayPlannerScrollCurrent());
+}
+
 function renderTimetable(){
   if(!timetableState.group||!db.groups.some(g=>normGroup(g.code)===normGroup(timetableState.group))){timetableState.group=bestTimetableGroup();rememberTimetableGroup(timetableState.group);}
   if(!timetableState.month||!academicMonthAllowed(timetableState.month))timetableState.month=groupCurrentMonth();

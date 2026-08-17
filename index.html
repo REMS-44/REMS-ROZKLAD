@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>РЕМС-Розклад</title>
   <meta name="theme-color" content="#1b0d2f">
-  <link rel="stylesheet" href="styles.css?v=1.9.0">
+  <link rel="stylesheet" href="styles.css?v=1.9.1">
 </head>
 <body class="rems-studio">
 <div class="app">
@@ -26,6 +26,7 @@
       <div class="nav-section-label">РОЗКЛАД</div>
       <button class="nav-btn" data-page="schedule"><i class="nav-icon">✎</i><span>Складання розкладу</span></button>
       <button class="nav-btn" data-page="timetable"><i class="nav-icon">▦</i><span>Розклад</span></button>
+      <button class="nav-btn" data-page="dayPlanner"><i class="nav-icon">▤</i><span>По днях груп</span></button>
       <button class="nav-btn" data-page="specialSchedule"><i class="nav-icon">◫</i><span>Індивідуальні</span></button>
       <button class="nav-btn" data-page="roomGrid"><i class="nav-icon">▥</i><span>Аудиторії</span></button>
 
@@ -41,7 +42,7 @@
       <div id="cloudStatusDot" class="cloud-dot local"></div>
       <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
     </div>
-    <div class="sidebar-note">Версія 1.9.0 · Word-експорт розкладу по курсу</div>
+    <div class="sidebar-note">Версія 1.9.1 · розклад по днях груп</div>
   </aside>
   <main class="main">
     <header class="topbar">
@@ -56,6 +57,7 @@
     <section id="page-schedule" class="page"></section>
     <section id="page-specialSchedule" class="page"></section>
     <section id="page-timetable" class="page"></section>
+    <section id="page-dayPlanner" class="page"></section>
     <section id="page-mySchedule" class="page"></section>
     <section id="page-groups" class="page"></section>
     <section id="page-students" class="page"></section>
@@ -74,8 +76,8 @@
 <input id="importFile" type="file" accept=".json" hidden>
 <script src="data.js?v=1.1.3"></script>
 <script src="firebase-config.js"></script>
-<script src="word-export.js?v=1.9.0"></script>
-<script src="app.js?v=1.9.0"></script>
-<script type="module" src="cloud.js?v=1.9.0"></script>
+<script src="word-export.js?v=1.9.1"></script>
+<script src="app.js?v=1.9.1"></script>
+<script type="module" src="cloud.js?v=1.9.1"></script>
 </body>
 </html>
