@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 21,
+  "schemaVersion": 22,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [

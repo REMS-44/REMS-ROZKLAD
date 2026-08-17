@@ -1,5 +1,6 @@
 
 const KEY="remsScheduleData_v09";
+const APP_SCHEMA_VERSION=22;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -381,7 +382,12 @@ function migrate(old){
     const seed=(fresh.groups||[]).find(x=>groupSeedKey(x)===groupSeedKey(g));
     return {...g,departmentId:g.departmentId||seed?.departmentId||"rems-dept",programId:g.programId||seed?.programId||"rems"};
   });
-  fresh.students=mergeSeedStudents(old.students||[],fresh.students||[]);
+  // v2.0.4: seed students are imported only while upgrading an older database.
+  // From schema 22 onward the cloud/user list is authoritative, so a student
+  // that the administrator deletes must NOT be silently re-created from data.js.
+  fresh.students=previousSchemaVersion<APP_SCHEMA_VERSION
+    ?mergeSeedStudents(old.students||[],fresh.students||[])
+    :clone(old.students||[]);
   fresh.rooms=mergeSeedRooms(old.rooms||[],fresh.rooms||[]).map((r,i)=>{
     const seed=(fresh.rooms||[]).find(x=>roomSeedKey(x)===roomSeedKey(r));
     const oldProgramIds=Array.isArray(r.programIds)&&r.programIds.length?r.programIds:[];
@@ -452,7 +458,7 @@ function migrate(old){
     ...c,
     programId:c.programId||fresh.groups.find(g=>(c.applicableGroups||[]).some(code=>normIdentity(code)===normIdentity(g.code)))?.programId||((fresh.programs||[]).find(p=>normIdentity(p.name)===normIdentity(c.program))?.id)||"rems"
   }));
-  fresh.schemaVersion=21;
+  fresh.schemaVersion=APP_SCHEMA_VERSION;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     const ready=isReadyExternalScheduleItem(s);
     let teacherId=s.teacherId||null;
@@ -867,7 +873,7 @@ let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
   repairScheduleLinks(db);
-  db.schemaVersion=21;
+  db.schemaVersion=APP_SCHEMA_VERSION;
   localStorage.setItem(KEY,JSON.stringify(db));
   scheduleAutomaticBackup();
   renderCurrent();
@@ -923,7 +929,7 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     &&!remoteTeacherKeys.has(normIdentity(t.name||t.shortName))
   );
 
-  db.schemaVersion=21;
+  db.schemaVersion=APP_SCHEMA_VERSION;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
 
