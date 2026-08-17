@@ -5507,11 +5507,15 @@ function bindPlannerEntryRow(row,d,t){
     room.innerHTML=plannerRoomOptions(disciplinePlannerState.date,pair.value,old);
   };
 
-  type.onchange=refreshHours;
+  type.onchange=()=>{
+    refreshHours();
+    updatePlannerStreamAudience(d.id,t.id);
+  };
   pair.onchange=refreshRoom;
   row.querySelector("[data-planner-remove]").onclick=()=>{
     row.remove();
     renumberPlannerEntries();
+    updatePlannerStreamAudience(d.id,t.id);
   };
   refreshHours();
   refreshRoom();
@@ -5540,6 +5544,7 @@ function addPlannerEntry(pairId=null){
   box.insertAdjacentHTML("beforeend",plannerNewRowHtml(d,t,i,null,pairId));
   bindPlannerEntryRow(box.lastElementChild,d,t);
   renumberPlannerEntries();
+  updatePlannerStreamAudience(d.id,t.id);
 }
 function plannerAddForPair(pairId){
   if(disciplinePlannerState.entryMode!=="single")setPlannerEntryMode("single");
@@ -5701,7 +5706,6 @@ function plannerSeriesPanelHtml(d,t){
       <div id="plannerSeriesRows" class="planner-series-rows"></div>
 
       <div class="planner-stream-audience">
-        <div><b>Групи / потік</b><span>Вибрані групи слухатимуть кожну пару серії разом.</span></div>
         ${plannerAudienceButtonsHtml(d,t,[d.group])}
       </div>
 
@@ -5808,7 +5812,10 @@ function plannerBindSeriesRow(row,d,t){
   const remove=row.querySelector("[data-series-remove]");
 
   if(use)use.onchange=()=>plannerUpdateSeriesSummary(d,t);
-  if(typeEl)typeEl.onchange=()=>plannerUpdateSeriesSummary(d,t);
+  if(typeEl)typeEl.onchange=()=>{
+    plannerUpdateSeriesSummary(d,t);
+    updatePlannerStreamAudience(d.id,t.id);
+  };
   if(roomEl)roomEl.onchange=()=>plannerUpdateSeriesSummary(d,t);
   if(dateEl)dateEl.onchange=()=>plannerSeriesRefreshRow(row,d,t);
   if(pairEl)pairEl.onchange=()=>plannerSeriesRefreshRow(row,d,t);
@@ -5816,6 +5823,7 @@ function plannerBindSeriesRow(row,d,t){
     row.remove();
     plannerSeriesUpdateEmpty();
     plannerUpdateSeriesSummary(d,t);
+    updatePlannerStreamAudience(d.id,t.id);
   };
 
   plannerSeriesRefreshRow(row,d,t);
@@ -5839,6 +5847,7 @@ function plannerAddSeriesRow(d,t,preset={}){
   ));
   plannerBindSeriesRow(box.lastElementChild,d,t);
   plannerSeriesUpdateEmpty();
+  updatePlannerStreamAudience(d.id,t.id);
 }
 function plannerAddSeriesDatesFromText(d,t){
   const input=$("#plannerSeriesDatesPaste");
@@ -5907,6 +5916,7 @@ function plannerApplySeriesDefaults(d,t){
     }
   });
   plannerUpdateSeriesSummary(d,t);
+  updatePlannerStreamAudience(d.id,t.id);
 }
 function plannerAutofillSeriesTypes(d,t){
   const queues=plannerTypes(d,t.id)
@@ -5930,6 +5940,7 @@ function plannerAutofillSeriesTypes(d,t){
     typeSelect.value=chosen?.type||"";
   });
   plannerUpdateSeriesSummary(d,t);
+  updatePlannerStreamAudience(d.id,t.id);
 }
 function plannerSeriesSelection(d,t){
   const result=[];
@@ -6021,7 +6032,7 @@ function savePlannerSeries(d,t){
 
     const coverageIds=plannerDisciplineIdsForAudience(d,t,x.type,audienceGroups);
     if(coverageIds.missing.length){
-      problems.push(`${formatDate(x.date)} · ${x.type}: у ${coverageIds.missing.join(", ")} цей вид не розподілений викладачу ${teacherDisplay(t)}.`);
+      problems.push(`${formatDate(x.date)} · ${x.type}: ${coverageIds.details.join("; ")}.`);
       continue;
     }
     const item=lessonItemFromValues({
@@ -6402,30 +6413,226 @@ function savePlannerAvailabilityPopup(disciplineId,teacherId){
 }
 
 function sharedDisciplineCandidateForGroup(d,group){
-  return db.disciplines.find(x=>x.status!=="archived"&&normIdentity(x.group)===normIdentity(group)&&normIdentity(x.name)===normIdentity(d.name)&&Number(x.semester)===Number(d.semester))||null;
+  return db.disciplines.find(x=>
+    x.status!=="archived"
+    &&normIdentity(x.group)===normIdentity(group)
+    &&normIdentity(x.name)===normIdentity(d.name)
+    &&Number(x.semester)===Number(d.semester)
+  )||null;
 }
-function plannerCompatibleStreamGroups(d,t){
-  return sortedGroups().filter(g=>{
-    const peer=sharedDisciplineCandidateForGroup(d,g.code);
-    if(!peer)return false;
-    return schedulableTypes(peer).some(lt=>teacherTypePlan(peer,t.id,lt.name)>0);
+function sharedDisciplineAnySemesterForGroup(d,group){
+  return db.disciplines.filter(x=>
+    x.status!=="archived"
+    &&normIdentity(x.group)===normIdentity(group)
+    &&normIdentity(x.name)===normIdentity(d.name)
+  ).sort((a,b)=>Number(a.semester||99)-Number(b.semester||99));
+}
+function plannerStreamGroupsToShow(d){
+  const sameCourse=sortedGroups().filter(g=>Number(g.course)===Number(groupCourse(d.group)));
+  const sameDiscipline=sortedGroups().filter(g=>sharedDisciplineAnySemesterForGroup(d,g.code).length);
+  const primary=db.groups.find(g=>normIdentity(g.code)===normIdentity(d.group));
+  const map=new Map();
+
+  [primary,...sameCourse,...sameDiscipline].filter(Boolean).forEach(g=>{
+    map.set(normIdentity(g.code),g);
   });
+
+  return [...map.values()].sort((a,b)=>{
+    if(normIdentity(a.code)===normIdentity(d.group))return -1;
+    if(normIdentity(b.code)===normIdentity(d.group))return 1;
+    return Number(a.course||99)-Number(b.course||99)||String(a.code).localeCompare(String(b.code),"uk");
+  });
+}
+function plannerRequestedStreamTypes(){
+  const types=[];
+
+  $$("[data-planner-entry]").forEach(row=>{
+    const type=row.querySelector("[data-planner-type]")?.value;
+    if(type)types.push(type);
+  });
+
+  $$("[data-series-row]").forEach(row=>{
+    const use=row.querySelector("[data-series-use]");
+    if(use&&!use.checked)return;
+    const type=row.querySelector("[data-series-type]")?.value;
+    if(type)types.push(type);
+  });
+
+  return uniqueStrings(types);
+}
+function plannerStreamGroupStatus(d,t,group,requestedTypes=[]){
+  const primary=normIdentity(group)===normIdentity(d.group);
+  const exact=sharedDisciplineCandidateForGroup(d,group);
+  const any=sharedDisciplineAnySemesterForGroup(d,group);
+
+  if(primary){
+    return {
+      enabled:true,
+      primary:true,
+      peer:d,
+      tone:"primary",
+      title:"Основна група",
+      detail:disciplineAudienceLabel(d)
+    };
+  }
+
+  if(!exact){
+    if(any.length){
+      return {
+        enabled:false,
+        primary:false,
+        peer:null,
+        tone:"blocked",
+        title:"Інший семестр",
+        detail:`Ця дисципліна є у ${any.map(x=>`${x.semester} сем.`).join(", ")}`
+      };
+    }
+    return {
+      enabled:false,
+      primary:false,
+      peer:null,
+      tone:"blocked",
+      title:"Немає дисципліни",
+      detail:"Активуй її для цієї групи у «Навантаженні»"
+    };
+  }
+
+  const teacherTypes=schedulableTypes(exact)
+    .filter(lt=>teacherTypePlan(exact,t.id,lt.name)>0)
+    .map(lt=>lt.name);
+
+  if(!teacherTypes.length){
+    return {
+      enabled:false,
+      primary:false,
+      peer:exact,
+      tone:"blocked",
+      title:"Немає годин у викладача",
+      detail:`У ${teacherDisplay(t)} для цієї групи ще не розподілено години`
+    };
+  }
+
+  const requested=uniqueStrings((requestedTypes||[]).filter(Boolean));
+  const missing=requested.filter(type=>teacherTypePlan(exact,t.id,type)<=0);
+
+  if(missing.length){
+    return {
+      enabled:false,
+      primary:false,
+      peer:exact,
+      tone:"blocked",
+      title:"Не можна для вибраного виду",
+      detail:`Не розподілено: ${missing.join(", ")}`
+    };
+  }
+
+  return {
+    enabled:true,
+    primary:false,
+    peer:exact,
+    tone:"ready",
+    title:requested.length?"Можна додати до цієї пари":"Готова до потоку",
+    detail:requested.length
+      ?disciplineAudienceLabel(exact)
+      :`У викладача є: ${teacherTypes.join(" · ")}`
+  };
 }
 function plannerAudienceButtonsHtml(d,t,selected=[d.group]){
   const set=new Set((selected||[]).map(normIdentity));
-  return `<div class="planner-audience-buttons">${plannerCompatibleStreamGroups(d,t).map(g=>`<label class="planner-audience-btn ${set.has(normIdentity(g.code))?"active":""}"><input type="checkbox" data-planner-audience value="${esc(g.code)}" ${set.has(normIdentity(g.code))?"checked":""} ${normIdentity(g.code)===normIdentity(d.group)?"disabled":""} onchange="this.closest('.planner-audience-btn').classList.toggle('active',this.checked)"><b>${esc(g.code)}</b><span>${esc(g.course)} курс · ${esc(disciplineAudienceLabel(sharedDisciplineCandidateForGroup(d,g.code)))}</span></label>`).join("")}</div>`;
+
+  return `<div class="planner-stream-panel">
+    <div class="planner-stream-panel-head">
+      <div>
+        <span>ХТО СЛУХАЄ ЦЮ ПАРУ</span>
+        <b>Одна пара для кількох груп</b>
+        <small>Якщо групу поки не можна додати, вона все одно буде видима — з конкретною причиною.</small>
+      </div>
+      <div id="plannerStreamSelectionSummary" class="planner-stream-selection-summary"></div>
+    </div>
+
+    <div class="planner-audience-buttons">
+      ${plannerStreamGroupsToShow(d).map(g=>{
+        const status=plannerStreamGroupStatus(d,t,g.code,[]);
+        const checked=status.primary||set.has(normIdentity(g.code));
+        return `<label class="planner-audience-btn stream-status-${status.tone} ${checked&&status.enabled?"active":""} ${!status.enabled?"blocked":""}" data-stream-group-card="${esc(g.code)}">
+          <input type="checkbox" data-planner-audience value="${esc(g.code)}"
+            ${checked?"checked":""}
+            ${status.primary||!status.enabled?"disabled":""}
+            onchange="plannerStreamAudienceChanged(${d.id},${t.id})">
+          <div class="planner-stream-card-top">
+            <b>${esc(g.code)}</b>
+            <strong data-stream-status-badge>${status.primary?"ОСНОВНА":status.enabled?"МОЖНА":"НЕ МОЖНА"}</strong>
+          </div>
+          <span>${esc(g.course)} курс${status.peer?` · ${esc(disciplineAudienceLabel(status.peer))}`:""}</span>
+          <small data-stream-status-detail>${esc(status.title)}${status.detail?` · ${esc(status.detail)}`:""}</small>
+        </label>`;
+      }).join("")}
+    </div>
+  </div>`;
 }
 function plannerSelectedAudienceGroups(d){
-  return uniqueStrings([d.group,...$$('[data-planner-audience]').filter(x=>x.checked).map(x=>x.value)]);
+  return uniqueStrings([d.group,...$$("[data-planner-audience]").filter(x=>x.checked&&!x.disabled).map(x=>x.value)]);
 }
 function plannerDisciplineIdsForAudience(d,t,type,audienceGroups){
-  const ids=[],missing=[];
+  const ids=[],missing=[],details=[];
   (audienceGroups||[]).forEach(group=>{
     const peer=sharedDisciplineCandidateForGroup(d,group);
-    if(!peer||teacherTypePlan(peer,t.id,type)<=0){missing.push(group);return;}
+    if(!peer){
+      missing.push(group);
+      details.push(`${group}: дисципліну не активовано для ${d.semester} семестру`);
+      return;
+    }
+    if(teacherTypePlan(peer,t.id,type)<=0){
+      missing.push(group);
+      details.push(`${group}: ${type} не розподілено викладачу ${teacherDisplay(t)}`);
+      return;
+    }
     ids.push(Number(peer.id));
   });
-  return {ids:[...new Set(ids)],missing};
+  return {ids:[...new Set(ids)],missing,details};
+}
+function updatePlannerStreamAudience(disciplineId,teacherId){
+  const d=disciplineById(disciplineId),t=teacherById(teacherId);
+  if(!d||!t)return;
+
+  const requested=plannerRequestedStreamTypes();
+
+  $$("[data-stream-group-card]").forEach(card=>{
+    const group=card.dataset.streamGroupCard;
+    const input=card.querySelector("[data-planner-audience]");
+    const badge=card.querySelector("[data-stream-status-badge]");
+    const detail=card.querySelector("[data-stream-status-detail]");
+    const status=plannerStreamGroupStatus(d,t,group,requested);
+
+    card.classList.remove("stream-status-primary","stream-status-ready","stream-status-blocked","blocked");
+    card.classList.add(`stream-status-${status.tone}`);
+    card.classList.toggle("blocked",!status.enabled);
+
+    if(input){
+      if(status.primary){
+        input.checked=true;
+        input.disabled=true;
+      }else{
+        input.disabled=!status.enabled;
+        if(!status.enabled)input.checked=false;
+      }
+      card.classList.toggle("active",input.checked&&status.enabled);
+    }
+
+    if(badge)badge.textContent=status.primary?"ОСНОВНА":status.enabled?"МОЖНА":"НЕ МОЖНА";
+    if(detail)detail.textContent=`${status.title}${status.detail?` · ${status.detail}`:""}`;
+  });
+
+  const selected=plannerSelectedAudienceGroups(d);
+  const summary=$("#plannerStreamSelectionSummary");
+  if(summary){
+    summary.innerHTML=selected.length>1
+      ?`<span>ПОТІК</span><b>${esc(selected.join(" + "))}</b>`
+      :`<span>ОДНА ГРУПА</span><b>${esc(d.group)}</b>`;
+  }
+}
+function plannerStreamAudienceChanged(disciplineId,teacherId){
+  updatePlannerStreamAudience(disciplineId,teacherId);
 }
 
 function openPlannerSingleDatePopup(disciplineId,teacherId){
@@ -6471,7 +6678,6 @@ function openPlannerSingleDatePopup(disciplineId,teacherId){
       <div id="plannerEntriesEmpty" class="planner-entries-empty">Додай хоча б одну пару.</div>
 
       <div class="planner-stream-audience">
-        <div><b>Групи / потік</b><span>Якщо дисципліну слухають кілька груп разом — познач їх. Це буде одна реальна пара в розкладі всіх вибраних груп.</span></div>
         ${plannerAudienceButtonsHtml(d,t,[d.group])}
       </div>
 
@@ -6499,6 +6705,7 @@ function openPlannerSingleDatePopup(disciplineId,teacherId){
   const firstPair=plannerNextFreePair(date,d,t);
   addPlannerEntry(firstPair);
   renumberPlannerEntries();
+  updatePlannerStreamAudience(d.id,t.id);
 }
 
 function openPlannerSeriesPopup(disciplineId,teacherId){
@@ -6538,6 +6745,7 @@ function openPlannerSeriesPopup(disciplineId,teacherId){
   setPlannerSeriesMethod(null);
   plannerSeriesUpdateEmpty();
   plannerUpdateSeriesSummary(d,t);
+  updatePlannerStreamAudience(d.id,t.id);
 }
 
 function plannerSelectedDayPanel(d,t,totalRemaining){
@@ -6673,7 +6881,7 @@ function savePlannerDateEntries(e,d,t){
     const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;
     if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}
     const coverageIds=plannerDisciplineIdsForAudience(d,t,type,audienceGroups);
-    if(coverageIds.missing.length){problems.push(`${type}: у ${coverageIds.missing.join(", ")} цей вид не розподілений викладачу ${teacherDisplay(t)}.`);return;}
+    if(coverageIds.missing.length){problems.push(`${type}: ${coverageIds.details.join("; ")}.`);return;}
     const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);
     if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}
     byType[type]=used+hours;

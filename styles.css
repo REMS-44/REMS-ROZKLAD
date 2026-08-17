@@ -7270,3 +7270,163 @@ td .small{font-size:12px}
 
 /* v1.9.3.4 explicit no-limit controls */
 .teacher-limit-field{display:flex!important;flex-direction:column;gap:6px!important}.teacher-limit-field>span:first-child{font-size:11px;font-weight:800;color:#5f5367}.teacher-limit-field input{margin:0!important}.teacher-limit-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:28px}.teacher-limit-status{display:inline-flex;align-items:center;min-height:25px;padding:4px 8px;border-radius:999px;font-size:8px;font-weight:900;letter-spacing:.25px}.teacher-limit-status.unlimited{background:#e8f6ef;color:#347158;border:1px solid #cde8dc}.teacher-limit-status.active{background:#f0e7f7;color:#663184;border:1px solid #ddc9ea}.teacher-limit-clear{border:1px solid #d9c8e4!important;background:#fff!important;color:#642d83!important;border-radius:8px!important;padding:5px 8px!important;font-size:8px!important;font-weight:850!important;white-space:nowrap}.teacher-limit-clear:hover{background:#f6eff9!important;border-color:#b995ce!important}
+
+
+/* ================================================================
+   v1.9.3.5 · помітний вибір потоку кількох груп
+   ================================================================ */
+.planner-stream-audience{
+  padding:0!important;
+  border:0!important;
+  background:transparent!important;
+}
+.planner-stream-panel{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:12px;
+  border:1px solid #d8c8e2;
+  border-left:5px solid #7433a2;
+  border-radius:13px;
+  background:radial-gradient(circle at 94% 0,rgba(119,51,163,.09),transparent 35%),#faf7fc;
+}
+.planner-stream-panel-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+}
+.planner-stream-panel-head>div:first-child>span{
+  display:block;
+  margin-bottom:2px;
+  font-size:8px!important;
+  font-weight:900;
+  letter-spacing:.8px;
+  color:#7b4a93!important;
+}
+.planner-stream-panel-head>div:first-child>b{
+  display:block;
+  font-size:15px!important;
+  color:#37203f;
+}
+.planner-stream-panel-head>div:first-child>small{
+  display:block;
+  margin-top:3px;
+  font-size:9px;
+  line-height:1.35;
+  color:#7b6c81;
+}
+.planner-stream-selection-summary{
+  flex:0 0 auto;
+  min-width:130px;
+  padding:8px 10px;
+  border:1px solid #dac8e5;
+  border-radius:10px;
+  background:#fff;
+  text-align:right;
+}
+.planner-stream-selection-summary span{
+  display:block;
+  font-size:7px!important;
+  font-weight:900;
+  letter-spacing:.6px;
+  color:#887092!important;
+}
+.planner-stream-selection-summary b{
+  display:block;
+  margin-top:2px;
+  font-size:10px!important;
+  color:#5e2a7a;
+}
+
+.planner-stream-panel .planner-audience-buttons{
+  display:grid!important;
+  grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:7px!important;
+}
+.planner-stream-panel .planner-audience-btn{
+  min-width:0!important;
+  min-height:82px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:stretch!important;
+  justify-content:center!important;
+  gap:4px!important;
+  padding:9px 10px!important;
+  border-radius:11px!important;
+  transition:.15s ease;
+}
+.planner-stream-card-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.planner-stream-card-top>b{
+  font-size:13px!important;
+  color:#382044;
+}
+.planner-stream-card-top>strong{
+  padding:3px 5px;
+  border-radius:6px;
+  font-size:6.5px;
+  font-weight:950;
+  letter-spacing:.5px;
+}
+.planner-stream-panel .planner-audience-btn>span{
+  font-size:8px!important;
+  color:#75687b!important;
+}
+.planner-stream-panel .planner-audience-btn>small{
+  display:block;
+  font-size:8px;
+  line-height:1.3;
+}
+.planner-audience-btn.stream-status-primary{
+  border-color:#8d57ad!important;
+  background:#eee2f6!important;
+  box-shadow:inset 0 0 0 1px #8d57ad!important;
+  cursor:default;
+}
+.planner-audience-btn.stream-status-primary .planner-stream-card-top>strong{
+  background:#6c348b;
+  color:#fff;
+}
+.planner-audience-btn.stream-status-ready{
+  border-color:#bba3ca!important;
+  background:#fff!important;
+}
+.planner-audience-btn.stream-status-ready:hover{
+  border-color:#7530ad!important;
+  transform:translateY(-1px);
+  box-shadow:0 6px 15px rgba(77,34,99,.08);
+}
+.planner-audience-btn.stream-status-ready .planner-stream-card-top>strong{
+  background:#e4f4ec;
+  color:#317056;
+}
+.planner-audience-btn.stream-status-ready.active{
+  border-color:#7430aa!important;
+  background:#f1e7f8!important;
+  box-shadow:inset 0 0 0 1px #7430aa!important;
+}
+.planner-audience-btn.stream-status-blocked,
+.planner-audience-btn.blocked{
+  border-style:dashed!important;
+  border-color:#e4c8c8!important;
+  background:#fff7f7!important;
+  opacity:1!important;
+  cursor:not-allowed!important;
+}
+.planner-audience-btn.stream-status-blocked .planner-stream-card-top>strong{
+  background:#fde6e6;
+  color:#a54a4a;
+}
+.planner-audience-btn.stream-status-blocked>small{
+  color:#a55b5b!important;
+}
+@media(max-width:800px){
+  .planner-stream-panel-head{align-items:flex-start;flex-direction:column}
+  .planner-stream-selection-summary{width:100%;text-align:left}
+  .planner-stream-panel .planner-audience-buttons{grid-template-columns:1fr}
+}
