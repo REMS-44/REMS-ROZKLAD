@@ -1580,14 +1580,37 @@ function renderTeachers(){
       ${ext.length?`<div class="external-teacher-grid">${ext.map(externalTeacherCard).join("")}</div>`:`<div class="empty">Зовнішніх викладачів ще немає. Вони також створюються автоматично, коли ти вводиш нове ПІБ у «Готових парах».</div>`}
     </div>`;
 }
+function positiveTeacherLimit(value){
+  const n=Number(value);
+  return Number.isFinite(n)&&n>0?n:null;
+}
+function teacherLimitStateText(value){
+  const n=positiveTeacherLimit(value);
+  return n?`Ліміт: ${n}`:"Без обмежень";
+}
+function updateTeacherLimitUi(inputId,statusId){
+  const input=$("#"+inputId),status=$("#"+statusId);
+  if(!input||!status)return;
+  const n=positiveTeacherLimit(input.value);
+  status.textContent=n?`Ліміт: ${n}`:"Без обмежень";
+  status.classList.toggle("active",!!n);
+  status.classList.toggle("unlimited",!n);
+}
+function clearTeacherLimit(inputId,statusId){
+  const input=$("#"+inputId);
+  if(input)input.value="";
+  updateTeacherLimitUi(inputId,statusId);
+}
 function teacherAvailabilitySummary(t){
   const unavailable=(t.unavailableRules||[]).length;
   const preferred=(t.preferredRules||[]).length;
   const parts=[];
   if(unavailable)parts.push(`не можна: ${unavailable}`);
   if(preferred)parts.push(`бажано: ${preferred}`);
-  if(t.maxPerDay)parts.push(`до ${t.maxPerDay}/день`);
-  if(t.maxConsecutive)parts.push(`до ${t.maxConsecutive} підряд`);
+  const maxPerDay=positiveTeacherLimit(t.maxPerDay);
+  const maxConsecutive=positiveTeacherLimit(t.maxConsecutive);
+  if(maxPerDay)parts.push(`до ${maxPerDay}/день`);
+  if(maxConsecutive)parts.push(`до ${maxConsecutive} підряд`);
   return parts.length?parts.join(" · "):"обмеження не задані";
 }
 function teacherCard(t){
@@ -1655,12 +1678,8 @@ function openTeacherAvailabilityModal(id){
       </div>
 
       <div class="availability-limits">
-        <label>Максимум пар на день
-          <input id="availabilityMaxPerDay" type="number" min="0" value="${esc(t.maxPerDay||"")}" placeholder="наприклад 4">
-        </label>
-        <label>Максимум пар підряд
-          <input id="availabilityMaxConsecutive" type="number" min="0" value="${esc(t.maxConsecutive||"")}" placeholder="наприклад 3">
-        </label>
+        <label class="teacher-limit-field"><span>Максимум пар на день</span><input id="availabilityMaxPerDay" type="number" min="1" value="${esc(t.maxPerDay||"")}" placeholder="Напр. 4" oninput="updateTeacherLimitUi('availabilityMaxPerDay','availabilityMaxPerDayStatus')"><div class="teacher-limit-tools"><span id="availabilityMaxPerDayStatus" class="teacher-limit-status ${positiveTeacherLimit(t.maxPerDay)?"active":"unlimited"}">${teacherLimitStateText(t.maxPerDay)}</span><button type="button" class="teacher-limit-clear" onclick="clearTeacherLimit('availabilityMaxPerDay','availabilityMaxPerDayStatus')">Без обмежень</button></div></label>
+        <label class="teacher-limit-field"><span>Максимум пар підряд</span><input id="availabilityMaxConsecutive" type="number" min="1" value="${esc(t.maxConsecutive||"")}" placeholder="Напр. 3" oninput="updateTeacherLimitUi('availabilityMaxConsecutive','availabilityMaxConsecutiveStatus')"><div class="teacher-limit-tools"><span id="availabilityMaxConsecutiveStatus" class="teacher-limit-status ${positiveTeacherLimit(t.maxConsecutive)?"active":"unlimited"}">${teacherLimitStateText(t.maxConsecutive)}</span><button type="button" class="teacher-limit-clear" onclick="clearTeacherLimit('availabilityMaxConsecutive','availabilityMaxConsecutiveStatus')">Без обмежень</button></div></label>
       </div>
 
       <div class="availability-legend">
@@ -1681,8 +1700,8 @@ function openTeacherAvailabilityModal(id){
     e.preventDefault();
     t.unavailableRules=readRules("availabilityUnavailableRules");
     t.preferredRules=readRules("availabilityPreferredRules");
-    t.maxPerDay=$("#availabilityMaxPerDay").value;
-    t.maxConsecutive=$("#availabilityMaxConsecutive").value;
+    t.maxPerDay=positiveTeacherLimit($("#availabilityMaxPerDay").value)||"";
+    t.maxConsecutive=positiveTeacherLimit($("#availabilityMaxConsecutive").value)||"";
     closeModal();
     save();
   };
@@ -1736,7 +1755,7 @@ function openTeacherModal(id=null){
       employmentType:$("#te").value,rate:$("#tr").value,teachingNormPerRate:$("#tnorm").value,
       employmentStart:$("#tstart").value,employmentEnd:$("#tend").value,phone:$("#tph").value.trim(),email:$("#tem").value.trim(),photo:$("#tphoto").value.trim(),
       unavailableRules:readRules("unavailableRules"),preferredRules:readRules("preferredRules"),
-      maxPerDay:$("#tmax").value,maxConsecutive:$("#tcon").value,note:$("#tnote").value.trim(),status:"active"
+      maxPerDay:positiveTeacherLimit($("#tmax").value)||"",maxConsecutive:positiveTeacherLimit($("#tcon").value)||"",note:$("#tnote").value.trim(),status:"active"
     };
     if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});
     closeModal();save();
@@ -5106,10 +5125,13 @@ function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
     .filter(x=>x.id!==ignoreId&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)&&x.date===item.date);
 
   const dayUnits=existing.reduce((sum,x)=>sum+(x.specialSchedule?0.5:1),0)+(item.specialSchedule?0.5:1);
-  if(t.maxPerDay&&dayUnits>Number(t.maxPerDay)+.0001)
-    warnings.push(`Перевищено максимум пар викладача на день: ${t.maxPerDay}. Індивідуальна академічна година рахується як ½ пари.`);
+  const maxPerDay=positiveTeacherLimit(t.maxPerDay);
+  const maxConsecutive=positiveTeacherLimit(t.maxConsecutive);
 
-  if(t.maxConsecutive&&item.pairId){
+  if(maxPerDay&&dayUnits>maxPerDay+.0001)
+    warnings.push(`Перевищено максимум пар викладача на день: ${maxPerDay}. Індивідуальна академічна година рахується як ½ пари.`);
+
+  if(maxConsecutive&&item.pairId){
     const ids=new Set(
       existing
         .map(x=>Number(x.pairId||pairIdForTimes(x.start,x.end)))
@@ -5124,8 +5146,8 @@ function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
       longest=Math.max(longest,current);
       prev=id;
     }
-    if(longest>Number(t.maxConsecutive))
-      warnings.push(`Перевищено максимум пар підряд: ${t.maxConsecutive}.`);
+    if(longest>maxConsecutive)
+      warnings.push(`Перевищено максимум пар підряд: ${maxConsecutive}.`);
   }
 
   return{warnings,notes};
@@ -6138,14 +6160,8 @@ function plannerTeacherAvailabilitySummaryHtml(t,date){
       </div>
 
       <div class="planner-inline-limits">
-        <label>
-          <span>Максимум пар на день</span>
-          <input id="plannerAvailabilityMaxPerDay" type="number" min="0" value="${esc(t.maxPerDay||"")}" placeholder="наприклад 4">
-        </label>
-        <label>
-          <span>Максимум пар підряд</span>
-          <input id="plannerAvailabilityMaxConsecutive" type="number" min="0" value="${esc(t.maxConsecutive||"")}" placeholder="наприклад 3">
-        </label>
+        <label class="teacher-limit-field"><span>Максимум пар на день</span><input id="plannerAvailabilityMaxPerDay" type="number" min="1" value="${esc(t.maxPerDay||"")}" placeholder="Напр. 4" oninput="updateTeacherLimitUi('plannerAvailabilityMaxPerDay','plannerAvailabilityMaxPerDayStatus')"><div class="teacher-limit-tools"><span id="plannerAvailabilityMaxPerDayStatus" class="teacher-limit-status ${positiveTeacherLimit(t.maxPerDay)?"active":"unlimited"}">${teacherLimitStateText(t.maxPerDay)}</span><button type="button" class="teacher-limit-clear" onclick="clearTeacherLimit('plannerAvailabilityMaxPerDay','plannerAvailabilityMaxPerDayStatus')">Без обмежень</button></div></label>
+        <label class="teacher-limit-field"><span>Максимум пар підряд</span><input id="plannerAvailabilityMaxConsecutive" type="number" min="1" value="${esc(t.maxConsecutive||"")}" placeholder="Напр. 3" oninput="updateTeacherLimitUi('plannerAvailabilityMaxConsecutive','plannerAvailabilityMaxConsecutiveStatus')"><div class="teacher-limit-tools"><span id="plannerAvailabilityMaxConsecutiveStatus" class="teacher-limit-status ${positiveTeacherLimit(t.maxConsecutive)?"active":"unlimited"}">${teacherLimitStateText(t.maxConsecutive)}</span><button type="button" class="teacher-limit-clear" onclick="clearTeacherLimit('plannerAvailabilityMaxConsecutive','plannerAvailabilityMaxConsecutiveStatus')">Без обмежень</button></div></label>
       </div>
 
       <div id="plannerAvailabilitySaveMessage"></div>
@@ -6180,8 +6196,8 @@ function savePlannerTeacherAvailability(teacherId){
 
   t.unavailableRules=readRules("plannerAvailabilityUnavailableRules");
   t.preferredRules=readRules("plannerAvailabilityPreferredRules");
-  t.maxPerDay=$("#plannerAvailabilityMaxPerDay")?.value||"";
-  t.maxConsecutive=$("#plannerAvailabilityMaxConsecutive")?.value||"";
+  t.maxPerDay=positiveTeacherLimit($("#plannerAvailabilityMaxPerDay")?.value)||"";
+  t.maxConsecutive=positiveTeacherLimit($("#plannerAvailabilityMaxConsecutive")?.value)||"";
 
   /* Save underlying data but leave this planner modal and all draft rows intact. */
   save();
@@ -6360,12 +6376,8 @@ function openPlannerAvailabilityPopup(disciplineId,teacherId){
     </div>
 
     <div class="planner-popup-limits">
-      <label>Максимум пар на день
-        <input id="plannerPopupMaxPerDay" type="number" min="0" value="${esc(t.maxPerDay||"")}" placeholder="наприклад 4">
-      </label>
-      <label>Максимум пар підряд
-        <input id="plannerPopupMaxConsecutive" type="number" min="0" value="${esc(t.maxConsecutive||"")}" placeholder="наприклад 3">
-      </label>
+      <label class="teacher-limit-field"><span>Максимум пар на день</span><input id="plannerPopupMaxPerDay" type="number" min="1" value="${esc(t.maxPerDay||"")}" placeholder="Напр. 4" oninput="updateTeacherLimitUi('plannerPopupMaxPerDay','plannerPopupMaxPerDayStatus')"><div class="teacher-limit-tools"><span id="plannerPopupMaxPerDayStatus" class="teacher-limit-status ${positiveTeacherLimit(t.maxPerDay)?"active":"unlimited"}">${teacherLimitStateText(t.maxPerDay)}</span><button type="button" class="teacher-limit-clear" onclick="clearTeacherLimit('plannerPopupMaxPerDay','plannerPopupMaxPerDayStatus')">Без обмежень</button></div></label>
+      <label class="teacher-limit-field"><span>Максимум пар підряд</span><input id="plannerPopupMaxConsecutive" type="number" min="1" value="${esc(t.maxConsecutive||"")}" placeholder="Напр. 3" oninput="updateTeacherLimitUi('plannerPopupMaxConsecutive','plannerPopupMaxConsecutiveStatus')"><div class="teacher-limit-tools"><span id="plannerPopupMaxConsecutiveStatus" class="teacher-limit-status ${positiveTeacherLimit(t.maxConsecutive)?"active":"unlimited"}">${teacherLimitStateText(t.maxConsecutive)}</span><button type="button" class="teacher-limit-clear" onclick="clearTeacherLimit('plannerPopupMaxConsecutive','plannerPopupMaxConsecutiveStatus')">Без обмежень</button></div></label>
     </div>
 
     <div class="planner-popup-footer">
@@ -6383,8 +6395,8 @@ function savePlannerAvailabilityPopup(disciplineId,teacherId){
 
   t.unavailableRules=readRules("plannerPopupUnavailableRules");
   t.preferredRules=readRules("plannerPopupPreferredRules");
-  t.maxPerDay=$("#plannerPopupMaxPerDay")?.value||"";
-  t.maxConsecutive=$("#plannerPopupMaxConsecutive")?.value||"";
+  t.maxPerDay=positiveTeacherLimit($("#plannerPopupMaxPerDay")?.value)||"";
+  t.maxConsecutive=positiveTeacherLimit($("#plannerPopupMaxConsecutive")?.value)||"";
 
   refreshPlannerAfterAction(d,t);
 }
