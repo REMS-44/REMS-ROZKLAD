@@ -1,42 +1,147 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 13,
+  "schemaVersion": 18,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
     {
       "id": 1,
       "course": 1,
-      "code": "РЕМС-46"
+      "code": "РЕМС-46",
+      "departmentId": "rems-dept",
+      "programId": "rems"
     },
     {
       "id": 2,
       "course": 1,
-      "code": "РЕМС-76"
+      "code": "РЕМС-76",
+      "departmentId": "rems-dept",
+      "programId": "rems"
     },
     {
       "id": 3,
       "course": 2,
-      "code": "РЕМС-45"
+      "code": "РЕМС-45",
+      "departmentId": "rems-dept",
+      "programId": "rems"
     },
     {
       "id": 4,
       "course": 3,
-      "code": "РЕМС-44"
+      "code": "РЕМС-44",
+      "departmentId": "rems-dept",
+      "programId": "rems"
     },
     {
       "id": 5,
       "course": 3,
-      "code": "РЕМС-34"
+      "code": "РЕМС-34",
+      "departmentId": "rems-dept",
+      "programId": "rems"
     },
     {
       "id": 6,
       "course": 4,
-      "code": "РЕМС-43"
+      "code": "РЕМС-43",
+      "departmentId": "rems-dept",
+      "programId": "rems"
     },
     {
       "id": 7,
       "code": "МСМ-25",
-      "course": 5
+      "course": 5,
+      "departmentId": "rems-dept",
+      "programId": "rems"
+    },
+    {
+      "id": 8,
+      "course": 1,
+      "code": "ТА-16",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 9,
+      "course": 1,
+      "code": "ТА-26",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 10,
+      "course": 1,
+      "code": "ТА-56",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 11,
+      "course": 1,
+      "code": "ТА-66",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 12,
+      "course": 2,
+      "code": "ТА-15",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 13,
+      "course": 2,
+      "code": "ТА-25",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 14,
+      "course": 3,
+      "code": "ТА-14",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 15,
+      "course": 3,
+      "code": "ТА-24",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 16,
+      "course": 4,
+      "code": "ТА-13",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 17,
+      "course": 4,
+      "code": "ТА-23",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 18,
+      "course": 4,
+      "code": "ТА-53",
+      "departmentId": "ram-dept",
+      "programId": "actor"
+    },
+    {
+      "id": 19,
+      "course": 1,
+      "code": "ТР-36",
+      "departmentId": "ram-dept",
+      "programId": "theatre-director"
+    },
+    {
+      "id": 20,
+      "course": 4,
+      "code": "ТР-33",
+      "departmentId": "ram-dept",
+      "programId": "theatre-director"
     }
   ],
   "students": [
@@ -989,7 +1094,11 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 1
+      "gridOrder": 1,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
     },
     {
       "id": 2,
@@ -997,7 +1106,13 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 2
+      "gridOrder": 2,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "rems",
+        "actor",
+        "theatre-director"
+      ]
     },
     {
       "id": 3,
@@ -1005,7 +1120,11 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 3
+      "gridOrder": 3,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
     },
     {
       "id": 4,
@@ -1013,7 +1132,11 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 4
+      "gridOrder": 4,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
     },
     {
       "id": 5,
@@ -1021,7 +1144,11 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 5
+      "gridOrder": 5,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
     },
     {
       "id": 6,
@@ -1029,7 +1156,11 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 6
+      "gridOrder": 6,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
     },
     {
       "id": 7,
@@ -1037,7 +1168,11 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 7
+      "gridOrder": 7,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
     },
     {
       "id": 8,
@@ -1045,7 +1180,102 @@ window.REMS_INITIAL_DATA = {
       "status": "active",
       "note": "",
       "showInGrid": true,
-      "gridOrder": 8
+      "gridOrder": 8,
+      "ownerDepartmentId": "rems-dept",
+      "programIds": [
+        "rems"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "128",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 9,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "320",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 10,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "309",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 11,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "238",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 12,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "307а",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 13,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "226",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 14,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Гуртожиток",
+      "status": "active",
+      "note": "",
+      "showInGrid": true,
+      "gridOrder": 15,
+      "ownerDepartmentId": "ram-dept",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
     }
   ],
   "teachers": [],
@@ -1759,7 +1989,8 @@ window.REMS_INITIAL_DATA = {
         "examSemester6": 4,
         "creditSemester5": 6,
         "creditSemester6": 7
-      }
+      },
+      "programId": "rems"
     },
     {
       "id": 2,
@@ -2372,7 +2603,8 @@ window.REMS_INITIAL_DATA = {
             }
           ]
         }
-      ]
+      ],
+      "programId": "rems"
     }
   ],
   "bellSchedule": [
@@ -2412,5 +2644,46 @@ window.REMS_INITIAL_DATA = {
       "end": "20:00"
     }
   ],
-  "roomBookings": []
+  "roomBookings": [],
+  "faculty": {
+    "id": "fte",
+    "name": "Факультет театру, кіно та естради"
+  },
+  "departments": [
+    {
+      "id": "rems-dept",
+      "name": "Кафедра режисури естради і шоу",
+      "programIds": [
+        "rems"
+      ]
+    },
+    {
+      "id": "ram-dept",
+      "name": "Кафедра режисури та акторської майстерності",
+      "programIds": [
+        "actor",
+        "theatre-director"
+      ]
+    }
+  ],
+  "programs": [
+    {
+      "id": "rems",
+      "departmentId": "rems-dept",
+      "name": "Режисура естради і шоу",
+      "shortName": "РЕМС"
+    },
+    {
+      "id": "actor",
+      "departmentId": "ram-dept",
+      "name": "Актор театру та кіно",
+      "shortName": "ТА"
+    },
+    {
+      "id": "theatre-director",
+      "departmentId": "ram-dept",
+      "name": "Режисер театру та кіно",
+      "shortName": "ТР"
+    }
+  ]
 };

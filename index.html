@@ -3,21 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>РЕМС-Розклад</title>
+  <title>Факультет · Розклад</title>
   <meta name="theme-color" content="#1b0d2f">
-  <link rel="stylesheet" href="styles.css?v=1.9.4.1">
+  <link rel="stylesheet" href="styles.css?v=2.0.0">
 </head>
 <body class="rems-studio">
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark"><span>Р</span></div>
-      <div class="brand-copy"><b>РЕМС</b><span>СИСТЕМА РОЗКЛАДУ</span></div>
+      <div class="brand-mark"><span>Ф</span></div>
+      <div class="brand-copy"><b>ФТКЕ</b><span>СИСТЕМА РОЗКЛАДУ</span></div>
     </div>
-    <div class="sidebar-studio-label"><span>КАФЕДРА</span><b>режисура естради і шоу</b></div>
+    <div class="sidebar-studio-label"><span id="sidebarScopeKind">КАФЕДРА</span><b id="sidebarDepartmentLabel">режисура естради і шоу</b></div>
+    <div class="program-scope-box">
+      <label for="programScope">СПЕЦІАЛЬНІСТЬ</label>
+      <select id="programScope" aria-label="Спеціальність"></select>
+      <span id="programScopeFaculty">Факультет театру, кіно та естради</span>
+    </div>
     <nav>
       <button class="nav-btn teacher-only-nav" id="teacherScheduleNav" data-page="mySchedule" style="display:none"><i class="nav-icon">▦</i><span>Мій розклад</span></button>
       <button class="nav-btn active" data-page="home"><i class="nav-icon">⌂</i><span>Головна</span></button>
+      <button class="nav-btn" data-page="faculty"><i class="nav-icon">◎</i><span>Структура факультету</span></button>
 
       <div class="nav-section-label">ПЛАНУВАННЯ</div>
       <button class="nav-btn" data-page="curricula"><i class="nav-icon">▤</i><span>Навчальні плани</span></button>
@@ -42,18 +48,19 @@
       <div id="cloudStatusDot" class="cloud-dot local"></div>
       <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
     </div>
-    <div class="sidebar-note">Версія 1.9.4.1 · Word з об’єднаними клітинками</div>
+    <div class="sidebar-note">Версія 2.0.0 · факультетська структура</div>
   </aside>
   <main class="main">
     <header class="topbar">
       <div class="topbar-copy">
-        <span class="topbar-kicker">РЕМС · РОБОЧИЙ ПУЛЬТ</span>
+        <span class="topbar-kicker" id="topbarKicker">РОБОЧИЙ ПУЛЬТ</span>
         <h1 id="pageTitle">Головна</h1>
         <p id="pageSubtitle">Кафедральний пульт розкладу</p>
       </div>
       <div class="topbar-signature" aria-hidden="true"><i></i><i></i><i></i></div>
     </header>
     <section id="page-home" class="page active"></section>
+    <section id="page-faculty" class="page"></section>
     <section id="page-schedule" class="page"></section>
     <section id="page-specialSchedule" class="page"></section>
     <section id="page-timetable" class="page"></section>
@@ -76,8 +83,8 @@
 <input id="importFile" type="file" accept=".json" hidden>
 <script src="data.js?v=1.1.3"></script>
 <script src="firebase-config.js"></script>
-<script src="word-export.js?v=1.9.4.1"></script>
-<script src="app.js?v=1.9.4.1"></script>
-<script type="module" src="cloud.js?v=1.9.3.1"></script>
+<script src="word-export.js?v=2.0.0"></script>
+<script src="app.js?v=2.0.0"></script>
+<script type="module" src="cloud.js?v=2.0.0"></script>
 </body>
 </html>

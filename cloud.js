@@ -203,7 +203,7 @@ async function manualCloudReconnect(silent=false){
 function showLogin(){
   let o=document.querySelector("#cloudAuthOverlay");
   if(!o){o=document.createElement("div");o.id="cloudAuthOverlay";o.className="cloud-auth-overlay";document.body.appendChild(o);}
-  o.innerHTML=`<div class="cloud-auth-card"><div class="brand-mark cloud-auth-logo">Р</div><h2>РЕМС-Розклад</h2><p>Увійдіть, щоб працювати зі спільною базою кафедри.</p><form id="cloudLoginForm"><label>Email<input id="cloudEmail" type="email" autocomplete="username" required></label><label>Пароль<input id="cloudPassword" type="password" autocomplete="current-password" required></label><button class="primary" type="submit">Увійти</button><div id="cloudLoginError" class="cloud-error"></div></form><div class="small">Облікові записи створюються адміністратором у Firebase Authentication.</div></div>`;
+  o.innerHTML=`<div class="cloud-auth-card"><div class="brand-mark cloud-auth-logo">Р</div><h2>Факультет · Розклад</h2><p>Увійдіть, щоб працювати зі спільною базою факультету.</p><form id="cloudLoginForm"><label>Email<input id="cloudEmail" type="email" autocomplete="username" required></label><label>Пароль<input id="cloudPassword" type="password" autocomplete="current-password" required></label><button class="primary" type="submit">Увійти</button><div id="cloudLoginError" class="cloud-error"></div></form><div class="small">Облікові записи створюються адміністратором у Firebase Authentication.</div></div>`;
   o.classList.remove("hidden");
   o.querySelector("#cloudLoginForm").onsubmit=async e=>{
     e.preventDefault();const err=o.querySelector("#cloudLoginError");err.textContent="";
@@ -267,7 +267,7 @@ async function ensureProfile(u){
     toast("Перший користувач став адміністратором системи.","ok",7000);
     return p;
   }
-  const err=new Error("Цей обліковий запис ще не доданий адміністратором РЕМС-Розкладу.");
+  const err=new Error("Цей обліковий запис ще не доданий адміністратором системи розкладу.");
   err.code="REMS_ACCESS_NOT_PROVISIONED";
   throw err;
 }
@@ -314,7 +314,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=16;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=18;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
@@ -417,7 +417,7 @@ async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:16,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
+function settingsPart(st){return clean({schemaVersion:18,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;
