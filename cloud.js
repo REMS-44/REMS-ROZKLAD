@@ -314,7 +314,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=19;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=20;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){

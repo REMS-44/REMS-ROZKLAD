@@ -340,6 +340,34 @@ function mergeSeedStudents(existing=[],seed=[]){
   return result;
 }
 
+function teacherSeedKey(t){return normIdentity(t?.name||t?.shortName||"");}
+function mergeSeedTeachers(existing=[],seed=[]){
+  const result=clone(existing||[]);
+  const byKey=new Map(result.map(t=>[teacherSeedKey(t),t]).filter(([k])=>k));
+  (seed||[]).forEach(seedTeacher=>{
+    const key=teacherSeedKey(seedTeacher);if(!key)return;
+    const current=byKey.get(key);
+    if(!current){
+      const copy=clone(seedTeacher);
+      copy.id=uid(result);
+      result.push(copy);
+      byKey.set(key,copy);
+      return;
+    }
+    const wasExternal=current.scope==="external";
+    if(seedTeacher.scope==="department"){
+      current.scope="department";
+      if(wasExternal||!current.homeDepartmentId)current.homeDepartmentId=seedTeacher.homeDepartmentId||current.homeDepartmentId||"";
+    }
+    current.programIds=uniqueStrings([...(Array.isArray(current.programIds)?current.programIds:[]),...(Array.isArray(seedTeacher.programIds)?seedTeacher.programIds:[])]);
+    if(!current.employmentType&&seedTeacher.employmentType)current.employmentType=seedTeacher.employmentType;
+    if(!current.name&&seedTeacher.name)current.name=seedTeacher.name;
+    if(!current.shortName&&seedTeacher.shortName)current.shortName=seedTeacher.shortName;
+    if(!current.note&&seedTeacher.note)current.note=seedTeacher.note;
+  });
+  return result;
+}
+
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
   if(!old||typeof old!=="object") return fresh;
@@ -377,7 +405,7 @@ function migrate(old){
     id:i+1,name:x,countMode:"manual",defaultUnit:1,description:""
   }:{...x,id:x.id||i+1});
   fresh.lessonTypes.forEach(lt=>{const n=normIdentity(lt.name);if(["лекція","семінар","практичне","лабораторне"].includes(n)){lt.countMode="academic_pair";lt.defaultUnit=2;if(!lt.description)lt.description="Аудиторні години; 2 академічні години = 1 пара";}});
-  fresh.teachers=(old.teachers||[]).map((t,i)=>({
+  fresh.teachers=mergeSeedTeachers(old.teachers||[],fresh.teachers||[]).map((t,i)=>({
     ...t,
     id:t.id||i+1,
     scope:t.scope||"department",
@@ -422,7 +450,7 @@ function migrate(old){
     ...c,
     programId:c.programId||fresh.groups.find(g=>(c.applicableGroups||[]).some(code=>normIdentity(code)===normIdentity(g.code)))?.programId||((fresh.programs||[]).find(p=>normIdentity(p.name)===normIdentity(c.program))?.id)||"rems"
   }));
-  fresh.schemaVersion=19;
+  fresh.schemaVersion=20;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     const ready=isReadyExternalScheduleItem(s);
     let teacherId=s.teacherId||null;
@@ -837,7 +865,7 @@ let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
   repairScheduleLinks(db);
-  db.schemaVersion=19;
+  db.schemaVersion=20;
   localStorage.setItem(KEY,JSON.stringify(db));
   scheduleAutomaticBackup();
   renderCurrent();
@@ -887,8 +915,13 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     &&normIdentity(t.name||t.shortName)
     &&!remoteTeacherKeys.has(normIdentity(t.name||t.shortName))
   );
+  const addedSeedTeacher=(db.teachers||[]).some(t=>
+    t.status!=="archived"
+    &&normIdentity(t.name||t.shortName)
+    &&!remoteTeacherKeys.has(normIdentity(t.name||t.shortName))
+  );
 
-  db.schemaVersion=19;
+  db.schemaVersion=20;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
 
@@ -908,7 +941,8 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     ||addedSeedStudent
     ||addedSeedRoom
     ||repairedSeedRoomMetadata
-    ||addedRecoveredExternalTeacher;
+    ||addedRecoveredExternalTeacher
+    ||addedSeedTeacher;
 
   if(needsStaticRepair&&window.REMS_CLOUD?.canWrite?.()){
     setTimeout(()=>window.REMS_CLOUD?.schedulePush?.(clone(db)),350);
