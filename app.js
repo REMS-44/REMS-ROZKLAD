@@ -366,6 +366,7 @@ function migrate(old){
     id:d.id||i+1,name:d.name||"",course:d.course||"",group:d.group||"",
     semester:d.semester||fresh.semester,academicYear:d.academicYear||fresh.academicYear,
     teacherIds:d.teacherIds||[],teacherLoads:d.teacherLoads||{},teacherStudentLoads:d.teacherStudentLoads||{},
+    teacherStreams:d.teacherStreams||{},
     audienceMode:d.audienceMode==="selected"?"selected":"group",
     selectedStudentIds:[...new Set((d.selectedStudentIds||[]).map(Number).filter(Boolean))],
     controlForm:d.controlForm||"Немає",color:d.color||"#8b5cf6",
@@ -374,7 +375,7 @@ function migrate(old){
     planMeta:d.planMeta||{}
   }));
   fresh.curricula=mergeSeedCurricula(old.curricula||[],fresh.curricula||[]);
-  fresh.schemaVersion=16;
+  fresh.schemaVersion=17;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     const ready=isReadyExternalScheduleItem(s);
     let teacherId=s.teacherId||null;
@@ -789,7 +790,7 @@ let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
   repairScheduleLinks(db);
-  db.schemaVersion=16;
+  db.schemaVersion=17;
   localStorage.setItem(KEY,JSON.stringify(db));
   scheduleAutomaticBackup();
   renderCurrent();
@@ -831,7 +832,7 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     &&!remoteTeacherKeys.has(normIdentity(t.name||t.shortName))
   );
 
-  db.schemaVersion=16;
+  db.schemaVersion=17;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
 
@@ -1471,25 +1472,76 @@ function ruleApplies(rule,dateStr){
 }
 function ruleTimeMatches(rule,start,end){return timeOverlap(start,end,rule.start,rule.end);}
 
+
+/* Workload streams live inside discipline allocation.
+   Each member discipline stores the same stream definition for teacher+type. */
+function teacherStreamMap(d,teacherId){
+  return d?.teacherStreams?.[String(teacherId)]||d?.teacherStreams?.[teacherId]||{};
+}
+function teacherStreamForTypeId(d,teacherId,typeId){
+  const s=teacherStreamMap(d,teacherId)?.[String(typeId)]||teacherStreamMap(d,teacherId)?.[typeId]||null;
+  return s&&Array.isArray(s.disciplineIds)&&s.disciplineIds.length>1?s:null;
+}
+function teacherStreamForTypeName(d,teacherId,typeName){
+  const lt=lessonTypeByName(typeName);return lt?teacherStreamForTypeId(d,teacherId,lt.id):null;
+}
+function teacherStreamGroups(stream){
+  if(!stream)return[];
+  const ids=new Set((stream.disciplineIds||[]).map(Number));
+  const groups=db.disciplines.filter(d=>ids.has(Number(d.id))&&d.status!=="archived").map(d=>d.group).filter(Boolean);
+  return uniqueStrings([...(stream.groups||[]),...groups]);
+}
+function teacherStreamLabel(stream){
+  const groups=teacherStreamGroups(stream);
+  return groups.length>1?`Потік · ${groups.join(" + ")}`:"Окремо";
+}
+function workloadAudienceForType(d,teacherId,typeName){
+  const stream=teacherStreamForTypeName(d,teacherId,typeName);
+  if(!stream)return {stream:null,groups:[d.group],disciplineIds:[Number(d.id)]};
+  const valid=new Set(db.disciplines.filter(x=>x.status!=="archived").map(x=>Number(x.id)));
+  const ids=[...new Set((stream.disciplineIds||[]).map(Number).filter(id=>valid.has(id)))];
+  const groups=ids.map(id=>disciplineById(id)?.group).filter(Boolean);
+  return {stream,groups:uniqueStrings(groups),disciplineIds:ids};
+}
+function disciplineStreamBadgesHtml(d){
+  const rows=[];
+  explicitlyAllocatedTeacherIds(d).forEach(tid=>{
+    db.lessonTypes.forEach(lt=>{
+      const s=teacherStreamForTypeId(d,tid,lt.id);if(!s)return;
+      const key=`${s.streamId||""}|${lt.id}`;
+      if(rows.some(x=>x.key===key))return;
+      rows.push({key,lt,s});
+    });
+  });
+  if(!rows.length)return"";
+  return `<div class="load-stream-badges">${rows.map(x=>`<span><b>${esc(x.lt.name)}</b>${esc(teacherStreamLabel(x.s))}</span>`).join("")}</div>`;
+}
+function teacherUniqueAllocatedHours(t,{auditoriumOnly=false,typeId=null}={}){
+  if(!t||t.scope==="external")return 0;
+  let total=0;const seen=new Set();
+  db.disciplines.filter(d=>d.status!=="archived").forEach(d=>{
+    const load=explicitTeacherLoad(d,t.id);if(!load)return;
+    db.lessonTypes.forEach(lt=>{
+      if(typeId&&Number(lt.id)!==Number(typeId))return;
+      if(auditoriumOnly&&!isAuditoriumPairType(lt))return;
+      const hours=num(load[lt.id]);if(hours<=0)return;
+      const s=teacherStreamForTypeId(d,t.id,lt.id);
+      if(s){
+        const key=String(s.streamId||`${t.id}:${lt.id}:${(s.disciplineIds||[]).slice().sort((a,b)=>a-b).join(",")}`);
+        if(seen.has(key))return;
+        seen.add(key);total+=num(s.hours)||hours;
+      }else total+=hours;
+    });
+  });
+  return total;
+}
+
 /* Teachers + workload */
 function explicitTeacherLoad(d,teacherId){
   return d?.teacherLoads?.[teacherId]||d?.teacherLoads?.[String(teacherId)]||null;
 }
-function teacherPlannedHours(t){
-  if(t.scope==="external")return 0;
-  return db.disciplines.filter(d=>d.status!=="archived").reduce((total,d)=>{
-    const load=explicitTeacherLoad(d,t.id);
-    return total+(load?Object.values(load).reduce((a,b)=>a+num(b),0):0);
-  },0);
-}
-function teacherAuditoriumPlannedHours(t){
-  if(t.scope==="external")return 0;
-  return db.disciplines.filter(d=>d.status!=="archived").reduce((total,d)=>{
-    const load=explicitTeacherLoad(d,t.id);
-    if(!load)return total;
-    return total+auditoriumLessonTypes().reduce((a,lt)=>a+num(load[lt.id]),0);
-  },0);
-}
+function teacherPlannedHours(t){return teacherUniqueAllocatedHours(t);}
+function teacherAuditoriumPlannedHours(t){return teacherUniqueAllocatedHours(t,{auditoriumOnly:true});}
 function teacherScheduledHours(t){
   if(t.scope==="external")return 0;
   return db.schedule.filter(s=>Number(resolvedScheduleTeacherId(s,db))===Number(t.id)&&s.disciplineId).reduce((a,s)=>a+num(s.workloadHours),0);
@@ -1778,6 +1830,7 @@ function deleteTeacher(id){
     d.teacherIds=(d.teacherIds||[]).filter(x=>Number(x)!==Number(id));
     if(d.teacherLoads){delete d.teacherLoads[id];delete d.teacherLoads[String(id)];}
     if(d.teacherStudentLoads){delete d.teacherStudentLoads[id];delete d.teacherStudentLoads[String(id)];}
+    if(d.teacherStreams){delete d.teacherStreams[id];delete d.teacherStreams[String(id)];}
   });
   db.schedule=db.schedule.filter(s=>Number(resolvedScheduleTeacherId(s,db))!==Number(id));
   closeModal();save();
@@ -1787,10 +1840,7 @@ function plannedForDisciplineTeacher(d,teacherId){
   return load?Object.values(load).reduce((a,b)=>a+num(b),0):0;
 }
 function plannedTypeForTeacher(teacherId,typeId){
-  return db.disciplines.filter(d=>d.status!=="archived").reduce((total,d)=>{
-    const load=explicitTeacherLoad(d,teacherId);
-    return total+(load?num(load[typeId]):0);
-  },0);
+  const t=teacherById(teacherId);return t?teacherUniqueAllocatedHours(t,{typeId:Number(typeId)}):0;
 }
 function scheduledForTeacherType(teacherId,typeName){
   return db.schedule.filter(s=>Number(s.teacherId)===Number(teacherId)&&s.disciplineId&&s.type===typeName).reduce((a,s)=>a+num(s.workloadHours),0);
@@ -1811,11 +1861,11 @@ function openTeacherWorkload(id){
     const load=explicitTeacherLoad(d,id)||{};
     const typeParts=db.lessonTypes
       .filter(lt=>num(load[lt.id])>0)
-      .map(lt=>`${esc(lt.name)} — ${fmtHours(load[lt.id])}`)
+      .map(lt=>{const s=teacherStreamForTypeId(d,id,lt.id);return `${esc(lt.name)} — ${fmtHours(load[lt.id])}${s?` · <strong>${esc(teacherStreamLabel(s))}</strong>`:""}`;})
       .join(" · ");
     const aud=auditoriumLessonTypes().reduce((a,lt)=>a+num(load[lt.id]),0);
     const scheduled=db.schedule
-      .filter(x=>Number(resolvedScheduleTeacherId(x,db))===Number(id)&&Number(x.disciplineId)===Number(d.id)&&isAuditoriumPairType(lessonTypeByName(x.type)))
+      .filter(x=>Number(resolvedScheduleTeacherId(x,db))===Number(id)&&scheduleCoversDiscipline(x,d.id)&&isAuditoriumPairType(lessonTypeByName(x.type)))
       .reduce((a,x)=>a+num(x.workloadHours),0);
     return `<tr>
       <td><b>${esc(d.name)}</b></td>
@@ -2534,6 +2584,8 @@ function loadDisciplineRowHtml(d){
 
     <button type="button" class="discipline-audience-strip ${disciplineAudienceMode(d)==="selected"?"selected":""}" onclick="openDisciplineAudienceModal(${d.id})"><span class="discipline-audience-icon">👥</span><div><span>Хто слухає дисципліну</span><b>${esc(disciplineAudienceLabel(d))}</b></div><strong>${disciplineAudienceMode(d)==="selected"?"ЗМІНИТИ СКЛАД":"НАЛАШТУВАТИ"}</strong></button>
 
+    ${disciplineStreamBadgesHtml(d)}
+
     <div class="load-discipline-progress">${loadDisciplineStatusHtml(d)}</div>
 
     <div class="compact-discipline-actions">
@@ -2693,6 +2745,50 @@ function renderDisciplines(){
 }
 let disciplineAllocationDraft={};
 let disciplineAllocationId=null;
+let disciplineStreamDraft=null;
+let disciplinePeerLoadDraft={};
+let disciplinePeerStreamDraft={};
+
+function cloneTeacherStreams(d){return clone(d?.teacherStreams||{});}
+function draftTeacherStreamsFor(d){
+  if(Number(d?.id)===Number(disciplineAllocationId))return disciplineStreamDraft||{};
+  if(disciplinePeerStreamDraft&&Object.prototype.hasOwnProperty.call(disciplinePeerStreamDraft,String(d?.id)))return disciplinePeerStreamDraft[String(d.id)]||{};
+  return d?.teacherStreams||{};
+}
+function ensurePeerStreamDraft(d){
+  const key=String(d.id);disciplinePeerStreamDraft=disciplinePeerStreamDraft||{};
+  if(!Object.prototype.hasOwnProperty.call(disciplinePeerStreamDraft,key))disciplinePeerStreamDraft[key]=cloneTeacherStreams(d);
+  return disciplinePeerStreamDraft[key];
+}
+function draftTeacherStreamForType(d,teacherId,typeId){
+  const map=draftTeacherStreamsFor(d);
+  const s=map?.[String(teacherId)]?.[String(typeId)]||map?.[teacherId]?.[typeId]||null;
+  return s&&Array.isArray(s.disciplineIds)&&s.disciplineIds.length>1?s:null;
+}
+function setDraftTeacherStream(d,teacherId,typeId,stream){
+  let root;
+  if(Number(d.id)===Number(disciplineAllocationId)){
+    disciplineStreamDraft=disciplineStreamDraft||{};root=disciplineStreamDraft;
+  }else root=ensurePeerStreamDraft(d);
+  const tid=String(teacherId),lt=String(typeId);root[tid]=root[tid]||{};
+  if(stream)root[tid][lt]=clone(stream);else delete root[tid][lt];
+  if(!Object.keys(root[tid]).length)delete root[tid];
+}
+function peerDraftLoadValue(disciplineId,teacherId,typeId){
+  const v=disciplinePeerLoadDraft?.[String(disciplineId)]?.[String(teacherId)]?.[String(typeId)];
+  if(v!==undefined)return num(v);
+  const peer=disciplineById(disciplineId);return peer?num(explicitTeacherLoad(peer,teacherId)?.[typeId]):0;
+}
+function setPeerDraftLoad(disciplineId,teacherId,typeId,value){
+  const did=String(disciplineId),tid=String(teacherId),lt=String(typeId);
+  disciplinePeerLoadDraft[did]=disciplinePeerLoadDraft[did]||{};disciplinePeerLoadDraft[did][tid]=disciplinePeerLoadDraft[did][tid]||{};
+  disciplinePeerLoadDraft[did][tid][lt]=num(value);
+}
+function allocationTeacherTypeDraftHours(d,teacherId,typeId){
+  if(Number(d.id)===Number(disciplineAllocationId))return num(disciplineAllocationDraft?.[String(teacherId)]?.[typeId]);
+  return peerDraftLoadValue(d.id,teacherId,typeId);
+}
+
 function cloneStudentAllocationLoads(d){
   const out={};
 
@@ -2950,6 +3046,104 @@ function perStudentAllocationFieldHtml(d,tid,lt){
   </div>`;
 }
 
+
+function allocationStreamCandidates(d){
+  return db.disciplines.filter(x=>x.status!=="archived"&&normIdentity(x.name)===normIdentity(d.name)&&Number(x.semester)===Number(d.semester))
+    .sort((a,b)=>Number(a.course||99)-Number(b.course||99)||String(a.group).localeCompare(String(b.group),"uk"));
+}
+function allocationOtherTeacherHours(peer,teacherId,typeId){
+  const peerDraft=disciplinePeerLoadDraft?.[String(peer.id)]||{};
+  const tids=new Set([...Object.keys(peer.teacherLoads||{}),...Object.keys(peerDraft)]);let total=0;
+  tids.forEach(tid=>{if(Number(tid)===Number(teacherId))return;const v=peerDraft?.[String(tid)]?.[String(typeId)];total+=v!==undefined?num(v):num(explicitTeacherLoad(peer,tid)?.[typeId]);});
+  return total;
+}
+function allocationStreamCandidateStatus(source,peer,teacherId,typeId,sourceHours){
+  const plan=disciplineTotalHoursById(peer,typeId),other=allocationOtherTeacherHours(peer,teacherId,typeId);
+  const lt=lessonTypeById(typeId),already=lt?scheduledLoad(peer.id,teacherId,lt.name):0;
+  if(Number(peer.id)===Number(source.id))return {enabled:true,primary:true,title:"Основна група",detail:`${fmtHours(sourceHours)} год`};
+  const sourceStream=draftTeacherStreamForType(source,teacherId,typeId);
+  const peerStream=draftTeacherStreamForType(peer,teacherId,typeId);
+  if(peerStream&&(!sourceStream||String(peerStream.streamId)!==String(sourceStream.streamId))){
+    return {enabled:false,primary:false,title:"Уже входить в інший потік",detail:teacherStreamLabel(peerStream)};
+  }
+  if(sourceHours<=0)return {enabled:false,primary:false,title:"Спочатку розподіли години",detail:"У поточній групі стоїть 0 год"};
+  if(plan+0.001<sourceHours)return {enabled:false,primary:false,title:"Замало годин у плані",detail:`План ${fmtHours(plan)} год, потрібно ${fmtHours(sourceHours)}`};
+  if(other+sourceHours>plan+0.001)return {enabled:false,primary:false,title:"Частина годин уже в іншого викладача",detail:`Іншим розподілено ${fmtHours(other)} із ${fmtHours(plan)} год`};
+  if(already>sourceHours+.001)return {enabled:false,primary:false,title:"Уже виставлено більше годин",detail:`У розкладі ${fmtHours(already)} год`};
+  return {enabled:true,primary:false,title:"Можна додати до потоку",detail:`${fmtHours(sourceHours)} год автоматично отримає цей самий викладач`};
+}
+function allocationStreamControlHtml(d,tid,lt){
+  if(isPerStudentTypeId(lt.id))return"";
+  const s=draftTeacherStreamForType(d,tid,lt.id),groups=s?(s.disciplineIds||[]).map(id=>disciplineById(id)?.group).filter(Boolean):[d.group];
+  return `<button type="button" class="allocation-stream-control ${s?"active":""}" onclick="openAllocationStreamPopup(${d.id},${tid},${lt.id})"><span>${s?"ПОТІК":"РОЗКЛАД ГРУП"}</span><b>${s?esc(groups.join(" + ")):esc(`Окремо · ${d.group}`)}</b><small>${s?"Одна реальна пара для цих груп":"Натисни, якщо цей вид занять треба читати потоком"}</small></button>`;
+}
+function openAllocationStreamPopup(disciplineId,teacherId,typeId){
+  const d=disciplineById(disciplineId)||window.__disciplineDraft,t=teacherById(teacherId),lt=lessonTypeById(typeId);if(!d||!t||!lt)return;
+  captureAllocationDraft();const hours=allocationTeacherTypeDraftHours(d,teacherId,typeId),existing=draftTeacherStreamForType(d,teacherId,typeId);
+  const selected=new Set((existing?.disciplineIds||[d.id]).map(Number));selected.add(Number(d.id));
+  openPlannerActionModal(`<div class="allocation-stream-popup"><div class="allocation-stream-popup-head"><div><span>ПОТІК НА ЕТАПІ НАВАНТАЖЕННЯ</span><h2>${esc(lt.name)}</h2><p>${esc(d.name)} · ${esc(teacherDisplay(t))}</p></div><div class="allocation-stream-hours"><b>${fmtHours(hours)} год</b><span>для цього викладача</span></div></div><div class="allocation-stream-explainer"><b>Це правило для всього семестру.</b><span>Лекції можуть бути потоковими, а практичні — окремими. Під час постановки дат система вже сама підставить потрібні групи.</span></div>${hours<=0?`<div class="conflict">Спочатку введи години «${esc(lt.name)}» для цього викладача.</div>`:""}<div class="allocation-stream-groups">${allocationStreamCandidates(d).map(peer=>{const st=allocationStreamCandidateStatus(d,peer,teacherId,typeId,hours),checked=selected.has(Number(peer.id));return `<label class="allocation-stream-group ${st.primary?"primary":st.enabled?"ready":"blocked"} ${checked&&st.enabled?"active":""}"><input type="checkbox" data-load-stream-peer value="${peer.id}" ${checked?"checked":""} ${st.primary||!st.enabled?"disabled":""}><div class="allocation-stream-group-main"><div><b>${esc(peer.group)}</b><span>${esc(peer.course||groupCourse(peer.group))} курс · ${esc(peer.semester)} семестр</span></div><strong>${st.primary?"ОСНОВНА":st.enabled?"МОЖНА":"НЕ МОЖНА"}</strong></div><small>${esc(st.title)} · ${esc(st.detail)}</small></label>`;}).join("")}</div><div id="allocationStreamResult" class="allocation-stream-result"></div><div class="planner-popup-footer"><button type="button" class="secondary" onclick="closePlannerActionModal()">Скасувати</button><button type="button" class="primary" ${hours<=0?"disabled":""} onclick="applyAllocationStream(${d.id},${teacherId},${typeId})">Застосувати схему</button></div></div>`,true);
+  $$('[data-load-stream-peer]').forEach(x=>x.onchange=refreshAllocationStreamPopupResult);refreshAllocationStreamPopupResult();
+}
+function refreshAllocationStreamPopupResult(){
+  const ids=$$('[data-load-stream-peer]').filter(x=>x.checked).map(x=>Number(x.value)),groups=ids.map(id=>disciplineById(id)?.group).filter(Boolean),box=$("#allocationStreamResult");if(!box)return;
+  box.innerHTML=groups.length>1?`<span>БУДЕ ПОТІК</span><b>${esc(groups.join(" + "))}</b>`:`<span>БУДЕ ОКРЕМО</span><b>${esc(groups[0]||"")}</b>`;
+}
+function applyAllocationStream(disciplineId,teacherId,typeId){
+  const d=disciplineById(disciplineId)||window.__disciplineDraft,lt=lessonTypeById(typeId);if(!d||!lt)return;captureAllocationDraft();
+  const hours=allocationTeacherTypeDraftHours(d,teacherId,typeId);if(hours<=0)return alert("Спочатку розподіли години цьому викладачу.");
+  const ids=[Number(d.id),...$$('[data-load-stream-peer]').filter(x=>x.checked&&!x.disabled).map(x=>Number(x.value))].filter(Boolean),uniqueIds=[...new Set(ids)];
+  const invalid=[];uniqueIds.forEach(id=>{const peer=disciplineById(id);if(!peer)return;const st=allocationStreamCandidateStatus(d,peer,teacherId,typeId,hours);if(!st.enabled)invalid.push(`${peer.group}: ${st.title}`);});if(invalid.length)return alert("Не можу створити потік:\n\n"+invalid.join("\n"));
+  const old=draftTeacherStreamForType(d,teacherId,typeId),oldIds=(old?.disciplineIds||[d.id]).map(Number),streamId=old?.streamId||`LS-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+  const allIds=[...new Set([...oldIds,...uniqueIds])];
+  if(uniqueIds.length>1){
+    const stream={streamId,teacherId:Number(teacherId),typeId:Number(typeId),disciplineIds:uniqueIds,groups:uniqueIds.map(id=>disciplineById(id)?.group).filter(Boolean),hours,semester:Number(d.semester)||null,disciplineName:d.name};
+    allIds.forEach(id=>{const peer=disciplineById(id);if(!peer)return;setDraftTeacherStream(peer,teacherId,typeId,uniqueIds.includes(id)?stream:null);});
+    uniqueIds.forEach(id=>{if(Number(id)!==Number(d.id))setPeerDraftLoad(id,teacherId,typeId,hours);});
+  }else allIds.forEach(id=>{const peer=disciplineById(id);if(peer)setDraftTeacherStream(peer,teacherId,typeId,null);});
+  closePlannerActionModal();renderAllocationEditor(d);
+}
+function validateStreamDraft(d){
+  const errors=[];
+  const maps=[
+    {d,streams:disciplineStreamDraft||{}},
+    ...Object.entries(disciplinePeerStreamDraft||{}).map(([id,streams])=>({d:disciplineById(Number(id)),streams}))
+  ];
+  const seen=new Set();
+
+  maps.forEach(({d:peer,streams})=>{
+    if(!peer)return;
+    Object.entries(streams||{}).forEach(([tid,byType])=>{
+      Object.entries(byType||{}).forEach(([typeId,stream])=>{
+        if(!stream||!(stream.disciplineIds||[]).length)return;
+        const key=String(stream.streamId||`${tid}:${typeId}:${(stream.disciplineIds||[]).join(',')}`);
+        if(seen.has(key))return;
+        seen.add(key);
+        const lt=lessonTypeById(typeId);
+
+        (stream.disciplineIds||[]).forEach(id=>{
+          const member=disciplineById(id);
+          if(!member){
+            errors.push(`Потік ${lt?.name||""}: дисципліну видалено.`);
+            return;
+          }
+          const actual=Number(member.id)===Number(d.id)
+            ?allocationTeacherTypeDraftHours(d,tid,typeId)
+            :peerDraftLoadValue(member.id,tid,typeId);
+          if(Math.abs(actual-num(stream.hours))>.001){
+            errors.push(`${lt?.name||"Вид"} · ${member.group}: для потоку має бути ${fmtHours(stream.hours)} год у цього викладача, зараз ${fmtHours(actual)}.`);
+          }
+        });
+      });
+    });
+  });
+  return errors;
+}
+
+function applyPeerAllocationDrafts(){
+  Object.entries(disciplinePeerLoadDraft||{}).forEach(([did,byTeacher])=>{const peer=disciplineById(Number(did));if(!peer)return;peer.teacherLoads=peer.teacherLoads||{};peer.teacherIds=peer.teacherIds||[];Object.entries(byTeacher||{}).forEach(([tid,byType])=>{peer.teacherLoads[String(tid)]=peer.teacherLoads[String(tid)]||{};Object.entries(byType||{}).forEach(([typeId,v])=>peer.teacherLoads[String(tid)][String(typeId)]=num(v));if(Object.values(peer.teacherLoads[String(tid)]).some(v=>num(v)>0))peer.teacherIds=[...new Set([...peer.teacherIds.map(Number),Number(tid)])];});});
+  Object.entries(disciplinePeerStreamDraft||{}).forEach(([did,streams])=>{const peer=disciplineById(Number(did));if(peer)peer.teacherStreams=clone(streams||{});});
+}
+
 function renderAllocationEditor(d){
   const box=$("#teacherAllocation");if(!box)return;
   const ids=Object.keys(disciplineAllocationDraft||{}).filter(tid=>teacherById(Number(tid))).sort((a,b)=>teacherDisplay(teacherById(Number(a))).localeCompare(teacherDisplay(teacherById(Number(b))),"uk"));
@@ -2962,7 +3156,7 @@ function renderAllocationEditor(d){
       <div class="hours-grid allocation-hours-grid">${types.map(lt=>{
         const used=scheduledLoad(d.id,Number(tid),lt.name);
         if(isPerStudentTypeId(lt.id))return perStudentAllocationFieldHtml(d,tid,lt);
-        return `<label>${esc(lt.name)}<input data-allocation-hour data-type="${lt.id}" type="number" min="${fmtHours(used)}" step="0.01" value="${esc(load[lt.id]||0)}"><span class="small">план дисципліни ${fmtHours(disciplineTotalHoursById(d,lt.id))}${disciplineExtraHoursById(d,lt.id)?` · з них додатково ${fmtHours(disciplineExtraHoursById(d,lt.id))}`:""}${used?` · вже в розкладі ${fmtHours(used)}`:""}</span></label>`;
+        return `<div class="allocation-type-with-stream"><label>${esc(lt.name)}<input data-allocation-hour data-type="${lt.id}" type="number" min="${fmtHours(used)}" step="0.01" value="${esc(load[lt.id]||0)}"><span class="small">план дисципліни ${fmtHours(disciplineTotalHoursById(d,lt.id))}${disciplineExtraHoursById(d,lt.id)?` · з них додатково ${fmtHours(disciplineExtraHoursById(d,lt.id))}`:""}${used?` · вже в розкладі ${fmtHours(used)}`:""}</span></label>${d.id?allocationStreamControlHtml(d,Number(tid),lt):""}</div>`;
       }).join("")}</div>
     </div>`;
   }).join(""):`<div class="empty">Викладачів ще не додано. Обери першого викладача нижче.</div>`;
@@ -2984,6 +3178,7 @@ function removeAllocationTeacher(tid){
   captureAllocationDraft();
   const scheduled=db.lessonTypes.reduce((a,lt)=>a+scheduledLoad(d.id,Number(tid),lt.name),0);
   if(scheduled>0)return alert(`Цього викладача не можна прибрати: у розкладі вже виставлено ${fmtHours(scheduled)} год. Спочатку перенеси або видали ці заняття.`);
+  const streams=db.lessonTypes.map(lt=>draftTeacherStreamForType(d,tid,lt.id)).filter(Boolean);if(streams.length)return alert(`Цей викладач має потокове навантаження. Спочатку відкрий відповідний вид занять і поверни його в режим «Окремо».`);
   delete disciplineAllocationDraft[String(tid)];if(disciplineStudentAllocationDraft)delete disciplineStudentAllocationDraft[String(tid)];renderAllocationEditor(d);
 }
 function fillTeacherWithRemaining(tid){
@@ -3050,6 +3245,7 @@ function openDisciplineModal(id=null){
   disciplineAllocationId=id;window.__disciplineDraft=d;disciplineAllocationDraft=cloneAllocationLoads(d);
   disciplineStudentAllocationDraft=cloneStudentAllocationLoads(d);
   disciplineExtraDraft=clone(d.extraHours||{});
+  disciplineStreamDraft=cloneTeacherStreams(d);disciplinePeerLoadDraft={};disciplinePeerStreamDraft={};
   syncPerStudentAllocationLoads(d);
   const hours=db.lessonTypes.map(t=>`<label>${esc(t.name)}<input class="dh" data-type="${t.id}" type="number" min="0" step="0.01" value="${esc(d.hours?.[t.id]||0)}" ${ro}></label>`).join("");
   openModal(`<h2>${id?"Навантаження дисципліни":"Нова дисципліна кафедри"}</h2>${fromPlan?`<div class="notice success-notice"><b>${esc(d.name)}</b> створена з робочого плану. Базові години плану не змінюються; додаткові види занять можна додати окремо нижче.</div>`:""}<form id="df" class="form-grid">
@@ -3081,7 +3277,7 @@ function openDisciplineModal(id=null){
     e.preventDefault();
     const hs={};$$('.dh').forEach(i=>hs[i.dataset.type]=num(i.value));
     if(!fromPlan)d.hours=hs;
-    const errors=validateAllocationDraft(d);if(errors.length)return alert("Перевір розподіл:\n\n"+errors.join("\n"));
+    const errors=[...validateAllocationDraft(d),...validateStreamDraft(d)];if(errors.length)return alert("Перевір розподіл:\n\n"+errors.join("\n"));
     const ids=Object.keys(disciplineAllocationDraft).map(Number).filter(id=>{
       if(!teacherById(id))return false;
       const load=disciplineAllocationDraft[String(id)]||{};
@@ -3102,10 +3298,11 @@ function openDisciplineModal(id=null){
 
     const extraHours={};Object.entries(disciplineExtraDraft||{}).forEach(([k,v])=>{if(num(v)>0)extraHours[k]=num(v);});
     const obj=fromPlan
-      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
-      :{name:$("#dn").value.trim(),group:$("#dg").value,course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
+      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
+      :{name:$("#dn").value.trim(),group:$("#dg").value,course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
     if(id)Object.assign(d,obj);else db.disciplines.push({id:uid(db.disciplines),...obj});
-    disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineExtraDraft=null;delete window.__disciplineDraft;closeModal();save();
+    applyPeerAllocationDrafts();
+    disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineExtraDraft=null;disciplineStreamDraft=null;disciplinePeerLoadDraft={};disciplinePeerStreamDraft={};delete window.__disciplineDraft;closeModal();save();
   };
 }
 
@@ -3139,6 +3336,7 @@ function deleteDiscipline(id){
   if(!confirmCascadeDelete(`Видалити дисципліну «${d.name}» із навантаження ${d.group}?`,lines))return;
   db.schedule=db.schedule.filter(s=>!scheduleCoversDiscipline(s,id));
   db.disciplines=db.disciplines.filter(x=>Number(x.id)!==Number(id));
+  db.disciplines.forEach(peer=>{Object.entries(peer.teacherStreams||{}).forEach(([tid,byType])=>Object.entries(byType||{}).forEach(([typeId,s])=>{if(!(s?.disciplineIds||[]).some(did=>Number(did)===Number(id)))return;const ids=(s.disciplineIds||[]).filter(did=>Number(did)!==Number(id));if(ids.length<2)delete peer.teacherStreams[tid][typeId];else peer.teacherStreams[tid][typeId]={...s,disciplineIds:ids,groups:ids.map(did=>disciplineById(did)?.group).filter(Boolean)};}));});
   closeModal();save();
 }
 
@@ -3811,13 +4009,12 @@ function workloadTeacherCardHtml(x){
     </div>
 
     <div class="schedule-discipline-teacher-types">
-      ${x.types.map(type=>`
-        <div class="schedule-teacher-type ${type.remaining<=0?"done":""}">
+      ${x.types.map(type=>{const s=teacherStreamForTypeId(x.d,x.t.id,type.lt.id);return `
+        <div class="schedule-teacher-type ${type.remaining<=0?"done":""} ${s?"stream":""}">
           <span>${esc(type.lt.name)}</span>
           <b>${fmtHours(type.scheduled)} / ${fmtHours(type.planned)} год</b>
-          <small>${type.remaining>0?`залишок ${fmtHours(type.remaining)} год`:"готово"}</small>
-        </div>
-      `).join("")}
+          <small>${s?`ПОТІК · ${esc(teacherStreamGroups(s).join(" + "))}`:(type.remaining>0?`залишок ${fmtHours(type.remaining)} год`:"готово")}</small>
+        </div>`;}).join("")}
     </div>
 
     <div class="schedule-teacher-progress">
@@ -5201,6 +5398,7 @@ function lessonItemFromValues({date,pairId,start,end,group,disciplineId,discipli
   const primaryGroup=d?.group||group;
   const did=d?Number(d.id):(disciplineId?Number(disciplineId):null);
   const item={date,pairId:pairId&&pairId!=="__custom__"?Number(pairId):null,start:pair?.start||start||"",end:pair?.end||end||"",group:primaryGroup,audienceGroups:uniqueStrings([primaryGroup]),disciplineId:did,disciplineIds:did?[did]:[],discipline:d?.name||discipline,type,workloadHours:num(workloadHours),coverage,students:students||"",teacherId:teacherId?Number(teacherId):null,teacher:t?teacherDisplay(t):"",room:room||"",note:note||"",repeatBatchId};
+  if(d&&teacherId&&type){const a=workloadAudienceForType(d,teacherId,type);item.audienceGroups=a.groups;item.disciplineIds=a.disciplineIds;if(a.stream)item.loadStreamId=a.stream.streamId;}
   return refreshScheduleAudienceMetadata(item);
 }
 function openLessonModal(id=null,preset={}){
@@ -5999,7 +6197,6 @@ function savePlannerSeries(d,t){
   if(!selected.length)return alert("Немає вибраних дат для збереження.");
 
   const bounds=plannerSeriesBounds(d);
-  const audienceGroups=plannerSelectedAudienceGroups(d);
   const stats=plannerTypes(d,t.id);
   const byType={};
   const draft=[];
@@ -6030,7 +6227,8 @@ function savePlannerSeries(d,t){
       continue;
     }
 
-    const coverageIds=plannerDisciplineIdsForAudience(d,t,x.type,audienceGroups);
+    const allocation=workloadAudienceForType(d,t.id,x.type);
+    const coverageIds=plannerDisciplineIdsForAudience(d,t,x.type,allocation.groups);
     if(coverageIds.missing.length){
       problems.push(`${formatDate(x.date)} · ${x.type}: ${coverageIds.details.join("; ")}.`);
       continue;
@@ -6040,8 +6238,9 @@ function savePlannerSeries(d,t){
       workloadHours:hours,coverage:$("#plannerSeriesCoverage").value,teacherId:t.id,room:x.room,
       note:$("#plannerSeriesNote").value.trim(),repeatBatchId:batchId
     });
-    item.audienceGroups=audienceGroups;
+    item.audienceGroups=allocation.groups;
     item.disciplineIds=coverageIds.ids;
+    if(allocation.stream)item.loadStreamId=allocation.stream.streamId;
     refreshScheduleAudienceMetadata(item);
 
     const cs=conflictsFor(item,null,draft);
@@ -6412,228 +6611,14 @@ function savePlannerAvailabilityPopup(disciplineId,teacherId){
   refreshPlannerAfterAction(d,t);
 }
 
-function sharedDisciplineCandidateForGroup(d,group){
-  return db.disciplines.find(x=>
-    x.status!=="archived"
-    &&normIdentity(x.group)===normIdentity(group)
-    &&normIdentity(x.name)===normIdentity(d.name)
-    &&Number(x.semester)===Number(d.semester)
-  )||null;
-}
-function sharedDisciplineAnySemesterForGroup(d,group){
-  return db.disciplines.filter(x=>
-    x.status!=="archived"
-    &&normIdentity(x.group)===normIdentity(group)
-    &&normIdentity(x.name)===normIdentity(d.name)
-  ).sort((a,b)=>Number(a.semester||99)-Number(b.semester||99));
-}
-function plannerStreamGroupsToShow(d){
-  const sameCourse=sortedGroups().filter(g=>Number(g.course)===Number(groupCourse(d.group)));
-  const sameDiscipline=sortedGroups().filter(g=>sharedDisciplineAnySemesterForGroup(d,g.code).length);
-  const primary=db.groups.find(g=>normIdentity(g.code)===normIdentity(d.group));
-  const map=new Map();
-
-  [primary,...sameCourse,...sameDiscipline].filter(Boolean).forEach(g=>{
-    map.set(normIdentity(g.code),g);
-  });
-
-  return [...map.values()].sort((a,b)=>{
-    if(normIdentity(a.code)===normIdentity(d.group))return -1;
-    if(normIdentity(b.code)===normIdentity(d.group))return 1;
-    return Number(a.course||99)-Number(b.course||99)||String(a.code).localeCompare(String(b.code),"uk");
-  });
-}
-function plannerRequestedStreamTypes(){
-  const types=[];
-
-  $$("[data-planner-entry]").forEach(row=>{
-    const type=row.querySelector("[data-planner-type]")?.value;
-    if(type)types.push(type);
-  });
-
-  $$("[data-series-row]").forEach(row=>{
-    const use=row.querySelector("[data-series-use]");
-    if(use&&!use.checked)return;
-    const type=row.querySelector("[data-series-type]")?.value;
-    if(type)types.push(type);
-  });
-
-  return uniqueStrings(types);
-}
-function plannerStreamGroupStatus(d,t,group,requestedTypes=[]){
-  const primary=normIdentity(group)===normIdentity(d.group);
-  const exact=sharedDisciplineCandidateForGroup(d,group);
-  const any=sharedDisciplineAnySemesterForGroup(d,group);
-
-  if(primary){
-    return {
-      enabled:true,
-      primary:true,
-      peer:d,
-      tone:"primary",
-      title:"Основна група",
-      detail:disciplineAudienceLabel(d)
-    };
-  }
-
-  if(!exact){
-    if(any.length){
-      return {
-        enabled:false,
-        primary:false,
-        peer:null,
-        tone:"blocked",
-        title:"Інший семестр",
-        detail:`Ця дисципліна є у ${any.map(x=>`${x.semester} сем.`).join(", ")}`
-      };
-    }
-    return {
-      enabled:false,
-      primary:false,
-      peer:null,
-      tone:"blocked",
-      title:"Немає дисципліни",
-      detail:"Активуй її для цієї групи у «Навантаженні»"
-    };
-  }
-
-  const teacherTypes=schedulableTypes(exact)
-    .filter(lt=>teacherTypePlan(exact,t.id,lt.name)>0)
-    .map(lt=>lt.name);
-
-  if(!teacherTypes.length){
-    return {
-      enabled:false,
-      primary:false,
-      peer:exact,
-      tone:"blocked",
-      title:"Немає годин у викладача",
-      detail:`У ${teacherDisplay(t)} для цієї групи ще не розподілено години`
-    };
-  }
-
-  const requested=uniqueStrings((requestedTypes||[]).filter(Boolean));
-  const missing=requested.filter(type=>teacherTypePlan(exact,t.id,type)<=0);
-
-  if(missing.length){
-    return {
-      enabled:false,
-      primary:false,
-      peer:exact,
-      tone:"blocked",
-      title:"Не можна для вибраного виду",
-      detail:`Не розподілено: ${missing.join(", ")}`
-    };
-  }
-
-  return {
-    enabled:true,
-    primary:false,
-    peer:exact,
-    tone:"ready",
-    title:requested.length?"Можна додати до цієї пари":"Готова до потоку",
-    detail:requested.length
-      ?disciplineAudienceLabel(exact)
-      :`У викладача є: ${teacherTypes.join(" · ")}`
-  };
-}
-function plannerAudienceButtonsHtml(d,t,selected=[d.group]){
-  const set=new Set((selected||[]).map(normIdentity));
-
-  return `<div class="planner-stream-panel">
-    <div class="planner-stream-panel-head">
-      <div>
-        <span>ХТО СЛУХАЄ ЦЮ ПАРУ</span>
-        <b>Одна пара для кількох груп</b>
-        <small>Якщо групу поки не можна додати, вона все одно буде видима — з конкретною причиною.</small>
-      </div>
-      <div id="plannerStreamSelectionSummary" class="planner-stream-selection-summary"></div>
-    </div>
-
-    <div class="planner-audience-buttons">
-      ${plannerStreamGroupsToShow(d).map(g=>{
-        const status=plannerStreamGroupStatus(d,t,g.code,[]);
-        const checked=status.primary||set.has(normIdentity(g.code));
-        return `<label class="planner-audience-btn stream-status-${status.tone} ${checked&&status.enabled?"active":""} ${!status.enabled?"blocked":""}" data-stream-group-card="${esc(g.code)}">
-          <input type="checkbox" data-planner-audience value="${esc(g.code)}"
-            ${checked?"checked":""}
-            ${status.primary||!status.enabled?"disabled":""}
-            onchange="plannerStreamAudienceChanged(${d.id},${t.id})">
-          <div class="planner-stream-card-top">
-            <b>${esc(g.code)}</b>
-            <strong data-stream-status-badge>${status.primary?"ОСНОВНА":status.enabled?"МОЖНА":"НЕ МОЖНА"}</strong>
-          </div>
-          <span>${esc(g.course)} курс${status.peer?` · ${esc(disciplineAudienceLabel(status.peer))}`:""}</span>
-          <small data-stream-status-detail>${esc(status.title)}${status.detail?` · ${esc(status.detail)}`:""}</small>
-        </label>`;
-      }).join("")}
-    </div>
-  </div>`;
-}
-function plannerSelectedAudienceGroups(d){
-  return uniqueStrings([d.group,...$$("[data-planner-audience]").filter(x=>x.checked&&!x.disabled).map(x=>x.value)]);
-}
-function plannerDisciplineIdsForAudience(d,t,type,audienceGroups){
-  const ids=[],missing=[],details=[];
-  (audienceGroups||[]).forEach(group=>{
-    const peer=sharedDisciplineCandidateForGroup(d,group);
-    if(!peer){
-      missing.push(group);
-      details.push(`${group}: дисципліну не активовано для ${d.semester} семестру`);
-      return;
-    }
-    if(teacherTypePlan(peer,t.id,type)<=0){
-      missing.push(group);
-      details.push(`${group}: ${type} не розподілено викладачу ${teacherDisplay(t)}`);
-      return;
-    }
-    ids.push(Number(peer.id));
-  });
-  return {ids:[...new Set(ids)],missing,details};
-}
-function updatePlannerStreamAudience(disciplineId,teacherId){
-  const d=disciplineById(disciplineId),t=teacherById(teacherId);
-  if(!d||!t)return;
-
-  const requested=plannerRequestedStreamTypes();
-
-  $$("[data-stream-group-card]").forEach(card=>{
-    const group=card.dataset.streamGroupCard;
-    const input=card.querySelector("[data-planner-audience]");
-    const badge=card.querySelector("[data-stream-status-badge]");
-    const detail=card.querySelector("[data-stream-status-detail]");
-    const status=plannerStreamGroupStatus(d,t,group,requested);
-
-    card.classList.remove("stream-status-primary","stream-status-ready","stream-status-blocked","blocked");
-    card.classList.add(`stream-status-${status.tone}`);
-    card.classList.toggle("blocked",!status.enabled);
-
-    if(input){
-      if(status.primary){
-        input.checked=true;
-        input.disabled=true;
-      }else{
-        input.disabled=!status.enabled;
-        if(!status.enabled)input.checked=false;
-      }
-      card.classList.toggle("active",input.checked&&status.enabled);
-    }
-
-    if(badge)badge.textContent=status.primary?"ОСНОВНА":status.enabled?"МОЖНА":"НЕ МОЖНА";
-    if(detail)detail.textContent=`${status.title}${status.detail?` · ${status.detail}`:""}`;
-  });
-
-  const selected=plannerSelectedAudienceGroups(d);
-  const summary=$("#plannerStreamSelectionSummary");
-  if(summary){
-    summary.innerHTML=selected.length>1
-      ?`<span>ПОТІК</span><b>${esc(selected.join(" + "))}</b>`
-      :`<span>ОДНА ГРУПА</span><b>${esc(d.group)}</b>`;
-  }
-}
-function plannerStreamAudienceChanged(disciplineId,teacherId){
-  updatePlannerStreamAudience(disciplineId,teacherId);
-}
+function sharedDisciplineCandidateForGroup(d,group){return db.disciplines.find(x=>x.status!=="archived"&&normIdentity(x.group)===normIdentity(group)&&normIdentity(x.name)===normIdentity(d.name)&&Number(x.semester)===Number(d.semester))||null;}
+function plannerDisciplineIdsForAudience(d,t,type,audienceGroups){const ids=[],missing=[],details=[];(audienceGroups||[]).forEach(group=>{const peer=sharedDisciplineCandidateForGroup(d,group);if(!peer){missing.push(group);details.push(`${group}: дисципліну не активовано для ${d.semester} семестру`);return;}if(teacherTypePlan(peer,t.id,type)<=0){missing.push(group);details.push(`${group}: ${type} не розподілено викладачу ${teacherDisplay(t)}`);return;}ids.push(Number(peer.id));});return {ids:[...new Set(ids)],missing,details};}
+function plannerRequestedStreamTypes(){const types=[];$$('[data-planner-entry]').forEach(row=>{const v=row.querySelector('[data-planner-type]')?.value;if(v)types.push(v);});$$('[data-series-row]').forEach(row=>{const use=row.querySelector('[data-series-use]');if(use&&!use.checked)return;const v=row.querySelector('[data-series-type]')?.value;if(v)types.push(v);});return uniqueStrings(types);}
+function plannerWorkloadSchemeRowsHtml(d,t){const requested=new Set(plannerRequestedStreamTypes().map(normIdentity));return `<div class="planner-workload-scheme-list">${plannerTypes(d,t.id).map(x=>{const a=workloadAudienceForType(d,t.id,x.lt.name),active=!requested.size||requested.has(normIdentity(x.lt.name));return `<div class="planner-workload-scheme-row ${a.stream?"stream":"single"} ${active?"active":""}"><div><span>${esc(x.lt.name)}</span><b>${a.stream?esc(a.groups.join(" + ")):esc(d.group)}</b></div><strong>${a.stream?"ПОТІК":"ОКРЕМО"}</strong><small>${a.stream?`Схему задано в «Навантаженні». Цей вид автоматично стане однією спільною парою.`:`Цей вид занять ставиться тільки для ${esc(d.group)}.`}</small></div>`;}).join("")}</div>`;}
+function plannerAudienceButtonsHtml(d,t){return `<div class="planner-stream-panel workload-driven"><div class="planner-stream-panel-head"><div><span>СХЕМА З «НАВАНТАЖЕННЯ»</span><b>Групи вже визначені видом заняття</b><small>Щоб змінити потік, повернися у «Навантаження». Тут система лише виконує задану схему.</small></div></div><div id="plannerWorkloadSchemeBody">${plannerWorkloadSchemeRowsHtml(d,t)}</div></div>`;}
+function plannerSelectedAudienceGroups(d){return [d.group];}
+function updatePlannerStreamAudience(disciplineId,teacherId){const d=disciplineById(disciplineId),t=teacherById(teacherId),box=$("#plannerWorkloadSchemeBody");if(d&&t&&box)box.innerHTML=plannerWorkloadSchemeRowsHtml(d,t);}
+function plannerStreamAudienceChanged(disciplineId,teacherId){updatePlannerStreamAudience(disciplineId,teacherId);}
 
 function openPlannerSingleDatePopup(disciplineId,teacherId){
   const d=disciplineById(disciplineId);
@@ -6874,20 +6859,21 @@ function savePlannerDateEntries(e,d,t){
   e.preventDefault();
   const rows=$$("[data-planner-entry]");
   if(!rows.length)return alert("Додай хоча б одну пару.");
-  const audienceGroups=plannerSelectedAudienceGroups(d);
   const date=disciplinePlannerState.date,byType={},draft=[],problems=[];
 
   rows.forEach((row,i)=>{
     const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;
     if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}
-    const coverageIds=plannerDisciplineIdsForAudience(d,t,type,audienceGroups);
+    const allocation=workloadAudienceForType(d,t.id,type);
+    const coverageIds=plannerDisciplineIdsForAudience(d,t,type,allocation.groups);
     if(coverageIds.missing.length){problems.push(`${type}: ${coverageIds.details.join("; ")}.`);return;}
     const stat=plannerTypes(d,t.id).find(x=>x.lt.name===type),used=byType[type]||0,available=Math.max(0,(stat?.remaining||0)-used),hours=plannerDefaultUnit(type,available);
     if(hours<=0){problems.push(`${type}: години вже вичерпані.`);return;}
     byType[type]=used+hours;
     const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`});
-    item.audienceGroups=audienceGroups;
+    item.audienceGroups=allocation.groups;
     item.disciplineIds=coverageIds.ids;
+    if(allocation.stream)item.loadStreamId=allocation.stream.streamId;
     refreshScheduleAudienceMetadata(item);
     const cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);
     if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: ${conflictReasonLines(item,cs).join(" ")}`);return;}
