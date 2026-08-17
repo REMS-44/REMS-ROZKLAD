@@ -417,7 +417,7 @@ async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:15,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[]});}
+function settingsPart(st){return clean({schemaVersion:15,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;

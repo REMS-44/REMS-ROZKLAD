@@ -331,6 +331,7 @@ function migrate(old){
   fresh.academicYear=old.academicYear||fresh.academicYear;
   fresh.semester=old.semester||fresh.semester;
   fresh.bellSchedule=old.bellSchedule||fresh.bellSchedule||[];
+  fresh.studyPeriods=old.studyPeriods||fresh.studyPeriods||{};
   fresh.lessonTypes=(old.lessonTypes||fresh.lessonTypes).map((x,i)=>typeof x==="string"?{
     id:i+1,name:x,countMode:"manual",defaultUnit:1,description:""
   }:{...x,id:x.id||i+1});
@@ -6825,7 +6826,37 @@ function setDayPlannerSemester(semester){dayPlannerState.semester=Number(semeste
 function setDayPlannerWeekday(weekday){const n=Number(weekday);dayPlannerState.weekday=[0,1,2,3,4,5,6].includes(n)?n:1;rememberDayPlanner();renderDayPlanner();}
 function dayPlannerWeekdayName(id){return ({0:"Неділя",1:"Понеділок",2:"Вівторок",3:"Середа",4:"Четвер",5:"П’ятниця",6:"Субота"})[Number(id)]||"";}
 function dayPlannerWeekdayShort(id){return ({0:"Нд",1:"Пн",2:"Вт",3:"Ср",4:"Чт",5:"Пт",6:"Сб"})[Number(id)]||"";}
-function dayPlannerDates(semester,weekday){const b=semesterDateBounds(semester),out=[];let d=b.start;while(d<=b.end){if(weekdayId(d)===Number(weekday))out.push(d);d=addDays(d,1);}return out;}
+function dayPlannerGlobalSemester(course,half){return (Math.max(1,Number(course))-1)*2+(Number(half)===2?2:1);}
+function dayPlannerPeriodKey(course,half){return `${Number(course)}-${Number(half)===2?2:1}`;}
+function dayPlannerCurriculaForGroup(group){
+  const course=Number(groupCourse(group));
+  return (db.curricula||[]).filter(c=>{
+    const groups=c.applicableGroups||[];
+    if(groups.some(code=>normGroup(code)===normGroup(group)))return true;
+    return !groups.length&&Number(c.course)===course;
+  });
+}
+function dayPlannerPlanWeeks(group,half){
+  const semesterNo=dayPlannerGlobalSemester(groupCourse(group),half);
+  const values=dayPlannerCurriculaForGroup(group).map(c=>num(c.semesterWeeks?.[semesterNo]??c.semesterWeeks?.[String(semesterNo)])).filter(v=>v>0);
+  return values[0]||0;
+}
+function dayPlannerDefaultStart(half){const y=academicYearBounds();return Number(half)===2?`${y.endYear}-02-01`:y.start;}
+function dayPlannerPeriod(group,half){
+  const key=dayPlannerPeriodKey(groupCourse(group),half),saved=db.studyPeriods?.[key]||{};
+  const planWeeks=dayPlannerPlanWeeks(group,half),calendarBounds=semesterDateBounds(half);
+  const start=clampDate(saved.start||dayPlannerDefaultStart(half),calendarBounds);
+  const weeks=Math.max(0,Math.round(num(saved.weeks)||planWeeks));
+  const end=weeks?([addDays(start,weeks*7-1),calendarBounds.end].sort()[0]):calendarBounds.end;
+  return {key,start,end,weeks,planWeeks,semesterNo:dayPlannerGlobalSemester(groupCourse(group),half),calendarBounds,custom:!!(saved.start||saved.weeks)};
+}
+function openDayPlannerPeriodSettings(){
+  const group=dayPlannerState.group,half=dayPlannerState.semester,p=dayPlannerPeriod(group,half),course=groupCourse(group);
+  openModal(`<div class="day-period-modal"><span class="day-slot-choice-kicker">НАВЧАЛЬНИЙ ПЕРІОД</span><h2>${esc(course)} курс · ${Number(half)===1?"І":"ІІ"} семестр</h2><p>Тут задається саме період аудиторного навчання, а не весь календарний семестр. Для цієї групи навчальний план ${p.planWeeks?`містить <b>${p.planWeeks} навчальних тижнів</b>.`:"ще не містить кількості навчальних тижнів."}</p><form id="dayPeriodForm" class="form-grid"><label>Початок навчальних тижнів<input id="dayPeriodStart" type="date" ${dateAttrs(p.calendarBounds)} value="${esc(p.start)}"></label><label>Кількість навчальних тижнів<input id="dayPeriodWeeks" type="number" min="1" max="30" step="1" value="${esc(p.weeks||p.planWeeks||"")}" placeholder="напр. 10"></label><div class="wide notice">Після збереження вкладка «По днях груп» показуватиме тільки дати в межах цього навчального періоду. Налаштування спільне для всіх груп цього курсу.</div><div class="wide modal-footer-actions"><button class="primary">Зберегти період</button>${p.custom?`<button type="button" class="secondary" onclick="resetDayPlannerPeriod()">Взяти з навчального плану</button>`:""}</div></form></div>`,true);
+  $("#dayPeriodForm").onsubmit=e=>{e.preventDefault();const weeks=Math.round(num($("#dayPeriodWeeks").value)),start=$("#dayPeriodStart").value;if(!start||weeks<1)return alert("Вкажи дату початку і кількість навчальних тижнів.");db.studyPeriods=db.studyPeriods||{};db.studyPeriods[p.key]={start,weeks};closeModal();save();renderDayPlanner();};
+}
+function resetDayPlannerPeriod(){const group=dayPlannerState.group,p=dayPlannerPeriod(group,dayPlannerState.semester);db.studyPeriods=db.studyPeriods||{};delete db.studyPeriods[p.key];closeModal();save();renderDayPlanner();}
+function dayPlannerDates(semester,weekday){const group=dayPlannerState.group,p=dayPlannerPeriod(group,semester),out=[];let d=p.start;while(d<=p.end){if(weekdayId(d)===Number(weekday))out.push(d);d=addDays(d,1);}return out;}
 function dayPlannerEvents(group,date,pairId){return groupEventsForDate(group,date).filter(ev=>String(groupEventSlotId(ev)||"")===String(pairId));}
 function dayPlannerEventHtml(ev){
   const x=ev.data;
@@ -6845,10 +6876,10 @@ function dayPlannerCellHtml(group,date,pair){
   const safeGroup=String(group).replaceAll("'","\\'");
   return `<button type="button" class="day-planner-cell free" onclick="openDayPlannerSlot('${date}',${Number(pair.id)},'${safeGroup}')"><span>+</span><b>Вільно</b><small>поставити пару</small></button>`;
 }
-function dayPlannerDateHeadHtml(group,date){
+function dayPlannerDateHeadHtml(group,date,index=0){
   const count=groupEventsForDate(group,date).length,[y,m,d]=date.split("-");
   const months={"01":"січ","02":"лют","03":"бер","04":"кві","05":"тра","06":"чер","07":"лип","08":"сер","09":"вер","10":"жов","11":"лис","12":"гру"};
-  return `<div class="day-planner-date-head ${count?"has-events":""} ${date===localTodayISO()?"today":""}" data-dayplanner-date="${date}"><b>${d}.${m}</b><span>${months[m]||y}</span><small>${count?`${count} подій`:"вільно"}</small></div>`;
+  return `<div class="day-planner-date-head ${count?"has-events":""} ${date===localTodayISO()?"today":""}" data-dayplanner-date="${date}"><b>${d}.${m}</b><span>${months[m]||y}</span><small>${index+1} тиж. · ${count?`${count} под.`:"вільно"}</small></div>`;
 }
 function dayPlannerCourseButtonsHtml(){return `<div class="day-planner-course-row">${dayPlannerCourses().map(c=>`<button type="button" class="day-planner-course ${Number(dayPlannerState.course)===Number(c)?"active":""}" onclick="setDayPlannerCourse(${c})"><span>${c}</span><b>${c} курс</b><small>${dayPlannerGroups(c).map(g=>g.code).join(" · ")}</small></button>`).join("")}</div>`;}
 function dayPlannerGroupButtonsHtml(){const list=dayPlannerGroups(dayPlannerState.course);return `<div class="day-planner-group-row">${list.map(g=>`<button type="button" class="day-planner-group ${normGroup(g.code)===normGroup(dayPlannerState.group)?"active":""}" onclick="setDayPlannerGroup('${String(g.code).replaceAll("'","\\'")}')"><b>${esc(g.code)}</b><span>${groupStudentCount(g.code)} студентів</span></button>`).join("")}</div>`;}
@@ -6857,11 +6888,10 @@ function dayPlannerScrollCurrent(){const wrap=$("#dayPlannerGridWrap");if(!wrap)
 function renderDayPlanner(){
   normalizeDayPlannerState();const group=dayPlannerState.group;
   if(!group){$("#page-dayPlanner").innerHTML=`<div class="card section"><div class="empty">Спочатку додай групи.</div></div>`;return;}
-  const dates=dayPlannerDates(dayPlannerState.semester,dayPlannerState.weekday),pairs=bellPairs().slice().sort((a,b)=>Number(a.id)-Number(b.id)).slice(0,7),occupied=dates.reduce((sum,date)=>sum+pairs.filter(p=>dayPlannerEvents(group,date,p.id).length).length,0),free=Math.max(0,dates.length*pairs.length-occupied),semLabel=Number(dayPlannerState.semester)===1?"І семестр":"ІІ семестр",bounds=semesterDateBounds(dayPlannerState.semester);
-  $("#page-dayPlanner").innerHTML=`<div class="day-planner-page"><div class="card section day-planner-control-card"><div class="section-head"><div><span class="day-planner-eyebrow">РОЗКЛАД ПО ДНЯХ</span><h2>Де ще можна поставити пару</h2><div class="small">Обери курс, групу, семестр і день тижня. Тут видно всі дати цього дня одразу.</div></div><div class="day-planner-summary"><div><b>${occupied}</b><span>зайнято</span></div><div><b>${free}</b><span>вільно</span></div></div></div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>1</span><b>Курс</b></div>${dayPlannerCourseButtonsHtml()}</div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>2</span><b>Група</b></div>${dayPlannerGroupButtonsHtml()}</div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>3</span><b>Семестр</b></div><div class="day-planner-semesters"><button class="${Number(dayPlannerState.semester)===1?"active":""}" onclick="setDayPlannerSemester(1)"><b>І семестр</b><span>${formatDate(semesterDateBounds(1).start)} — ${formatDate(semesterDateBounds(1).end)}</span></button><button class="${Number(dayPlannerState.semester)===2?"active":""}" onclick="setDayPlannerSemester(2)"><b>ІІ семестр</b><span>${formatDate(semesterDateBounds(2).start)} — ${formatDate(semesterDateBounds(2).end)}</span></button></div></div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>4</span><b>День</b></div>${dayPlannerWeekdayButtonsHtml()}</div></div><div class="card section day-planner-table-card"><div class="day-planner-table-head"><div><span>${esc(group)} · ${esc(groupCourse(group))} курс · ${esc(semLabel)}</span><h3>${esc(dayPlannerWeekdayName(dayPlannerState.weekday))}</h3><p>Усі дати цього дня · ${formatDate(bounds.start)} — ${formatDate(bounds.end)}</p></div><button class="secondary" onclick="dayPlannerScrollCurrent()">До актуальної дати →</button></div><div id="dayPlannerGridWrap" class="day-planner-grid-wrap"><div class="day-planner-grid" style="--day-count:${dates.length}"><div class="day-planner-corner"><b>Пара</b><span>час</span></div>${dates.map(date=>dayPlannerDateHeadHtml(group,date)).join("")}${pairs.map(pair=>`<div class="day-planner-pair-head"><b>${esc(pair.id)}</b><span>${esc(pair.start||"")}–${esc(pair.end||"")}</span></div>${dates.map(date=>dayPlannerCellHtml(group,date,pair)).join("")}`).join("")}</div></div><div class="day-planner-legend"><span><i class="occupied"></i> заняття вже стоїть</span><span><i class="free"></i> вільна дата</span><b>Клік по заняттю — редагувати · клік по «Вільно» — додати</b></div></div></div>`;
-  requestAnimationFrame(()=>dayPlannerScrollCurrent());
+  const period=dayPlannerPeriod(group,dayPlannerState.semester),dates=dayPlannerDates(dayPlannerState.semester,dayPlannerState.weekday),pairs=bellPairs().slice().sort((a,b)=>Number(a.id)-Number(b.id)).slice(0,7),occupied=dates.reduce((sum,date)=>sum+pairs.filter(p=>dayPlannerEvents(group,date,p.id).length).length,0),free=Math.max(0,dates.length*pairs.length-occupied),semLabel=Number(dayPlannerState.semester)===1?"І семестр":"ІІ семестр";
+  const periodText=period.weeks?`${period.weeks} навч. тижнів · ${formatDate(period.start)} — ${formatDate(period.end)}`:`кількість навчальних тижнів не задана`,denseClass=dates.length>=11?"dense":"";
+  $("#page-dayPlanner").innerHTML=`<div class="day-planner-page"><div class="card section day-planner-control-card"><div class="section-head"><div><span class="day-planner-eyebrow">РОЗКЛАД ПО ДНЯХ</span><h2>Де ще можна поставити пару</h2><div class="small">Обери курс, групу, семестр і день тижня. Показуються тільки навчальні тижні, а не весь календарний семестр.</div></div><div class="day-planner-summary"><div><b>${occupied}</b><span>зайнято</span></div><div><b>${free}</b><span>вільно</span></div></div></div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>1</span><b>Курс</b></div>${dayPlannerCourseButtonsHtml()}</div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>2</span><b>Група</b></div>${dayPlannerGroupButtonsHtml()}</div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>3</span><b>Семестр</b></div><div class="day-planner-semesters"><button class="${Number(dayPlannerState.semester)===1?"active":""}" onclick="setDayPlannerSemester(1)"><b>І семестр</b><span>${dayPlannerPlanWeeks(group,1)?`${dayPlannerPlanWeeks(group,1)} навч. тижнів`:"налаштувати період"}</span></button><button class="${Number(dayPlannerState.semester)===2?"active":""}" onclick="setDayPlannerSemester(2)"><b>ІІ семестр</b><span>${dayPlannerPlanWeeks(group,2)?`${dayPlannerPlanWeeks(group,2)} навч. тижнів`:"налаштувати період"}</span></button></div></div><div class="day-planner-control-section"><div class="day-planner-control-label"><span>4</span><b>День</b></div>${dayPlannerWeekdayButtonsHtml()}</div></div><div class="card section day-planner-table-card"><div class="day-planner-table-head"><div><span>${esc(group)} · ${esc(groupCourse(group))} курс · ${esc(semLabel)}</span><h3>${esc(dayPlannerWeekdayName(dayPlannerState.weekday))}</h3><p>${esc(periodText)}</p></div><div class="day-planner-head-actions"><span class="day-planner-week-count">${dates.length} дат</span><button class="secondary" onclick="openDayPlannerPeriodSettings()">⚙ Навчальний період</button></div></div>${!period.weeks?`<div class="day-planner-period-warning"><b>Кількість навчальних тижнів не задана.</b><span>Зараз показано календарний діапазон. Натисни «Навчальний період» і вкажи реальну кількість тижнів.</span></div>`:""}<div id="dayPlannerGridWrap" class="day-planner-grid-wrap"><div class="day-planner-grid ${denseClass}" style="--day-count:${Math.max(1,dates.length)}"><div class="day-planner-corner"><b>Пара</b><span>час</span></div>${dates.map((date,i)=>dayPlannerDateHeadHtml(group,date,i)).join("")}${pairs.map(pair=>`<div class="day-planner-pair-head"><b>${esc(pair.id)}</b><span>${esc(pair.start||"")}–${esc(pair.end||"")}</span></div>${dates.map(date=>dayPlannerCellHtml(group,date,pair)).join("")}`).join("")}</div></div><div class="day-planner-legend"><span><i class="occupied"></i> заняття вже стоїть</span><span><i class="free"></i> вільна дата</span><b>Клік по заняттю — редагувати · клік по «Вільно» — додати</b></div></div></div>`;
 }
-
 function renderTimetable(){
   if(!timetableState.group||!db.groups.some(g=>normGroup(g.code)===normGroup(timetableState.group))){timetableState.group=bestTimetableGroup();rememberTimetableGroup(timetableState.group);}
   if(!timetableState.month||!academicMonthAllowed(timetableState.month))timetableState.month=groupCurrentMonth();
