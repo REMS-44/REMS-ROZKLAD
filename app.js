@@ -1401,21 +1401,53 @@ function renderStudentTable(){
   const rows=db.students.filter(s=>s.status!=="archived"&&codes.has(normIdentity(s.group))&&(!q||s.name.toLowerCase().includes(q))&&(!gf||s.group===gf)).sort((a,b)=>a.group.localeCompare(b.group)||a.name.localeCompare(b.name));
   $("#studentTable").innerHTML=`<div class="table-wrap"><table><thead><tr><th>ПІБ</th><th>Група</th><th>Курс</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.group)}</td><td>${groupCourse(s.group)}</td><td class="actions"><button onclick="editStudent(${s.id})">Редагувати</button><button onclick="deleteStudent(${s.id})">Видалити</button></td></tr>`).join("")}</tbody></table></div><div class="small" style="margin-top:10px">Показано: ${rows.length}</div>`;
 }
+function canEditStudentCatalog(){
+  const role=window.REMS_CLOUD?.role?.();
+  if(window.REMS_CLOUD?.configured&&role&&role!=="admin"){
+    alert("Додавати, редагувати й видаляти студентів може лише адміністратор. Поточна роль: "+({dispatcher:"Диспетчер",teacher:"Викладач",viewer:"Перегляд"}[role]||role)+".");
+    return false;
+  }
+  return true;
+}
 function addStudent(){
+  if(!canEditStudentCatalog())return;
   openModal(`<h2>Новий студент</h2><form id="f" class="form-grid"><label class="wide">ПІБ<input id="sn" required></label><label>Група<select id="sg">${groupOptions()}</select></label><div class="wide"><button class="primary">Додати</button></div></form>`);
-  $("#f").onsubmit=e=>{e.preventDefault();db.students.push({id:uid(db.students),name:$("#sn").value.trim(),group:$("#sg").value,status:"active",note:""});closeModal();save();};
+  $("#f").onsubmit=e=>{
+    e.preventDefault();
+    const name=$("#sn").value.trim(),group=$("#sg").value;
+    if(!name||!group)return;
+    // If the same student had been deleted earlier, reactivate that record
+    // instead of creating a second Firestore document with the same person.
+    const archived=(db.students||[]).find(x=>x.status==="archived"&&studentSeedKey(x)===studentSeedKey({name,group}));
+    if(archived){
+      archived.name=name;archived.group=group;archived.status="active";delete archived.deletedAt;delete archived.deletedBy;
+    }else{
+      db.students.push({id:uid(db.students),name,group,status:"active",note:""});
+    }
+    closeModal();save();
+  };
 }
 function editStudent(id){
-  const s=db.students.find(x=>x.id===id);
-  openModal(`<h2>Редагувати студента</h2><form id="f" class="form-grid"><label class="wide">ПІБ<input id="sn" value="${esc(s.name)}" required></label><label>Група<select id="sg">${groupOptions(s.group)}</select></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button><button type="button" class="danger entity-delete-btn" onclick="deleteStudent(${s.id})">Видалити студента</button></div></form>`);
+  if(!canEditStudentCatalog())return;
+  const s=db.students.find(x=>Number(x.id)===Number(id));if(!s)return alert("Студента не знайдено в поточній базі.");
+  openModal(`<h2>Редагувати студента</h2><form id="f" class="form-grid"><label class="wide">ПІБ<input id="sn" value="${esc(s.name)}" required></label><label>Група<select id="sg">${groupOptions(s.group)}</select></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button><button type="button" class="danger entity-delete-btn" onclick="deleteStudent(${Number(s.id)})">Видалити студента</button></div></form>`);
   $("#f").onsubmit=e=>{e.preventDefault();s.name=$("#sn").value.trim();s.group=$("#sg").value;closeModal();save();};
 }
 function deleteStudent(id){
-  const s=db.students.find(x=>Number(x.id)===Number(id));if(!s)return;
+  if(!canEditStudentCatalog())return;
+  const s=db.students.find(x=>Number(x.id)===Number(id));if(!s)return alert("Студента не знайдено в поточній базі.");
   const special=db.schedule.filter(x=>Number(x.studentId)===Number(id));
   const lines=special.length?[`Разом буде видалено ${deleteCountLabel(special.length,"персональний запис","персональні записи","персональних записів")} (індивідуальні/консультації).`]:[];
   if(!confirmCascadeDelete(`Видалити студента ${s.name}?`,lines))return;
-  db.students=db.students.filter(x=>Number(x.id)!==Number(id));
+
+  // IMPORTANT: do not physically remove the student document. Some students
+  // came from the bundled seed list, so a later migration could recreate a
+  // missing document. An archived record is invisible in all working lists
+  // and counts, but acts as a durable tombstone in Firebase.
+  s.status="archived";
+  s.deletedAt=new Date().toISOString();
+  s.deletedBy=window.REMS_CLOUD?.email?.()||"";
+
   db.schedule=db.schedule.filter(x=>Number(x.studentId)!==Number(id));
   db.disciplines.forEach(d=>{
     if(Array.isArray(d.selectedStudentIds))d.selectedStudentIds=d.selectedStudentIds.filter(sid=>Number(sid)!==Number(id));
