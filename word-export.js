@@ -138,8 +138,30 @@
       });
       map.get(key).dates.push(String(x.date));
     }
-    const events=[...map.values()];
+    let events=[...map.values()];
     events.forEach(e=>{e.dates=unique(e.dates).sort();});
+
+    // Two old records may represent one real stream lesson, e.g.
+    // REMS-44 and REMS-34 were saved separately before stream support existed.
+    // Merge them ONLY when all visible lesson data and the complete date set
+    // are exactly the same. Selective audiences are intentionally not inferred.
+    const merged=new Map();
+    let nonMergeSeq=0;
+    events.forEach(e=>{
+      const mergeable=!e.selective;
+      const key=mergeable
+        ?[e.dow,e.pairId,norm(e.discipline),norm(e.type),norm(e.teacher),norm(e.room),e.dates.join("|")].join("§")
+        :`NO_MERGE§${++nonMergeSeq}§${e.dow}§${e.pairId}`;
+      if(!merged.has(key)){
+        merged.set(key,{...e,coverage:[...e.coverage],dates:[...e.dates]});
+      }else{
+        const m=merged.get(key);
+        m.coverage=groupCodes.filter(g=>
+          [...m.coverage,...e.coverage].some(c=>norm(c)===norm(g))
+        );
+      }
+    });
+    events=[...merged.values()];
     events.sort((a,b)=>a.dow-b.dow||a.pairId-b.pairId||(a.dates[0]||"").localeCompare(b.dates[0]||"")||a.discipline.localeCompare(b.discipline,"uk"));
     return {groups,events,bounds};
   }
@@ -161,11 +183,17 @@
     return `<w:p><w:pPr>${keepNext?"<w:keepNext/>":""}<w:spacing w:before="${before}" w:after="${after}" w:line="240" w:lineRule="auto"/>${align?`<w:jc w:val="${align}"/>`:""}</w:pPr>${Array.isArray(runs)?runs.join(""):runs}</w:p>`;
   }
   function emptyPara(){return `<w:p/>`;}
-  function cell(paras,width,{shade=null}={}){
-    // Avoid gridSpan / vMerge in exported fragments. A simple rectangular
-    // table is dramatically safer when later pasted into the faculty schedule.
+  function cell(paras,width,{shade=null,gridSpan=1,vMerge=null}={}){
+    // WordprocessingML tcPr child order matters in desktop Microsoft Word:
+    // tcW -> gridSpan -> vMerge -> shd -> vAlign.
+    const span=Number(gridSpan)>1?`<w:gridSpan w:val="${Number(gridSpan)}"/>`:"";
+    const merge=vMerge==="restart"
+      ?`<w:vMerge w:val="restart"/>`
+      :vMerge==="continue"
+        ?`<w:vMerge/>`
+        :"";
     const shd=shade?`<w:shd w:val="clear" w:color="auto" w:fill="${shade}"/>`:"";
-    return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${shd}<w:vAlign w:val="center"/></w:tcPr>${paras||emptyPara()}</w:tc>`;
+    return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${span}${merge}${shd}<w:vAlign w:val="center"/></w:tcPr>${paras||emptyPara()}</w:tc>`;
   }
   function table(rows,widths){
     const sum=widths.reduce((a,b)=>a+b,0);
@@ -185,33 +213,76 @@
     if(who)lines.push(para(run(who,{bold:true,size:24})));
     return lines.join("");
   }
-  function eventRowCells(groupCodes,event,groupWidth){
-    // Repeat the same shared/stream event in each covered group column.
-    // This makes the exported fragment much easier to paste into the
-    // faculty timetable and removes fragile merged cells.
-    return groupCodes.map(g=>
-      event.coverage.some(c=>norm(c)===norm(g))
-        ?cell(eventParas(event),groupWidth)
-        :cell(emptyPara(),groupWidth)
-    );
+  function eventCoverageIndexes(groupCodes,event){
+    return groupCodes
+      .map((g,i)=>event.coverage.some(c=>norm(c)===norm(g))?i:-1)
+      .filter(i=>i>=0);
+  }
+  function eventsOverlapColumns(groupCodes,a,b){
+    const A=new Set(eventCoverageIndexes(groupCodes,a));
+    return eventCoverageIndexes(groupCodes,b).some(i=>A.has(i));
+  }
+  function packEventsIntoLanes(groupCodes,events){
+    const ordered=events.slice().sort((a,b)=>{
+      const ai=Math.min(...eventCoverageIndexes(groupCodes,a),999);
+      const bi=Math.min(...eventCoverageIndexes(groupCodes,b),999);
+      return ai-bi
+        ||(a.dates[0]||"").localeCompare(b.dates[0]||"")
+        ||a.discipline.localeCompare(b.discipline,"uk");
+    });
+    const lanes=[];
+    ordered.forEach(e=>{
+      let lane=lanes.find(row=>row.every(other=>!eventsOverlapColumns(groupCodes,e,other)));
+      if(!lane){lane=[];lanes.push(lane);}
+      lane.push(e);
+    });
+    return lanes.length?lanes:[[]];
+  }
+  function laneGroupCells(groupCodes,lane,groupWidth){
+    const owner=Array(groupCodes.length).fill(null);
+    lane.forEach(e=>eventCoverageIndexes(groupCodes,e).forEach(i=>owner[i]=e));
+
+    const cells=[];
+    let i=0;
+    while(i<groupCodes.length){
+      const e=owner[i];
+      if(!e){
+        cells.push(cell(emptyPara(),groupWidth));
+        i++;
+        continue;
+      }
+
+      // Merge only contiguous group columns belonging to the same real event.
+      let j=i+1;
+      while(j<groupCodes.length&&owner[j]===e)j++;
+      const span=j-i;
+      cells.push(cell(eventParas(e),groupWidth*span,{gridSpan:span}));
+      i=j;
+    }
+    return cells;
   }
   function packPairRows(state,groupCodes,pairId,events,groupWidth){
-    const perGroup=Object.fromEntries(groupCodes.map(g=>[
-      g,
-      events.filter(e=>e.coverage.some(c=>norm(c)===norm(g)))
-    ]));
-    const max=Math.max(1,...groupCodes.map(g=>perGroup[g].length));
+    const lanes=packEventsIntoLanes(groupCodes,events);
     const pair=pairInfo(state,pairId);
 
-    return Array.from({length:max},(_,ri)=>{
+    return lanes.map((lane,ri)=>{
+      const first=ri===0;
+      const multiple=lanes.length>1;
+      const pairMerge=multiple?(first?"restart":"continue"):null;
+
       const cells=[
-        cell(ri===0?para(run(String(pairId),{bold:true,size:24})):emptyPara(),788),
-        cell(ri===0?para(run([pair.start,pair.end].filter(Boolean).join("-"),{bold:true,size:22})):emptyPara(),1720)
+        cell(
+          first?para(run(String(pairId),{bold:true,size:24})):emptyPara(),
+          788,
+          {vMerge:pairMerge}
+        ),
+        cell(
+          first?para(run([pair.start,pair.end].filter(Boolean).join("-"),{bold:true,size:22})):emptyPara(),
+          1720,
+          {vMerge:pairMerge}
+        ),
+        ...laneGroupCells(groupCodes,lane,groupWidth)
       ];
-      groupCodes.forEach(g=>{
-        const e=perGroup[g][ri];
-        cells.push(cell(e?eventParas(e):emptyPara(),groupWidth));
-      });
       return tr(cells);
     });
   }
