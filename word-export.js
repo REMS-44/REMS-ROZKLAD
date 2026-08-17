@@ -5,7 +5,10 @@
   const REL_NS="http://schemas.openxmlformats.org/package/2006/relationships";
   const OFFICE_REL_NS="http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-  function esc(v){return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");}
+  function cleanXmlText(v){
+    return String(v??"").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,"");
+  }
+  function esc(v){return cleanXmlText(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");}
   function norm(v){return String(v||"").trim().toLocaleLowerCase("uk-UA").replace(/[’`']/g,"'").replace(/\s+/g," ");}
   function unique(arr){return [...new Set(arr)];}
   function pad2(v){return String(v).padStart(2,"0");}
@@ -142,30 +145,32 @@
   }
 
   function run(text,{bold=false,italic=false,size=24}={}){
+    // Child order in w:rPr follows WordprocessingML schema.
     const props=[
       `<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/>`,
-      `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`,
-      `<w:lang w:val="uk-UA"/>`,
       bold?"<w:b/><w:bCs/>":"",
-      italic?"<w:i/><w:iCs/>":""
+      italic?"<w:i/><w:iCs/>":"",
+      `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`,
+      `<w:lang w:val="uk-UA"/>`
     ].join("");
     return `<w:r><w:rPr>${props}</w:rPr>${xmlText(text)}</w:r>`;
   }
   function para(runs,{align="center",before=0,after=0,keepNext=false}={}){
-    const jc=align?`<w:jc w:val="${align}"/>`:"";
-    return `<w:p><w:pPr>${jc}<w:spacing w:before="${before}" w:after="${after}" w:line="240" w:lineRule="auto"/>${keepNext?"<w:keepNext/>":""}</w:pPr>${Array.isArray(runs)?runs.join(""):runs}</w:p>`;
+    // w:pPr is order-sensitive in Microsoft Word:
+    // keepNext -> spacing -> jc.
+    return `<w:p><w:pPr>${keepNext?"<w:keepNext/>":""}<w:spacing w:before="${before}" w:after="${after}" w:line="240" w:lineRule="auto"/>${align?`<w:jc w:val="${align}"/>`:""}</w:pPr>${Array.isArray(runs)?runs.join(""):runs}</w:p>`;
   }
-  function emptyPara(){return para(run(""));}
-  function cell(paras,width,{gridSpan=1,vMerge=null,shade=null}={}){
-    const vm=vMerge?`<w:vMerge${vMerge==="continue"?"":" w:val=\"restart\""}/>`:"";
-    const span=gridSpan>1?`<w:gridSpan w:val="${gridSpan}"/>`:"";
+  function emptyPara(){return `<w:p/>`;}
+  function cell(paras,width,{shade=null}={}){
+    // Avoid gridSpan / vMerge in exported fragments. A simple rectangular
+    // table is dramatically safer when later pasted into the faculty schedule.
     const shd=shade?`<w:shd w:val="clear" w:color="auto" w:fill="${shade}"/>`:"";
-    return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${span}${vm}<w:vAlign w:val="center"/>${shd}</w:tcPr>${paras||emptyPara()}</w:tc>`;
+    return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${shd}<w:vAlign w:val="center"/></w:tcPr>${paras||emptyPara()}</w:tc>`;
   }
   function table(rows,widths){
     const sum=widths.reduce((a,b)=>a+b,0);
     const grid=widths.map(w=>`<w:gridCol w:w="${w}"/>`).join("");
-    return `<w:tbl><w:tblPr><w:tblW w:w="${sum}" w:type="dxa"/><w:jc w:val="left"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="8" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="8" w:space="0" w:color="000000"/></w:tblBorders><w:tblCellMar><w:top w:w="45" w:type="dxa"/><w:left w:w="55" w:type="dxa"/><w:bottom w:w="45" w:type="dxa"/><w:right w:w="55" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${rows.join("")}</w:tbl>`;
+    return `<w:tbl><w:tblPr><w:tblW w:w="${sum}" w:type="dxa"/><w:jc w:val="left"/><w:tblBorders><w:top w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="10" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="8" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="8" w:space="0" w:color="000000"/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="45" w:type="dxa"/><w:left w:w="55" w:type="dxa"/><w:bottom w:w="45" w:type="dxa"/><w:right w:w="55" w:type="dxa"/></w:tblCellMar><w:tblLook w:firstColumn="1" w:firstRow="1" w:lastColumn="0" w:lastRow="0" w:noHBand="1" w:noVBand="1" w:val="0600"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${rows.join("")}</w:tbl>`;
   }
   function tr(cells){return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cells.join("")}</w:tr>`;}
   function eventParas(e){
@@ -181,42 +186,32 @@
     return lines.join("");
   }
   function eventRowCells(groupCodes,event,groupWidth){
-    const coverageIdx=event.coverage.map(g=>groupCodes.findIndex(c=>norm(c)===norm(g))).filter(i=>i>=0).sort((a,b)=>a-b);
-    const contiguous=coverageIdx.length>1&&coverageIdx.every((v,i)=>i===0||v===coverageIdx[i-1]+1);
-    const out=[];
-    let i=0;
-    while(i<groupCodes.length){
-      if(contiguous&&i===coverageIdx[0]){
-        out.push(cell(eventParas(event),groupWidth*coverageIdx.length,{gridSpan:coverageIdx.length}));
-        i+=coverageIdx.length;continue;
-      }
-      if(coverageIdx.includes(i))out.push(cell(eventParas(event),groupWidth));
-      else out.push(cell(emptyPara(),groupWidth));
-      i++;
-    }
-    return out;
+    // Repeat the same shared/stream event in each covered group column.
+    // This makes the exported fragment much easier to paste into the
+    // faculty timetable and removes fragile merged cells.
+    return groupCodes.map(g=>
+      event.coverage.some(c=>norm(c)===norm(g))
+        ?cell(eventParas(event),groupWidth)
+        :cell(emptyPara(),groupWidth)
+    );
   }
   function packPairRows(state,groupCodes,pairId,events,groupWidth){
-    const shared=events.filter(e=>e.coverage.length>1);
-    const singles=Object.fromEntries(groupCodes.map(g=>[g,events.filter(e=>e.coverage.length===1&&norm(e.coverage[0])===norm(g))]));
-    const rows=[];
-    shared.forEach(e=>rows.push({kind:"shared",event:e}));
-    const max=Math.max(0,...groupCodes.map(g=>singles[g].length));
-    for(let i=0;i<max;i++)rows.push({kind:"packed",index:i});
-    if(!rows.length)rows.push({kind:"empty"});
+    const perGroup=Object.fromEntries(groupCodes.map(g=>[
+      g,
+      events.filter(e=>e.coverage.some(c=>norm(c)===norm(g)))
+    ]));
+    const max=Math.max(1,...groupCodes.map(g=>perGroup[g].length));
     const pair=pairInfo(state,pairId);
-    return rows.map((r,ri)=>{
-      const first=ri===0;
-      const cells=[];
-      cells.push(cell(first?para(run(String(pairId),{bold:true,size:24})):emptyPara(),788,{vMerge:first?"restart":"continue"}));
-      cells.push(cell(first?para(run([pair.start,pair.end].filter(Boolean).join("-") ,{bold:true,size:22})):emptyPara(),1720,{vMerge:first?"restart":"continue"}));
-      if(r.kind==="shared")cells.push(...eventRowCells(groupCodes,r.event,groupWidth));
-      else if(r.kind==="packed"){
-        groupCodes.forEach(g=>{
-          const e=singles[g][r.index];
-          cells.push(cell(e?eventParas(e):emptyPara(),groupWidth));
-        });
-      }else groupCodes.forEach(()=>cells.push(cell(emptyPara(),groupWidth)));
+
+    return Array.from({length:max},(_,ri)=>{
+      const cells=[
+        cell(ri===0?para(run(String(pairId),{bold:true,size:24})):emptyPara(),788),
+        cell(ri===0?para(run([pair.start,pair.end].filter(Boolean).join("-"),{bold:true,size:22})):emptyPara(),1720)
+      ];
+      groupCodes.forEach(g=>{
+        const e=perGroup[g][ri];
+        cells.push(cell(e?eventParas(e):emptyPara(),groupWidth));
+      });
       return tr(cells);
     });
   }
@@ -235,7 +230,8 @@
     });
     const rows=[tr(headerCells)];
     const dayEvents=events.filter(e=>e.dow===dow);
-    const pairIds=unique(dayEvents.map(e=>e.pairId)).sort((a,b)=>a-b);
+    const configured=(state.bellSchedule||[]).map(p=>Number(p.id)).filter(n=>n>=1&&n<=7);
+    const pairIds=unique(configured.length?configured:[1,2,3,4,5,6,7]).sort((a,b)=>a-b);
     pairIds.forEach(pairId=>rows.push(...packPairRows(state,groups.map(g=>g.code),pairId,dayEvents.filter(e=>e.pairId===pairId),groupWidth)));
     return table(rows,widths);
   }
@@ -264,14 +260,17 @@
       body.push(para(run(weekdayName(dow),{bold:true,size:24}),{align:"left",before:45,after:0}));
     });
     body.push(`<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="180" w:right="962" w:bottom="284" w:left="567" w:header="0" w:footer="0" w:gutter="0"/><w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>`);
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${W_NS}" xmlns:r="${OFFICE_REL_NS}"><w:body>${body.join("")}</w:body></w:document>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${W_NS}" xmlns:r="${OFFICE_REL_NS}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><w:body>${body.join("")}</w:body></w:document>`;
   }
-  function stylesXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="${W_NS}"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="uk-UA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style></w:styles>`;}
-  function coreXml(){const now=new Date().toISOString();return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Розклад Режисура естради і шоу</dc:title><dc:creator>РЕМС-Розклад</dc:creator><cp:lastModifiedBy>РЕМС-Розклад</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`;}
-  function appXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>РЕМС-Розклад</Application><AppVersion>1.9.0</AppVersion></Properties>`;}
-  function typesXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;}
-  function rootRels(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${OFFICE_REL_NS}/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${OFFICE_REL_NS}/extended-properties" Target="docProps/app.xml"/></Relationships>`;}
-  function docRels(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${OFFICE_REL_NS}/styles" Target="styles.xml"/></Relationships>`;}
+  function stylesXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="${W_NS}"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="uk-UA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:widowControl/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="left"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="uk-UA"/></w:rPr></w:style></w:styles>`;}
+  function settingsXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="${W_NS}"><w:zoom w:percent="100"/><w:defaultTabStop w:val="720"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat><w:themeFontLang w:val="uk-UA"/></w:settings>`;}
+  function fontTableXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="${W_NS}"><w:font w:name="Times New Roman"><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font><w:font w:name="Arial"><w:charset w:val="00"/><w:family w:val="swiss"/><w:pitch w:val="variable"/></w:font></w:fonts>`;}
+  function themeXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F497D"/></a:dk2><a:lt2><a:srgbClr val="EEECE1"/></a:lt2><a:accent1><a:srgbClr val="4F81BD"/></a:accent1><a:accent2><a:srgbClr val="C0504D"/></a:accent2><a:accent3><a:srgbClr val="9BBB59"/></a:accent3><a:accent4><a:srgbClr val="8064A2"/></a:accent4><a:accent5><a:srgbClr val="4BACC6"/></a:accent5><a:accent6><a:srgbClr val="F79646"/></a:accent6><a:hlink><a:srgbClr val="0000FF"/></a:hlink><a:folHlink><a:srgbClr val="800080"/></a:folHlink></a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Times New Roman"/><a:ea typeface=""/><a:cs typeface="Times New Roman"/></a:majorFont><a:minorFont><a:latin typeface="Times New Roman"/><a:ea typeface=""/><a:cs typeface="Times New Roman"/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;}
+  function coreXml(){const now=new Date().toISOString();return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Розклад Режисура естради і шоу</dc:title><dc:creator>РЕМС-Розклад</dc:creator><cp:lastModifiedBy>РЕМС-Розклад</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`;}
+  function appXml(){return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Template></Template><TotalTime>0</TotalTime><Application>Microsoft Office Word</Application><AppVersion>16.0000</AppVersion></Properties>`;}
+  function typesXml(){return `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`;}
+  function rootRels(){return `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${OFFICE_REL_NS}/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${OFFICE_REL_NS}/extended-properties" Target="docProps/app.xml"/></Relationships>`;}
+  function docRels(){return `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${REL_NS}"><Relationship Id="rId1" Type="${OFFICE_REL_NS}/styles" Target="styles.xml"/><Relationship Id="rId2" Type="${OFFICE_REL_NS}/settings" Target="settings.xml"/><Relationship Id="rId3" Type="${OFFICE_REL_NS}/fontTable" Target="fontTable.xml"/><Relationship Id="rId4" Type="${OFFICE_REL_NS}/theme" Target="theme/theme1.xml"/></Relationships>`;}
 
   const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
   function crc32(bytes){let c=0xFFFFFFFF;for(let i=0;i<bytes.length;i++)c=CRC_TABLE[(c^bytes[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
@@ -306,6 +305,9 @@
       "docProps/app.xml":appXml(),
       "word/document.xml":xml,
       "word/styles.xml":stylesXml(),
+      "word/settings.xml":settingsXml(),
+      "word/fontTable.xml":fontTableXml(),
+      "word/theme/theme1.xml":themeXml(),
       "word/_rels/document.xml.rels":docRels()
     });
   }
