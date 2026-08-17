@@ -89,8 +89,8 @@
   function selectiveNote(state,item){const selected=audiencePartitions(state,item).filter(p=>p.mode==="selected");if(!selected.length)return "";const count=unique(selected.flatMap(p=>p.studentIds)).length;return `Вибіркова група · ${count} студентів`;}
   function selectiveSignature(state,item){return audiencePartitions(state,item).map(p=>`${norm(p.group)}:${p.mode}:${unique(p.studentIds).sort().join(",")}`).join("|");}
 
-  function courseGroups(state,course){
-    return (state.groups||[]).filter(g=>g.status!=="archived"&&Number(g.course)===Number(course)).slice();
+  function courseGroups(state,course,programId=null){
+    return (state.groups||[]).filter(g=>g.status!=="archived"&&Number(g.course)===Number(course)&&(!programId||String(g.programId||"rems")===String(programId))).slice();
   }
   function groupCount(state,code){return (state.students||[]).filter(s=>s.status!=="archived"&&norm(s.group)===norm(code)).length;}
   function academicYears(state){
@@ -113,8 +113,8 @@
   function roman(n){return ({1:"I",2:"II",3:"III",4:"IV",5:"V",6:"VI"})[Number(n)]||String(n);}
   function weekdayName(idx){return ["Понеділок","Вівторок","Середа","Четвер","П’ятниця","Субота","Неділя"][idx]||"";}
 
-  function collectEvents(state,{course,semester}){
-    const groups=courseGroups(state,course);
+  function collectEvents(state,{course,semester,programId=null}){
+    const groups=courseGroups(state,course,programId);
     const groupCodes=groups.map(g=>g.code);
     const selected=new Set(groupCodes.map(norm));
     const bounds=semesterBounds(state,semester);
@@ -307,24 +307,29 @@
     return table(rows,widths);
   }
   function pageBreak(){return `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;}
-  function headingBlock(state,course,semester){
+  function courseUiLabel(course){const n=Number(course)||0;return n===5?"1 курс магістратури":n===6?"2 курс магістратури":`${n} курс`;}
+  function courseWordHeading(course){const n=Number(course)||0;return n===5?"I КУРС МАГІСТРАТУРИ":n===6?"II КУРС МАГІСТРАТУРИ":`${roman(n)} КУРС`;}
+  function courseFileLabel(course){const n=Number(course)||0;return n===5?"1_курс_магістратури":n===6?"2_курс_магістратури":`${n}_курс`;}
+  function headingBlock(state,course,semester,opts={}){
     const y=academicYears(state);
+    const programme=String(opts.programName||"Режисура естради і шоу").toUpperCase();
+    const form=opts.online?"(онлайн-форма навчання)":"(денна форма навчання)";
     return [
-      para(run("РЕЖИСУРА ЕСТРАДИ І ШОУ",{bold:true,size:24}),{keepNext:true}),
-      para(run("(денна форма навчання)",{bold:true,size:24}),{keepNext:true}),
+      para(run(programme,{bold:true,size:24}),{keepNext:true}),
+      para(run(form,{bold:true,size:24}),{keepNext:true}),
       para(run(`${roman(semester)} семестр ${y.start} – ${y.end} н.р.`,{bold:true,size:24}),{keepNext:true}),
-      para(run(`${roman(course)} КУРС`,{bold:true,size:24}),{after:80,keepNext:true})
+      para(run(courseWordHeading(course),{bold:true,size:24}),{after:80,keepNext:true})
     ].join("");
   }
   function documentXml(state,opts){
     const {groups,events}=collectEvents(state,opts);
-    if(!groups.length)throw new Error(`Для ${opts.course} курсу немає груп.`);
-    if(!events.length)throw new Error(`Для ${opts.course} курсу у ${roman(opts.semester)} семестрі ще немає занять у розкладі.`);
+    if(!groups.length)throw new Error(`Для ${courseUiLabel(opts.course)} немає груп.`);
+    if(!events.length)throw new Error(`Для ${courseUiLabel(opts.course)} у ${roman(opts.semester)} семестрі ще немає занять у розкладі.`);
     const usedDays=unique(events.map(e=>e.dow));
     const days=[0,1,2,3,4];
     if(usedDays.includes(5))days.push(5);
     const body=[];
-    body.push(headingBlock(state,opts.course,opts.semester));
+    body.push(headingBlock(state,opts.course,opts.semester,opts));
     days.forEach((dow,idx)=>{
       if(idx>0)body.push(pageBreak());
       body.push(dayTable(state,groups,events,dow));
@@ -384,7 +389,7 @@
   }
   function filename(state,{course,semester}){
     const y=academicYears(state);
-    return `Розклад_РЕМС_${course}_курс_${roman(semester)}_семестр_${y.start}-${y.end}.docx`;
+    return `Розклад_РЕМС_${courseFileLabel(course)}_${roman(semester)}_семестр_${y.start}-${y.end}.docx`;
   }
   function downloadCourseSchedule(state,opts){
     const bytes=buildCourseScheduleDocx(state,opts);

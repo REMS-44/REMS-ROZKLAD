@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 22,
+  "schemaVersion": 24,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -48,9 +48,9 @@ window.REMS_INITIAL_DATA = {
     {
       "id": 7,
       "code": "МСМ-25",
-      "course": 5,
-      "departmentId": "rems-dept",
-      "programId": "rems"
+      "course": 6,
+      "departmentId": "",
+      "programId": "master"
     },
     {
       "id": 8,
@@ -4629,19 +4629,37 @@ window.REMS_INITIAL_DATA = {
       "id": "rems",
       "departmentId": "rems-dept",
       "name": "Режисура естради і шоу",
-      "shortName": "РЕМС"
+      "shortName": "РЕМС",
+      "scope": "department",
+      "deliveryMode": "onsite",
+      "usesRooms": true
     },
     {
       "id": "actor",
       "departmentId": "ram-dept",
       "name": "Актор театру та кіно",
-      "shortName": "ТА"
+      "shortName": "ТА",
+      "scope": "department",
+      "deliveryMode": "onsite",
+      "usesRooms": true
     },
     {
       "id": "theatre-director",
       "departmentId": "ram-dept",
       "name": "Режисер театру та кіно",
-      "shortName": "ТР"
+      "shortName": "ТР",
+      "scope": "department",
+      "deliveryMode": "onsite",
+      "usesRooms": true
+    },
+    {
+      "id": "master",
+      "departmentId": "",
+      "name": "Магістратура",
+      "shortName": "МАГ",
+      "scope": "faculty",
+      "deliveryMode": "online",
+      "usesRooms": false
     }
   ]
 };

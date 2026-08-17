@@ -4900,8 +4900,9 @@ td .small{font-size:12px}
 
 
 /* v1.2.3 · active group polish */
-:root{--course-5:#2f8b68}
+:root{--course-5:#2f8b68;--course-6:#28745d}
 .course-5{--course-accent:var(--course-5)!important}
+.course-6{--course-accent:var(--course-6)!important}
 
 .group-switch-btn.active{
   border-color:var(--course-accent)!important;
