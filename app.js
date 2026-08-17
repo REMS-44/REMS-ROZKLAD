@@ -366,13 +366,15 @@ function migrate(old){
     id:d.id||i+1,name:d.name||"",course:d.course||"",group:d.group||"",
     semester:d.semester||fresh.semester,academicYear:d.academicYear||fresh.academicYear,
     teacherIds:d.teacherIds||[],teacherLoads:d.teacherLoads||{},teacherStudentLoads:d.teacherStudentLoads||{},
+    audienceMode:d.audienceMode==="selected"?"selected":"group",
+    selectedStudentIds:[...new Set((d.selectedStudentIds||[]).map(Number).filter(Boolean))],
     controlForm:d.controlForm||"Немає",color:d.color||"#8b5cf6",
     hours:d.hours||{},extraHours:d.extraHours||{},note:d.note||"",status:d.status||"active",
     sourceCurriculumId:d.sourceCurriculumId||null,sourceComponentId:d.sourceComponentId||null,
     planMeta:d.planMeta||{}
   }));
   fresh.curricula=mergeSeedCurricula(old.curricula||[],fresh.curricula||[]);
-  fresh.schemaVersion=15;
+  fresh.schemaVersion=16;
   fresh.schedule=(old.schedule||[]).map((s,i)=>{
     const ready=isReadyExternalScheduleItem(s);
     let teacherId=s.teacherId||null;
@@ -787,7 +789,7 @@ let db=loadData(), currentPage="home";
 normalizeCurricula();
 function save(){
   repairScheduleLinks(db);
-  db.schemaVersion=15;
+  db.schemaVersion=16;
   localStorage.setItem(KEY,JSON.stringify(db));
   scheduleAutomaticBackup();
   renderCurrent();
@@ -829,7 +831,7 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     &&!remoteTeacherKeys.has(normIdentity(t.name||t.shortName))
   );
 
-  db.schemaVersion=15;
+  db.schemaVersion=16;
   normalizeCurricula();
   localStorage.setItem(KEY,JSON.stringify(db));
 
@@ -859,6 +861,60 @@ function lessonTypeByName(name){return db.lessonTypes.find(x=>x.name===name);}
 function teacherDisplay(t){return t?.shortName||t?.name||"";}
 function teacherById(id){return db.teachers.find(t=>Number(t.id)===Number(id));}
 function disciplineById(id){return db.disciplines.find(d=>Number(d.id)===Number(id));}
+
+function activeStudentsForGroup(group,state=db){
+  return (state?.students||[]).filter(s=>s.status!=="archived"&&normIdentity(s.group)===normIdentity(group)).slice().sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"uk"));
+}
+function activeStudentIdsForGroup(group,state=db){return activeStudentsForGroup(group,state).map(s=>Number(s.id)).filter(Boolean);}
+function disciplineAudienceMode(d){return d?.audienceMode==="selected"?"selected":"group";}
+function disciplineSelectedStudentIds(d,state=db){
+  if(!d)return[];const allowed=new Set(activeStudentIdsForGroup(d.group,state));
+  return [...new Set((d.selectedStudentIds||[]).map(Number).filter(id=>allowed.has(id)))];
+}
+function disciplineAudienceStudentIds(d,state=db){return !d?[]:(disciplineAudienceMode(d)==="selected"?disciplineSelectedStudentIds(d,state):activeStudentIdsForGroup(d.group,state));}
+function disciplineAudienceLabel(d,state=db){
+  if(!d)return"";const total=activeStudentIdsForGroup(d.group,state).length;
+  if(disciplineAudienceMode(d)==="selected")return `Вибіркова · ${disciplineSelectedStudentIds(d,state).length}/${total} студентів`;
+  return `Вся група · ${total} студентів`;
+}
+function disciplineAudiencePartition(d,state=db){if(!d)return null;const mode=disciplineAudienceMode(d);return {group:d.group||"",mode,studentIds:mode==="selected"?disciplineSelectedStudentIds(d,state):[]};}
+function normalizeAudiencePartition(p,state=db){
+  const group=String(p?.group||"").trim();if(!group)return null;const mode=p?.mode==="selected"?"selected":"group",allowed=new Set(activeStudentIdsForGroup(group,state));
+  const studentIds=mode==="selected"?[...new Set((p?.studentIds||[]).map(Number).filter(id=>allowed.has(id)))]:[];return {group,mode,studentIds};
+}
+function scheduleAudiencePartitions(item,state=db){
+  if(!item)return[];
+  if(item.specialSchedule){const studentId=Number(item.studentId)||null,student=(state?.students||[]).find(s=>Number(s.id)===studentId),group=item.group||student?.group||"";return group&&studentId?[{group,mode:"selected",studentIds:[studentId]}]:[];}
+  if(!isReadyExternalScheduleItem(item)){
+    const byGroup=new Map();
+    scheduleDisciplineIds(item).forEach(id=>{const d=(state?.disciplines||[]).find(x=>Number(x.id)===Number(id));if(!d||d.status==="archived"||!d.group)return;byGroup.set(normIdentity(d.group),disciplineAudiencePartition(d,state));});
+    scheduleAudienceGroups(item).forEach(group=>{const key=normIdentity(group);if(!byGroup.has(key))byGroup.set(key,{group,mode:"group",studentIds:[]});});
+    if(byGroup.size)return [...byGroup.values()].filter(Boolean);
+  }
+  const explicit=Array.isArray(item.audiencePartitions)?item.audiencePartitions.map(p=>normalizeAudiencePartition(p,state)).filter(Boolean):[];
+  if(explicit.length)return explicit;
+  return scheduleAudienceGroups(item).map(group=>({group,mode:"group",studentIds:[]}));
+}
+function scheduleSelectedStudentIds(item,state=db){return [...new Set(scheduleAudiencePartitions(item,state).filter(p=>p.mode==="selected").flatMap(p=>p.studentIds||[]).map(Number).filter(Boolean))];}
+function scheduleAudienceOverlap(a,b,state=db){
+  const A=scheduleAudiencePartitions(a,state),B=scheduleAudiencePartitions(b,state);
+  for(const pa of A)for(const pb of B){if(normIdentity(pa.group)!==normIdentity(pb.group))continue;if(pa.mode==="group"||pb.mode==="group")return true;const ids=new Set((pa.studentIds||[]).map(Number));if((pb.studentIds||[]).some(id=>ids.has(Number(id))))return true;}
+  const aIds=new Set(scheduleSelectedStudentIds(a,state));return scheduleSelectedStudentIds(b,state).some(id=>aIds.has(Number(id)));
+}
+function scheduleAudienceConflictLabel(item,state=db){return scheduleAudiencePartitions(item,state).map(p=>p.mode==="group"?p.group:`${p.group} · ${p.studentIds.length} вибр.`).join(" + ")||scheduleAudienceLabel(item)||"";}
+function refreshScheduleAudienceMetadata(item,state=db){
+  if(!item)return item;const parts=scheduleAudiencePartitions(item,state);
+  if(parts.length){item.audiencePartitions=parts.map(p=>({group:p.group,mode:p.mode,studentIds:p.mode==="selected"?[...p.studentIds]:[]}));const ids=[...new Set(parts.filter(p=>p.mode==="selected").flatMap(p=>p.studentIds||[]).map(Number).filter(Boolean))];if(ids.length)item.audienceStudentIds=ids;else delete item.audienceStudentIds;item.audienceMode=parts.some(p=>p.mode==="selected")?"selected":"group";if(parts.some(p=>p.mode==="selected"))item.coverage=parts.every(p=>p.mode==="selected")?"Вибрані студенти":"Змішаний потік";}
+  return item;
+}
+function scheduleAudienceStudentNames(item,state=db){const ids=scheduleSelectedStudentIds(item,state),map=new Map((state?.students||[]).map(s=>[Number(s.id),s.name]));return ids.map(id=>map.get(Number(id))).filter(Boolean);}
+function groupSlotAudienceCoverage(group,events=[],state=db){
+  const all=new Set(activeStudentIdsForGroup(group,state)),occupied=new Set();let full=false;
+  (events||[]).forEach(ev=>{const item=ev?.data||ev;scheduleAudiencePartitions(item,state).filter(p=>normIdentity(p.group)===normIdentity(group)).forEach(p=>{if(p.mode==="group")full=true;else(p.studentIds||[]).forEach(id=>occupied.add(Number(id)));});});
+  if(full)return {full:true,occupied:all.size,free:0,total:all.size,occupiedIds:[...all]};
+  return {full:false,occupied:occupied.size,free:Math.max(0,all.size-occupied.size),total:all.size,occupiedIds:[...occupied]};
+}
+
 function departmentTeachers(){return db.teachers.filter(t=>t.scope!=="external"&&t.status!=="archived");}
 function externalTeachers(){return db.teachers.filter(t=>t.scope==="external"&&t.status!=="archived");}
 function totalDisciplineHours(d){return Object.values(d.hours||{}).reduce((a,b)=>a+num(b),0);}
@@ -1188,10 +1244,12 @@ function deleteStudent(id){
   db.students=db.students.filter(x=>Number(x.id)!==Number(id));
   db.schedule=db.schedule.filter(x=>Number(x.studentId)!==Number(id));
   db.disciplines.forEach(d=>{
+    if(Array.isArray(d.selectedStudentIds))d.selectedStudentIds=d.selectedStudentIds.filter(sid=>Number(sid)!==Number(id));
     Object.values(d.teacherStudentLoads||{}).forEach(byType=>{
       Object.keys(byType||{}).forEach(typeId=>byType[typeId]=(byType[typeId]||[]).filter(sid=>Number(sid)!==Number(id)));
     });
   });
+  db.schedule.forEach(x=>refreshScheduleAudienceMetadata(x));
   closeModal();save();
 }
 
@@ -2009,7 +2067,7 @@ function deleteCurriculumComponent(curriculumId,componentId){
 function createLoadFromPlan(curriculumId,componentId,rowId){
   const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);ensureCurriculumShape(c);const r=comp?.rows?.find(x=>Number(x.id)===Number(rowId));if(!c||!comp||!r)return;const availableGroups=(c.applicableGroups||[]).filter(g=>db.groups.some(x=>x.code===g));
   openModal(`<h2>Створити дисципліну з робочого плану</h2><div class="notice"><b>${esc(comp.name)}</b> · ${r.semester} семестр · ${esc(r.control)}</div><form id="planLoadForm" class="form-grid"><label class="wide">Для яких груп<select id="plGroups" multiple size="${Math.max(2,availableGroups.length)}">${availableGroups.map(g=>`<option value="${esc(g)}" selected>${esc(g)} · ${groupStudentCount(g)} студентів</option>`).join("")}</select><span class="small">Ctrl/⌘ + клік — вибір окремих груп.</span></label><div class="wide"><b>З плану буде перенесено</b><div class="plan-summary" style="margin-top:8px"><span>Лекції ${fmtHours(r.lecture)}</span><span>Семінари ${fmtHours(r.seminar)}</span><span>Практичні ${fmtHours(r.practical)}</span><span>Лабораторні ${fmtHours(r.laboratory)}</span><span>Індивідуальні ${fmtHours(r.individual)}</span></div></div><div class="wide"><button class="primary">Створити в «Дисципліни / навантаження»</button></div></form>`);
-  $("#planLoadForm").onsubmit=e=>{e.preventDefault();const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);if(!groups.length)return alert("Оберіть хоча б одну групу.");const created=[],skipped=[];groups.forEach(group=>{const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(r.id)&&d.group===group);if(exists){skipped.push(group);return;}db.disciplines.push({id:uid(db.disciplines),name:comp.name,course:c.course,group,semester:Number(r.semester),academicYear:c.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,sourceRowId:r.id,planMeta:{credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly}});created.push(group);});save();closeModal();alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);go("disciplines");};
+  $("#planLoadForm").onsubmit=e=>{e.preventDefault();const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);if(!groups.length)return alert("Оберіть хоча б одну групу.");const created=[],skipped=[];groups.forEach(group=>{const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(r.id)&&d.group===group);if(exists){skipped.push(group);return;}db.disciplines.push({id:uid(db.disciplines),name:comp.name,course:c.course,group,semester:Number(r.semester),academicYear:c.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},audienceMode:"group",selectedStudentIds:[],controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,sourceRowId:r.id,planMeta:{credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly}});created.push(group);});save();closeModal();alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);go("disciplines");};
 }
 
 let disciplineExtraDraft=null;
@@ -2454,6 +2512,8 @@ function loadDisciplineRowHtml(d){
       <span>Викладачі</span>
       ${compactTeacherChips(teacherNames)}
     </div>
+
+    <button type="button" class="discipline-audience-strip ${disciplineAudienceMode(d)==="selected"?"selected":""}" onclick="openDisciplineAudienceModal(${d.id})"><span class="discipline-audience-icon">👥</span><div><span>Хто слухає дисципліну</span><b>${esc(disciplineAudienceLabel(d))}</b></div><strong>${disciplineAudienceMode(d)==="selected"?"ЗМІНИТИ СКЛАД":"НАЛАШТУВАТИ"}</strong></button>
 
     <div class="load-discipline-progress">${loadDisciplineStatusHtml(d)}</div>
 
@@ -2966,7 +3026,7 @@ function validateAllocationDraft(d){
   return errors;
 }
 function openDisciplineModal(id=null){
-  const d=id?disciplineById(id):{id:null,name:"",course:"",group:"",semester:db.semester,academicYear:db.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},controlForm:"Немає",color:"#8b5cf6",hours:{},note:"",status:"active"};
+  const d=id?disciplineById(id):{id:null,name:"",course:"",group:"",semester:db.semester,academicYear:db.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},audienceMode:"group",selectedStudentIds:[],controlForm:"Немає",color:"#8b5cf6",hours:{},note:"",status:"active"};
   const fromPlan=!!d.sourceCurriculumId,lock=fromPlan?'disabled':'',ro=fromPlan?'readonly':'';
   disciplineAllocationId=id;window.__disciplineDraft=d;disciplineAllocationDraft=cloneAllocationLoads(d);
   disciplineStudentAllocationDraft=cloneStudentAllocationLoads(d);
@@ -2983,6 +3043,7 @@ function openDisciplineModal(id=null){
     <label>Колір<input id="dcolor" type="color" value="${esc(d.color||"#8b5cf6")}"></label>
     <div class="wide"><b>Години за робочим планом</b><div class="hours-grid" style="margin-top:8px">${hours}</div></div>
     <div class="wide extra-hours-section"><div class="section-head compact"><div><b>Додаткові види занять</b><div class="small">Додавай години, яких немає у вихідному плані — наприклад індивідуальні або консультації. Вони входять у навантаження, але не змінюють сам робочий план.</div></div></div><div id="disciplineExtraHours"></div><div class="extra-hours-add"><select id="disciplineExtraTypePicker"><option value="">— обрати вид занять —</option>${db.lessonTypes.map(lt=>`<option value="${lt.id}">${esc(lt.name)}</option>`).join("")}</select><input id="disciplineExtraTypeHours" type="number" min="0" step="0.01" placeholder="години"><button type="button" class="primary-inline" id="disciplineExtraTypeAdd">+ Додати вид занять</button></div></div>
+    ${id?`<div class="wide discipline-audience-modal-entry"><div><span>Хто слухає дисципліну</span><b>${esc(disciplineAudienceLabel(d))}</b><small>${disciplineAudienceMode(d)==="selected"?"Конфлікти рахуються по конкретних студентах.":"Зараз пара займає всю групу."}</small></div><button type="button" class="secondary" onclick="openDisciplineAudienceModal(${id})">👥 Налаштувати склад</button></div>`:""}
     <div class="wide allocation-section">
       <div class="section-head compact"><div><b>Розподіл між викладачами</b><div class="small">Додавай викладачів по одному. Можна зберігати частковий розподіл і повернутися до нього пізніше.</div></div></div>
       <div id="allocationSummary"></div>
@@ -3022,11 +3083,34 @@ function openDisciplineModal(id=null){
 
     const extraHours={};Object.entries(disciplineExtraDraft||{}).forEach(([k,v])=>{if(num(v)>0)extraHours[k]=num(v);});
     const obj=fromPlan
-      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
-      :{name:$("#dn").value.trim(),group:$("#dg").value,course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
+      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
+      :{name:$("#dn").value.trim(),group:$("#dg").value,course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
     if(id)Object.assign(d,obj);else db.disciplines.push({id:uid(db.disciplines),...obj});
     disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineExtraDraft=null;delete window.__disciplineDraft;closeModal();save();
   };
+}
+
+
+function disciplineAudienceStudentsHtml(d){
+  const selected=new Set(disciplineSelectedStudentIds(d)),students=activeStudentsForGroup(d.group);
+  return students.map(s=>`<label class="selective-student-row ${selected.has(Number(s.id))?"selected":""}"><input type="checkbox" data-selective-student value="${s.id}" ${selected.has(Number(s.id))?"checked":""}><span class="selective-student-check">✓</span><div><b>${esc(s.name)}</b><small>${esc(s.group)}</small></div></label>`).join("");
+}
+function selectiveAudienceCountUpdate(){const checks=$$("[data-selective-student]"),n=checks.filter(x=>x.checked).length,total=checks.length,count=$("#selectiveAudienceCount");if(count)count.innerHTML=`<b>${n}</b><span>із ${total}</span>`;checks.forEach(x=>x.closest(".selective-student-row")?.classList.toggle("selected",x.checked));}
+function setSelectiveAudienceMode(mode){const selected=mode==="selected";$("#audienceModeGroup")?.classList.toggle("active",!selected);$("#audienceModeSelected")?.classList.toggle("active",selected);$("#selectiveStudentPicker")?.classList.toggle("disabled",!selected);if($("#selectiveAudienceMode"))$("#selectiveAudienceMode").value=selected?"selected":"group";}
+function setAllSelectiveStudents(value){$$("[data-selective-student]").forEach(x=>x.checked=!!value);selectiveAudienceCountUpdate();}
+function filterSelectiveStudents(value){const key=normIdentity(value);$$(".selective-student-row").forEach(row=>row.style.display=!key||normIdentity(row.innerText).includes(key)?"":"none");}
+function openDisciplineAudienceModal(id){
+  const d=disciplineById(id);if(!d)return;const total=activeStudentsForGroup(d.group).length,selected=disciplineSelectedStudentIds(d).length;
+  openModal(`<div class="selective-audience-modal"><div class="selective-audience-hero"><div><span>СКЛАД ДИСЦИПЛІНИ</span><h2>${esc(d.name)}</h2><p>${esc(d.group)} · ${esc(d.semester)} семестр</p></div><div id="selectiveAudienceCount" class="selective-audience-count"><b>${selected}</b><span>із ${total}</span></div></div><input type="hidden" id="selectiveAudienceMode" value="${esc(disciplineAudienceMode(d))}"><div class="selective-mode-grid"><button type="button" id="audienceModeGroup" class="selective-mode-card ${disciplineAudienceMode(d)==="group"?"active":""}" onclick="setSelectiveAudienceMode('group')"><span>УСІ</span><b>Вся група</b><small>Заняття блокує всю ${esc(d.group)}.</small></button><button type="button" id="audienceModeSelected" class="selective-mode-card ${disciplineAudienceMode(d)==="selected"?"active":""}" onclick="setSelectiveAudienceMode('selected')"><span>ЗА ВИБОРОМ</span><b>Вибрані студенти</b><small>Пара конфліктує тільки для конкретних студентів.</small></button></div><div id="selectiveStudentPicker" class="selective-student-picker ${disciplineAudienceMode(d)==="selected"?"":"disabled"}"><div class="selective-student-toolbar"><input type="search" placeholder="Знайти студента…" oninput="filterSelectiveStudents(this.value)"><div><button type="button" class="secondary" onclick="setAllSelectiveStudents(true)">Обрати всіх</button><button type="button" class="secondary" onclick="setAllSelectiveStudents(false)">Очистити</button></div></div><div class="selective-student-list">${disciplineAudienceStudentsHtml(d)||`<div class="empty">У групі немає студентів.</div>`}</div></div><div class="selective-audience-note"><b>Як працюватиме розклад</b><span>Дві вибіркові дисципліни однієї групи можна поставити на одну пару, якщо їхні списки студентів не перетинаються, викладачі різні й аудиторії різні.</span></div><div id="selectiveAudienceMessage"></div><div class="modal-footer-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button type="button" class="primary" onclick="saveDisciplineAudience(${d.id})">Зберегти склад студентів</button></div></div>`,true);
+  $$("[data-selective-student]").forEach(x=>x.onchange=selectiveAudienceCountUpdate);selectiveAudienceCountUpdate();
+}
+function saveDisciplineAudience(id){
+  const d=disciplineById(id);if(!d)return;const mode=$("#selectiveAudienceMode")?.value==="selected"?"selected":"group",ids=$$("[data-selective-student]").filter(x=>x.checked).map(x=>Number(x.value)).filter(Boolean);if(mode==="selected"&&!ids.length)return alert("Для вибіркової дисципліни обери хоча б одного студента.");
+  const oldMode=d.audienceMode||"group",oldIds=[...(d.selectedStudentIds||[])],affected=db.schedule.filter(s=>scheduleCoversDiscipline(s,d.id));
+  d.audienceMode=mode;d.selectedStudentIds=mode==="selected"?[...new Set(ids)]:[];affected.forEach(x=>refreshScheduleAudienceMetadata(x));
+  const conflicts=[];affected.forEach(item=>{const cs=conflictsFor(item,item.id);if(cs.length)conflicts.push({item,reasons:conflictReasonLines(item,cs)});});
+  if(conflicts.length){d.audienceMode=oldMode;d.selectedStudentIds=oldIds;affected.forEach(x=>refreshScheduleAudienceMetadata(x));const box=$("#selectiveAudienceMessage");if(box)box.innerHTML=`<div class="conflict"><b>Не можу змінити склад: у вже виставленому розкладі виникнуть конфлікти.</b><br>${conflicts.slice(0,6).map(x=>`${formatDate(x.item.date)} · ${pairDisplay(x.item)} — ${esc(x.reasons.join(" "))}`).join("<br>")}${conflicts.length>6?"<br>…":""}</div>`;return;}
+  closeModal();save();
 }
 
 function deleteDiscipline(id){
@@ -3753,6 +3837,7 @@ function workloadDisciplineCardHtml(group){
           <div class="schedule-discipline-meta">
             <span>${teachersCount} ${teachersCount===1?"викладач":"викладачі"}</span>
             <span>${esc(group.d.controlForm||"без контролю")}</span>
+            <span class="${disciplineAudienceMode(group.d)==="selected"?"selective-meta":""}">${esc(disciplineAudienceLabel(group.d))}</span>
           </div>
         </div>
       </div>
@@ -4941,15 +5026,10 @@ function conflictReasonLines(item,conflicts=[]){
       add(`Викладач ${teacherName} уже зайнятий у цей час${tail?` — ${tail}`:""}.`);
     }
 
-    if(item.studentId&&c.studentId&&Number(item.studentId)===Number(c.studentId)){
-      const student=db.students.find(s=>Number(s.id)===Number(item.studentId));
-      add(`Студент ${student?.name||item.students||"—"} уже зайнятий у цей час${tail?` — ${tail}`:""}.`);
-    }
-
-    const sameGroup=scheduleGroupsOverlap(item,c);
-    const groupIsConflict=sameGroup&&!(item.specialSchedule&&c.specialSchedule);
-    if(groupIsConflict){
-      add(`У групи/потоку ${scheduleAudienceLabel(item)} уже є заняття в цей час${tail?` — ${tail}`:""}.`);
+    if(scheduleAudienceOverlap(item,c,db)){
+      const itemSelected=scheduleSelectedStudentIds(item,db),conflictSelected=scheduleSelectedStudentIds(c,db),overlap=itemSelected.filter(id=>conflictSelected.includes(id));
+      if(overlap.length){const names=overlap.slice(0,4).map(id=>db.students.find(s=>Number(s.id)===Number(id))?.name).filter(Boolean);add(`Збігаються студенти: ${names.join(", ")||`${overlap.length} студент(ів)`}${overlap.length>4?` та ще ${overlap.length-4}`:""}${tail?` — ${tail}`:""}.`);}
+      else add(`Аудиторія студентів ${scheduleAudienceConflictLabel(item)} уже зайнята в цей час${tail?` — ${tail}`:""}.`);
     }
   });
 
@@ -4994,7 +5074,7 @@ function roomBusyOptionLabel(room,record){
 
 function conflictsFor(item,ignore=null,extra=[]){
   const sameSlot=x=>{if(x.date!==item.date)return false;if(item.specialSchedule||x.specialSchedule)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);};
-  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||(scheduleGroupsOverlap(item,x)&&!(item.specialSchedule&&x.specialSchedule))||(item.studentId&&x.studentId&&Number(item.studentId)===Number(x.studentId))||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
+  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
   const bookingConflicts=db.roomBookings.filter(x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))).filter(x=>(item.room&&x.room===item.room)||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }
@@ -5098,7 +5178,8 @@ function lessonItemFromValues({date,pairId,start,end,group,disciplineId,discipli
   const t=teacherById(teacherId),pair=pairById(pairId);
   const primaryGroup=d?.group||group;
   const did=d?Number(d.id):(disciplineId?Number(disciplineId):null);
-  return {date,pairId:pairId&&pairId!=="__custom__"?Number(pairId):null,start:pair?.start||start||"",end:pair?.end||end||"",group:primaryGroup,audienceGroups:uniqueStrings([primaryGroup]),disciplineId:did,disciplineIds:did?[did]:[],discipline:d?.name||discipline,type,workloadHours:num(workloadHours),coverage,students:students||"",teacherId:teacherId?Number(teacherId):null,teacher:t?teacherDisplay(t):"",room:room||"",note:note||"",repeatBatchId};
+  const item={date,pairId:pairId&&pairId!=="__custom__"?Number(pairId):null,start:pair?.start||start||"",end:pair?.end||end||"",group:primaryGroup,audienceGroups:uniqueStrings([primaryGroup]),disciplineId:did,disciplineIds:did?[did]:[],discipline:d?.name||discipline,type,workloadHours:num(workloadHours),coverage,students:students||"",teacherId:teacherId?Number(teacherId):null,teacher:t?teacherDisplay(t):"",room:room||"",note:note||"",repeatBatchId};
+  return refreshScheduleAudienceMetadata(item);
 }
 function openLessonModal(id=null,preset={}){
   currentEditingLessonId=id;const existing=id?db.schedule.find(s=>s.id===id):null;
@@ -5119,7 +5200,7 @@ function openLessonModal(id=null,preset={}){
   if(!x.disciplineId&&x.discipline)$("#ldiCustom").value=x.discipline;
   const applyLessonDateBounds=()=>{const did=$("#ldi").value,d=did&&did!=="__custom__"?disciplineById(Number(did)):null,b=d?semesterDateBounds(d.semester):academicYearBounds(),input=$("#ld");input.min=b.start;input.max=b.end;if(!dateInBounds(input.value,b))input.value=clampDate(input.value,b);};
   applyLessonDateBounds();
-  const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;const item=lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:$("#lr").value,note:$("#ln").value.trim()});if(id&&existing){item.audienceGroups=existing.audienceGroups||item.audienceGroups;item.disciplineIds=existing.disciplineIds||item.disciplineIds;}return item;};
+  const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;const item=lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:$("#lr").value,note:$("#ln").value.trim()});if(id&&existing){item.audienceGroups=existing.audienceGroups||item.audienceGroups;item.disciplineIds=existing.disciplineIds||item.disciplineIds;}refreshScheduleAudienceMetadata(item);return item;};
   const check=()=>{const item=readLesson(),cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);let html="";if(cs.length||info.warnings.length)html+=conflictDetailsHtml(item,cs,info.warnings);if(info.notes.length)html+=`<div class="notice">${info.notes.map(esc).join("<br>")}</div>`;$("#conflictBox").innerHTML=html;};
   $("#lg").onchange=()=>{$("#ldi").innerHTML=disciplineOptionsForGroup($("#lg").value,null,true);populateLessonFormFromLoad({});check();};$("#ldi").onchange=()=>{populateLessonFormFromLoad({});applyLessonDateBounds();check();};$("#lt").onchange=()=>{refreshTeachersAndLoad(null);check();};$("#ltea").onchange=()=>{renderLoadHint();check();};
   $("#lpair").onchange=()=>{$("#customTimeBox").style.display=$("#lpair").value==="__custom__"?"grid":"none";check();};["ld","lr","lwh"].forEach(k=>$("#"+k).onchange=check);check();
@@ -5312,7 +5393,12 @@ function plannerDayOccupancyHtml(d,t,date){
     </div>
   </div>`;
 }
-function plannerPairBusyInfo(date,pairId,d,t){const teacher=plannerTeacherEvents(date,t.id).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)),group=plannerGroupEvents(date,d.group).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));return {teacher,group};}
+function plannerPairBusyInfo(date,pairId,d,t){
+  const teacher=plannerTeacherEvents(date,t.id).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));
+  const probe=refreshScheduleAudienceMetadata({date,pairId:Number(pairId),group:d.group,audienceGroups:[d.group],disciplineId:d.id,disciplineIds:[d.id],discipline:d.name,teacherId:t.id});
+  const group=plannerGroupEvents(date,d.group).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId)&&scheduleAudienceOverlap(probe,x,db));
+  return {teacher,group};
+}
 function plannerPairOptions(date,d,t,selected=null){
   return bellPairs().map(p=>{
     const busy=plannerPairBusyInfo(date,p.id,d,t);
@@ -5466,11 +5552,7 @@ function plannerSeriesTypeOptions(d,t,selected=""){
 function plannerSeriesDates(pattern,from,to,weekday,d){
   return datesForPattern(pattern,from,to,weekday,"",plannerSeriesBounds(d));
 }
-function plannerSeriesPairBusy(date,pairId,d,t){
-  const teacher=plannerTeacherEvents(date,t.id).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));
-  const group=plannerGroupEvents(date,d.group).find(x=>String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId));
-  return {teacher,group};
-}
+function plannerSeriesPairBusy(date,pairId,d,t){return plannerPairBusyInfo(date,pairId,d,t);}
 function plannerSeriesDefaultPair(d,t){
   return plannerNextFreePair(disciplinePlannerState.date,d,t)||bellPairs()[0]?.id||1;
 }
@@ -5927,6 +6009,7 @@ function savePlannerSeries(d,t){
     });
     item.audienceGroups=audienceGroups;
     item.disciplineIds=coverageIds.ids;
+    refreshScheduleAudienceMetadata(item);
 
     const cs=conflictsFor(item,null,draft);
     const info=teacherAvailabilityInfo(item,null,draft);
@@ -6318,7 +6401,7 @@ function plannerCompatibleStreamGroups(d,t){
 }
 function plannerAudienceButtonsHtml(d,t,selected=[d.group]){
   const set=new Set((selected||[]).map(normIdentity));
-  return `<div class="planner-audience-buttons">${plannerCompatibleStreamGroups(d,t).map(g=>`<label class="planner-audience-btn ${set.has(normIdentity(g.code))?"active":""}"><input type="checkbox" data-planner-audience value="${esc(g.code)}" ${set.has(normIdentity(g.code))?"checked":""} ${normIdentity(g.code)===normIdentity(d.group)?"disabled":""} onchange="this.closest('.planner-audience-btn').classList.toggle('active',this.checked)"><b>${esc(g.code)}</b><span>${esc(g.course)} курс</span></label>`).join("")}</div>`;
+  return `<div class="planner-audience-buttons">${plannerCompatibleStreamGroups(d,t).map(g=>`<label class="planner-audience-btn ${set.has(normIdentity(g.code))?"active":""}"><input type="checkbox" data-planner-audience value="${esc(g.code)}" ${set.has(normIdentity(g.code))?"checked":""} ${normIdentity(g.code)===normIdentity(d.group)?"disabled":""} onchange="this.closest('.planner-audience-btn').classList.toggle('active',this.checked)"><b>${esc(g.code)}</b><span>${esc(g.course)} курс · ${esc(disciplineAudienceLabel(sharedDisciplineCandidateForGroup(d,g.code)))}</span></label>`).join("")}</div>`;
 }
 function plannerSelectedAudienceGroups(d){
   return uniqueStrings([d.group,...$$('[data-planner-audience]').filter(x=>x.checked).map(x=>x.value)]);
@@ -6535,6 +6618,8 @@ function renderDisciplinePlannerModal(){
 
 }
 function safeOpenDisciplineTeacherScheduler(disciplineId,teacherId){
+  const d=disciplineById(disciplineId);
+  if(d&&disciplineAudienceMode(d)==="selected"&&!disciplineSelectedStudentIds(d).length){openDisciplineAudienceModal(d.id);return;}
   try{
     openDisciplineTeacherScheduler(disciplineId,teacherId);
   }catch(err){
@@ -6583,6 +6668,7 @@ function savePlannerDateEntries(e,d,t){
     const item=lessonItemFromValues({date,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type,workloadHours:hours,coverage:$("#plannerCoverage").value,teacherId:t.id,room,note:$("#plannerNote").value.trim(),repeatBatchId:`P${Date.now()}`});
     item.audienceGroups=audienceGroups;
     item.disciplineIds=coverageIds.ids;
+    refreshScheduleAudienceMetadata(item);
     const cs=conflictsFor(item,null,draft),info=teacherAvailabilityInfo(item,null,draft);
     if(cs.length){problems.push(`${pairDisplay(item)} · ${type}: ${conflictReasonLines(item,cs).join(" ")}`);return;}
     if(info.warnings.length){problems.push(`${pairDisplay(item)} · ${type}: ${info.warnings.join(" ")}`);return;}
@@ -6861,8 +6947,8 @@ function dayPlannerEvents(group,date,pairId){return groupEventsForDate(group,dat
 function dayPlannerEventHtml(ev){
   const x=ev.data;
   if(ev.source==="schedule"){
-    const click=isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`;
-    return `<button type="button" class="day-planner-event subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();${click}"><b>${esc(x.discipline||"Заняття")}</b><span>${esc(x.teacher||"викладач не вказаний")}</span><strong>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}</strong>${x.type?`<small>${esc(x.type)}</small>`:""}${scheduleAudienceGroups(x).length>1?`<em>Потік: ${esc(scheduleAudienceLabel(x))}</em>`:""}</button>`;
+    const click=isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`,parts=scheduleAudiencePartitions(x),selected=parts.filter(p=>p.mode==="selected"),audienceNote=selected.length?`Вибіркова: ${selected.map(p=>`${p.group} · ${p.studentIds.length}`).join(" + ")}`:(scheduleAudienceGroups(x).length>1?`Потік: ${scheduleAudienceLabel(x)}`:""),names=scheduleAudienceStudentNames(x);
+    return `<button type="button" class="day-planner-event subject-colored ${selected.length?"selective":""}" style="${scheduleColorVars(x)}" title="${esc(names.join(", "))}" onclick="event.stopPropagation();${click}"><b>${esc(x.discipline||"Заняття")}</b><span>${esc(x.teacher||"викладач не вказаний")}</span><strong>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}</strong>${x.type?`<small>${esc(x.type)}</small>`:""}${audienceNote?`<em>${esc(audienceNote)}</em>`:""}</button>`;
   }
   return `<button type="button" class="day-planner-event booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><b>${esc(x.title||roomBookingLabel(x))}</b><span>${esc(x.teacher||x.kind||"Бронювання")}</span><strong>${x.room?`ауд. ${esc(x.room)}`:"без аудиторії"}</strong><small>${esc(x.kind||"")}</small></button>`;
 }
@@ -6871,9 +6957,13 @@ function openDayPlannerSlot(date,pairId,group){
   openModal(`<div class="day-slot-choice"><span class="day-slot-choice-kicker">ВІЛЬНЕ МІСЦЕ</span><h2>${esc(group)} · ${formatDate(date)}</h2><p>${esc(dayPlannerWeekdayName(weekdayId(date)))} · ${esc(pair?.id||pairId)} пара · ${esc(pair?.start||"")}–${esc(pair?.end||"")}</p><div class="day-slot-choice-grid"><button type="button" class="day-slot-choice-btn department" onclick="closeModal();openLessonModal(null,{group:'${safeGroup}',date:'${date}',pairId:${Number(pairId)}})"><span>КАФЕДРА</span><b>+ Кафедральна пара</b><small>із уже розподіленого навантаження</small></button><button type="button" class="day-slot-choice-btn external" onclick="closeModal();readySchedulePreset={group:'${safeGroup}',date:'${date}',pairId:${Number(pairId)}};openReadyScheduleModal()"><span>ГОТОВИЙ РОЗКЛАД</span><b>+ Пара іншої кафедри</b><small>без списання нашого навантаження</small></button></div></div>`);
 }
 function dayPlannerCellHtml(group,date,pair){
-  const events=dayPlannerEvents(group,date,pair.id);
-  if(events.length)return `<div class="day-planner-cell occupied">${events.map(dayPlannerEventHtml).join("")}</div>`;
-  const safeGroup=String(group).replaceAll("'","\\'");
+  const events=dayPlannerEvents(group,date,pair.id),safeGroup=String(group).replaceAll("'","\\'");
+  if(events.length){
+    const scheduleItems=events.filter(ev=>ev.source==="schedule").map(ev=>ev.data);
+    const hasGroupBooking=events.some(ev=>ev.source!=="schedule");
+    const coverage=hasGroupBooking?{free:0}:groupSlotAudienceCoverage(group,scheduleItems);
+    return `<div class="day-planner-cell occupied ${coverage.free>0?"partial":""}">${events.map(dayPlannerEventHtml).join("")}${coverage.free>0?`<button type="button" class="day-planner-parallel-add" onclick="event.stopPropagation();openDayPlannerSlot('${date}',${Number(pair.id)},'${safeGroup}')"><span>+</span><b>Паралельно</b><small>${coverage.free} студентів ще вільні</small></button>`:""}</div>`;
+  }
   return `<button type="button" class="day-planner-cell free" onclick="openDayPlannerSlot('${date}',${Number(pair.id)},'${safeGroup}')"><span>+</span><b>Вільно</b><small>поставити пару</small></button>`;
 }
 function dayPlannerDateHeadHtml(group,date,index=0){

@@ -67,6 +67,25 @@
     return [pos,name].filter(Boolean).join(" ");
   }
   function audienceGroups(item){return unique([item.group,...(Array.isArray(item.audienceGroups)?item.audienceGroups:[])].filter(Boolean));}
+
+  function disciplineById(state,id){return (state.disciplines||[]).find(d=>String(d.id)===String(id));}
+  function disciplineIds(item){return unique([...(Array.isArray(item.disciplineIds)?item.disciplineIds:[]),item.disciplineId].filter(Boolean).map(String));}
+  function disciplineAudience(state,d){
+    if(!d)return null;
+    const mode=d.audienceMode==="selected"?"selected":"group";
+    const allowed=new Set((state.students||[]).filter(s=>s.status!=="archived"&&norm(s.group)===norm(d.group)).map(s=>String(s.id)));
+    const ids=mode==="selected"?unique((d.selectedStudentIds||[]).map(String).filter(id=>allowed.has(id))):[];
+    return {group:d.group,mode,studentIds:ids};
+  }
+  function audiencePartitions(state,item){
+    if(Array.isArray(item.audiencePartitions)&&item.audiencePartitions.length)return item.audiencePartitions.map(p=>({group:p.group,mode:p.mode==="selected"?"selected":"group",studentIds:unique((p.studentIds||[]).map(String))}));
+    const parts=disciplineIds(item).map(id=>disciplineAudience(state,disciplineById(state,id))).filter(Boolean);
+    if(parts.length)return parts;
+    return audienceGroups(item).map(group=>({group,mode:"group",studentIds:[]}));
+  }
+  function selectiveNote(state,item){const selected=audiencePartitions(state,item).filter(p=>p.mode==="selected");if(!selected.length)return "";const count=unique(selected.flatMap(p=>p.studentIds)).length;return `Вибіркова група · ${count} студентів`;}
+  function selectiveSignature(state,item){return audiencePartitions(state,item).map(p=>`${norm(p.group)}:${p.mode}:${unique(p.studentIds).sort().join(",")}`).join("|");}
+
   function courseGroups(state,course){
     return (state.groups||[]).filter(g=>g.status!=="archived"&&Number(g.course)===Number(course)).slice();
   }
@@ -109,9 +128,10 @@
       if(dow<0)continue;
       const coverageOrdered=groupCodes.filter(g=>coverage.some(c=>norm(c)===norm(g)));
       const teacher=teacherDisplay(state,x);
-      const key=[dow,pairId,norm(x.discipline),norm(x.type),norm(teacher),norm(x.room),coverageOrdered.map(norm).join("|")].join("§");
+      const selective=selectiveNote(state,x);
+      const key=[dow,pairId,norm(x.discipline),norm(x.type),norm(teacher),norm(x.room),coverageOrdered.map(norm).join("|"),selectiveSignature(state,x)].join("§");
       if(!map.has(key))map.set(key,{
-        dow,pairId,discipline:String(x.discipline||"Заняття"),type:String(x.type||""),teacher,room:String(x.room||""),coverage:coverageOrdered,dates:[]
+        dow,pairId,discipline:String(x.discipline||"Заняття"),type:String(x.type||""),teacher,room:String(x.room||""),coverage:coverageOrdered,selective,dates:[]
       });
       map.get(key).dates.push(String(x.date));
     }
@@ -154,6 +174,7 @@
     const dateText=e.dates.map(shortDate).join("; ");
     const typeDate=[typeAbbr(e.type),dateText].filter(Boolean).join(" ");
     if(typeDate)lines.push(para(run(typeDate,{italic:true,size:24})));
+    if(e.selective)lines.push(para(run(e.selective,{italic:true,bold:true,size:20})));
     const room=e.room?`ауд. ${String(e.room).replace(/^ауд\.?\s*/i,"")}`:"";
     const who=[e.teacher,room].filter(Boolean).join("  ");
     if(who)lines.push(para(run(who,{bold:true,size:24})));

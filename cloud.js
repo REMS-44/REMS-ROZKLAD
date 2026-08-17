@@ -314,7 +314,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=15;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=16;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
@@ -417,7 +417,7 @@ async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:15,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
+function settingsPart(st){return clean({schemaVersion:16,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;
@@ -554,21 +554,47 @@ function slotKey(x){
   }
   return x?.pairId?`pair-${x.pairId}`:`time-${x.start||""}-${x.end||""}`;
 }
+function cloudAudiencePartitions(x){
+  if(!x)return[];
+  if(x.specialSchedule){
+    const group=String(x.group||"").trim(),studentId=Number(x.studentId)||null;
+    return group&&studentId?[{group,mode:"selected",studentIds:[studentId]}]:[];
+  }
+  if(Array.isArray(x.audiencePartitions)&&x.audiencePartitions.length){
+    return x.audiencePartitions.map(p=>({
+      group:String(p?.group||"").trim(),
+      mode:p?.mode==="selected"?"selected":"group",
+      studentIds:[...new Set((p?.studentIds||[]).map(Number).filter(Boolean))]
+    })).filter(p=>p.group);
+  }
+  const groups=[...(Array.isArray(x.audienceGroups)?x.audienceGroups:[]),x.group||""]
+    .map(v=>String(v||"").trim()).filter(Boolean)
+    .filter((v,i,a)=>a.findIndex(z=>z.toLowerCase()===v.toLowerCase())===i);
+  return groups.map(group=>({group,mode:"group",studentIds:[]}));
+}
+function partialAudienceSpecs(x){
+  if(!x?.date)return[];
+  const key=slotKey(x);
+  return cloudAudiencePartitions(x)
+    .filter(p=>p.mode==="selected"&&p.studentIds.length)
+    .map(p=>({group:p.group,studentIds:p.studentIds,id:`partialGroup__${encodeURIComponent(p.group)}__${x.date}__${encodeURIComponent(key)}`}));
+}
+function fullAudienceGroups(x){return cloudAudiencePartitions(x).filter(p=>p.mode==="group").map(p=>p.group);}
+function groupLockId(group,x){return `group__${encodeURIComponent(group)}__${x.date}__${encodeURIComponent(slotKey(x))}`;}
 function lockSpecs(x){
   if(!x?.date)return[];
   const key=slotKey(x),specs=[];
 
   if(x.specialSchedule){
-    // Different students of the same group may work in parallel.
-    // Lock the concrete student, teacher and room — not the whole group.
     if(x.studentId)specs.push(["student",String(x.studentId)]);
     if(x.room)specs.push(["room",x.room]);
     if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
   }else{
-    const groups=[...(Array.isArray(x.audienceGroups)?x.audienceGroups:[]),x.group||""]
-      .map(v=>String(v||"").trim()).filter(Boolean)
-      .filter((v,i,a)=>a.findIndex(z=>z.toLowerCase()===v.toLowerCase())===i);
-    groups.forEach(g=>specs.push(["group",g]));
+    const partitions=cloudAudiencePartitions(x);
+    partitions.filter(p=>p.mode==="group").forEach(p=>specs.push(["group",p.group]));
+    // Selective disciplines share one partialGroup lock document per group/slot.
+    // Do NOT create one Firestore lock document per student: the shared owner list
+    // already checks exact student intersections and keeps write volume low.
     if(x.room)specs.push(["room",x.room]);
     if(x.teacherId||x.teacher)specs.push(["teacher",String(x.teacherId||x.teacher)]);
   }
@@ -581,47 +607,56 @@ async function writeScheduleLesson(lesson){
     const oldSnap=await tx.get(lref),oldLesson=oldSnap.exists()?oldSnap.data():null;
     const oldLocks=lockSpecs(oldLesson),newLocks=lockSpecs(lesson),all=new Map();
     [...oldLocks,...newLocks].forEach(x=>all.set(x.id,x));
+
+    const oldPartial=partialAudienceSpecs(oldLesson),newPartial=partialAudienceSpecs(lesson),partialRefs=new Map();
+    [...oldPartial,...newPartial].forEach(p=>partialRefs.set(p.id,p));
+    fullAudienceGroups(lesson).forEach(group=>{const id=`partialGroup__${encodeURIComponent(group)}__${lesson.date}__${encodeURIComponent(slotKey(lesson))}`;if(!partialRefs.has(id))partialRefs.set(id,{id,group,studentIds:[],readOnly:true});});
+
     const lockSnaps=new Map();
     for(const [id] of all){const r=itemRef("locks",id);lockSnaps.set(id,{ref:r,snap:await tx.get(r)});}
+
+    const partialSnaps=new Map();
+    for(const [id,p] of partialRefs){const r=itemRef("locks",id);partialSnaps.set(id,{ref:r,snap:await tx.get(r),spec:p});}
+
+    const fullGroupChecks=new Map();
+    for(const p of newPartial){const id=groupLockId(p.group,lesson);if(all.has(id))continue;const r=itemRef("locks",id);fullGroupChecks.set(id,{ref:r,snap:await tx.get(r),group:p.group});}
+
     for(const l of newLocks){
       const ls=lockSnaps.get(l.id).snap;
       if(ls.exists()&&String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`))!==`schedule:${lesson.id}`){
         const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:l.kind==="student"?`Студент`:`Викладач`;
         throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${lesson.date}, ${lesson.pairId?lesson.pairId+" пара":(lesson.start+"–"+lesson.end)}. Зміна не збережена.`);
       }
-    }
-    const newIds=new Set(newLocks.map(x=>x.id));
-    const oldIds=new Set(oldLocks.map(x=>x.id));
-
-    for(const l of oldLocks){
-      if(newIds.has(l.id))continue;
-      const item=lockSnaps.get(l.id);
-      if(item.snap.exists()&&String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`))===`schedule:${lesson.id}`){
-        tx.delete(item.ref);
+      if(l.kind==="group"){
+        const pid=`partialGroup__${encodeURIComponent(l.res)}__${lesson.date}__${encodeURIComponent(slotKey(lesson))}`,ps=partialSnaps.get(pid)?.snap,owners=(ps?.exists()?ps.data().owners:[])||[];
+        if(owners.some(o=>String(o.ownerId)!==String(lesson.id)))throw new Error(`REMS_CONFLICT:Група ${l.res} уже частково зайнята вибірковим/індивідуальним заняттям ${lesson.date}, ${lesson.pairId?lesson.pairId+" пара":(lesson.start+"–"+lesson.end)}. Зміна не збережена.`);
       }
     }
 
-    for(const l of newLocks){
-      const holder=lockSnaps.get(l.id);
-      const owner=holder.snap.exists()
-        ?String(holder.snap.data().ownerKey||(`schedule:${holder.snap.data().ownerLessonId}`))
-        :"";
+    for(const x of fullGroupChecks.values()){
+      if(x.snap.exists()){
+        const existing=String(x.snap.data().ownerKey||(`schedule:${x.snap.data().ownerLessonId}`));
+        if(existing!==`schedule:${lesson.id}`)throw new Error(`REMS_CONFLICT:Група ${x.group} уже має загальне заняття ${lesson.date}, ${lesson.pairId?lesson.pairId+" пара":(lesson.start+"–"+lesson.end)}. Зміна не збережена.`);
+      }
+    }
 
-      // If this lesson already owned the same lock before the edit,
-      // do not spend another Firestore write just to refresh updatedAt.
-      if(oldIds.has(l.id)&&owner===`schedule:${lesson.id}`)continue;
+    for(const p of newPartial){
+      const holder=partialSnaps.get(p.id),owners=(holder.snap.exists()?holder.snap.data().owners:[])||[],incoming=new Set((p.studentIds||[]).map(Number));
+      const collision=owners.find(o=>String(o.ownerId)!==String(lesson.id)&&(o.studentIds||[]).some(id=>incoming.has(Number(id))));
+      if(collision)throw new Error(`REMS_CONFLICT:Деякі студенти групи ${p.group} уже зайняті іншим вибірковим/індивідуальним заняттям ${lesson.date}, ${lesson.pairId?lesson.pairId+" пара":(lesson.start+"–"+lesson.end)}. Зміна не збережена.`);
+    }
 
-      tx.set(holder.ref,{
-        ownerKey:`schedule:${lesson.id}`,
-        ownerType:"schedule",
-        ownerId:String(lesson.id),
-        ownerLessonId:String(lesson.id),
-        kind:l.kind,
-        resource:l.res,
-        date:lesson.date,
-        slot:slotKey(lesson),
-        updatedAt:serverTimestamp()
-      });
+    const newIds=new Set(newLocks.map(x=>x.id)),oldIds=new Set(oldLocks.map(x=>x.id));
+    for(const l of oldLocks){if(newIds.has(l.id))continue;const item=lockSnaps.get(l.id);if(item.snap.exists()&&String(item.snap.data().ownerKey||(`schedule:${item.snap.data().ownerLessonId}`))===`schedule:${lesson.id}`)tx.delete(item.ref);}
+    for(const l of newLocks){const holder=lockSnaps.get(l.id),owner=holder.snap.exists()?String(holder.snap.data().ownerKey||(`schedule:${holder.snap.data().ownerLessonId}`)):"";if(oldIds.has(l.id)&&owner===`schedule:${lesson.id}`)continue;tx.set(holder.ref,{ownerKey:`schedule:${lesson.id}`,ownerType:"schedule",ownerId:String(lesson.id),ownerLessonId:String(lesson.id),kind:l.kind,resource:l.res,date:lesson.date,slot:slotKey(lesson),updatedAt:serverTimestamp()});}
+
+    const touchedPartial=new Set([...oldPartial.map(p=>p.id),...newPartial.map(p=>p.id)]);
+    for(const id of touchedPartial){
+      const holder=partialSnaps.get(id);if(!holder)continue;
+      const existing=(holder.snap.exists()?holder.snap.data().owners:[])||[];let owners=existing.filter(o=>String(o.ownerId)!==String(lesson.id));const incoming=newPartial.find(p=>p.id===id);
+      if(incoming)owners.push({ownerId:String(lesson.id),studentIds:[...incoming.studentIds],group:incoming.group,label:lesson.discipline||lesson.specialKind||"заняття"});
+      if(owners.length)tx.set(holder.ref,{kind:"partialGroup",group:incoming?.group||holder.spec?.group||"",date:lesson.date,slot:slotKey(lesson),owners,updatedAt:serverTimestamp()});
+      else if(holder.snap.exists())tx.delete(holder.ref);
     }
 
     tx.set(lref,clean(lesson));
@@ -631,9 +666,12 @@ async function deleteScheduleLesson(id){
   const lref=itemRef(SCHEDULE_COLLECTION,id);
   await runTransaction(fire,async tx=>{
     const snap=await tx.get(lref);if(!snap.exists())return;
-    const locks=lockSpecs(snap.data()),lockSnaps=[];
+    const lesson=snap.data(),locks=lockSpecs(lesson),lockSnaps=[];
     for(const l of locks){const ref=itemRef("locks",l.id);lockSnaps.push({ref,snap:await tx.get(ref)});}
+    const partial=partialAudienceSpecs(lesson),partialSnaps=[];
+    for(const p of partial){const ref=itemRef("locks",p.id);partialSnaps.push({p,ref,snap:await tx.get(ref)});}
     for(const x of lockSnaps)if(x.snap.exists()&&String(x.snap.data().ownerKey||(`schedule:${x.snap.data().ownerLessonId}`))===`schedule:${id}`)tx.delete(x.ref);
+    for(const x of partialSnaps){if(!x.snap.exists())continue;const owners=(x.snap.data().owners||[]).filter(o=>String(o.ownerId)!==String(id));if(owners.length)tx.set(x.ref,{...x.snap.data(),owners,updatedAt:serverTimestamp()});else tx.delete(x.ref);}
     tx.delete(lref);
   });
 }
@@ -646,7 +684,11 @@ async function writeRoomBookingCloud(booking){
     [...oldLocks,...newLocks].forEach(x=>all.set(x.id,x));
     const lockSnaps=new Map();
     for(const [id] of all){const r=itemRef("locks",id);lockSnaps.set(id,{ref:r,snap:await tx.get(r)});}
+    const partialChecks=new Map();
+    newLocks.filter(l=>l.kind==="group").forEach(l=>{const id=`partialGroup__${encodeURIComponent(l.res)}__${booking.date}__${encodeURIComponent(slotKey(booking))}`;if(!partialChecks.has(id))partialChecks.set(id,{group:l.res,ref:itemRef("locks",id)});});
+    for(const x of partialChecks.values())x.snap=await tx.get(x.ref);
     for(const l of newLocks){const ls=lockSnaps.get(l.id).snap;if(ls.exists()){const existing=String(ls.data().ownerKey||(`schedule:${ls.data().ownerLessonId}`));if(existing!==owner){const label=l.kind==="room"?`Аудиторія ${l.res}`:l.kind==="group"?`Група ${l.res}`:l.kind==="student"?`Студент`:`Викладач`;throw new Error(`REMS_CONFLICT:${label} уже зайнята/зайнятий ${booking.date}, ${booking.pairId?booking.pairId+" пара":(booking.start+"–"+booking.end)}. Бронювання не збережено.`);}}}
+    for(const x of partialChecks.values()){const owners=(x.snap?.exists()?x.snap.data().owners:[])||[];if(owners.length)throw new Error(`REMS_CONFLICT:Група ${x.group} уже частково зайнята вибірковим/індивідуальним заняттям. Бронювання не збережено.`);}
     const newIds=new Set(newLocks.map(x=>x.id));
     const oldIds=new Set(oldLocks.map(x=>x.id));
 
