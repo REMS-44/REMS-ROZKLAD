@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 24,
+  "schemaVersion": 25,
   "academicYear": "2026/2027",
   "semester": 1,
   "groups": [
@@ -3302,6 +3302,20 @@ window.REMS_INITIAL_DATA = {
       "countMode": "contingent",
       "defaultUnit": 1,
       "description": "Може розраховуватися за контингентом"
+    },
+    {
+      "id": 10,
+      "name": "Керівництво бакалаврською роботою",
+      "countMode": "per_student",
+      "defaultUnit": 1,
+      "description": "Лише 4 курс бакалаврату; один студент — один керівник"
+    },
+    {
+      "id": 11,
+      "name": "Керівництво магістерською роботою",
+      "countMode": "per_student",
+      "defaultUnit": 1,
+      "description": "Лише магістратура; один студент — один керівник"
     }
   ],
   "coverageTypes": [

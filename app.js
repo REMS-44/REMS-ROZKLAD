@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=24;
+const APP_SCHEMA_VERSION=25;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -438,6 +438,15 @@ function migrate(old){
     id:i+1,name:x,countMode:"manual",defaultUnit:1,description:""
   }:{...x,id:x.id||i+1});
   fresh.lessonTypes.forEach(lt=>{const n=normIdentity(lt.name);if(["лекція","семінар","практичне","лабораторне"].includes(n)){lt.countMode="academic_pair";lt.defaultUnit=2;if(!lt.description)lt.description="Аудиторні години; 2 академічні години = 1 пара";}});
+  // v2.0.8: thesis supervision is its own workload type, separate from generic consultations.
+  [
+    {name:"Керівництво бакалаврською роботою",description:"Лише 4 курс бакалаврату; один студент — один керівник"},
+    {name:"Керівництво магістерською роботою",description:"Лише магістратура; один студент — один керівник"}
+  ].forEach(seed=>{
+    let lt=fresh.lessonTypes.find(x=>normIdentity(x.name)===normIdentity(seed.name));
+    if(!lt){lt={id:uid(fresh.lessonTypes),name:seed.name,countMode:"per_student",defaultUnit:1,description:seed.description};fresh.lessonTypes.push(lt);}
+    else{lt.countMode="per_student";lt.defaultUnit=lt.defaultUnit||1;lt.description=lt.description||seed.description;}
+  });
   fresh.teachers=mergeSeedTeachers(old.teachers||[],fresh.teachers||[]).map((t,i)=>({
     ...t,
     id:t.id||i+1,
@@ -1109,6 +1118,7 @@ function renderProgramScopeUI(){
   const kind=$("#sidebarScopeKind");if(kind)kind.textContent=facultyWide?"ПРОГРАМА":"КАФЕДРА";
   const dep=$("#sidebarDepartmentLabel");if(dep)dep.textContent=facultyWide?"міжкафедральна · онлайн":(d?.name||"Кафедра").replace(/^Кафедра\s+/i,"");
   const roomNav=document.querySelector('.nav-btn[data-page="roomGrid"]');if(roomNav)roomNav.style.display=programUsesRooms()?"":"none";
+  const specialNav=document.querySelector('.nav-btn[data-page="specialSchedule"] span');if(specialNav)specialNav.textContent=activeProgramId()==="master"?"Магістерські роботи":"Індивідуальні / бакалаврські";
   const fac=$("#programScopeFaculty");if(fac)fac.textContent=db.faculty?.name||"Факультет театру, кіно та естради";
   const kicker=$("#topbarKicker");if(kicker)kicker.textContent=`${p?.shortName||""} · РОБОЧИЙ ПУЛЬТ`;
 }
@@ -1119,7 +1129,7 @@ function setProgramScope(id){
   loadPageState.group="";
   if(typeof timetableState!=="undefined")timetableState.group="";
   if(typeof dayPlannerState!=="undefined"){dayPlannerState.group="";dayPlannerState.course=null;}
-  if(typeof specialScheduleState!=="undefined"){specialScheduleState.group="";specialScheduleState.disciplineId=null;}
+  if(typeof specialScheduleState!=="undefined"){specialScheduleState.kind=String(id)==="master"?"consult_master":"individual";specialScheduleState.group="";specialScheduleState.disciplineId=null;}
   renderProgramScopeUI();
   if(!programUsesRooms()&&["roomGrid","rooms"].includes(currentPage)){go("home");return;}
   renderCurrent();
@@ -1167,7 +1177,7 @@ const meta={
   home:["Головна","Робочий пульт спеціальності"],
   faculty:["Структура факультету","Кафедри, спеціальності, групи та аудиторії"],
   schedule:["Складання розкладу","Розподілені години → дати, пари та аудиторії"],
-  specialSchedule:["Індивідуальні та консультації","Окремі розклади студентів по одній академічній годині"],
+  specialSchedule:["Індивідуальні / кваліфікаційні роботи","Персональне навантаження студентів і керівників"],
   timetable:["Розклад","Готовий календар занять конкретної групи"],
   dayPlanner:["Розклад по днях","Курс → група → день тижня → усі дати та вільні пари"],
   mySchedule:["Мій розклад","Індивідуальний календар викладача"],
@@ -1216,8 +1226,11 @@ function go(p,options={}){
   $$(".nav-btn").forEach(x=>x.classList.toggle("active",x.dataset.page===sidebarPage));
   $$(".page").forEach(x=>x.classList.remove("active"));
   $("#page-"+p).classList.add("active");
-  $("#pageTitle").textContent=meta[p][0];
-  $("#pageSubtitle").textContent=meta[p][1];
+  const pageMeta=p==="specialSchedule"
+    ?(activeProgramId()==="master"?["Магістерські роботи","Керівництво магістерськими роботами та персональний графік"]:["Індивідуальні / бакалаврські роботи","Індивідуальні заняття та керівництво бакалаврськими роботами 4 курсу"])
+    :meta[p];
+  $("#pageTitle").textContent=pageMeta[0];
+  $("#pageSubtitle").textContent=pageMeta[1];
   renderCurrent();
 }
 function renderCurrent(){
@@ -1639,8 +1652,8 @@ function roomEvents(date,room,pairId){
 }
 function roomBookingLabel(b){return b.title||b.kind||"Бронювання";}
 function specialRoomGridKindLabel(x){
-  if(x?.specialKind==="consult_bachelor")return "КОНСУЛЬТАЦІЯ БАКАЛАВРА";
-  if(x?.specialKind==="consult_master")return "КОНСУЛЬТАЦІЯ МАГІСТРА";
+  if(x?.specialKind==="consult_bachelor")return "БАКАЛАВРСЬКА РОБОТА";
+  if(x?.specialKind==="consult_master")return "МАГІСТЕРСЬКА РОБОТА";
   return "ІНДИВІДУАЛЬНЕ ЗАНЯТТЯ";
 }
 
@@ -1800,10 +1813,10 @@ function disciplineStreamBadgesHtml(d){
   if(!rows.length)return"";
   return `<div class="load-stream-badges">${rows.map(x=>`<span><b>${esc(x.lt.name)}</b>${esc(teacherStreamLabel(x.s))}</span>`).join("")}</div>`;
 }
-function teacherUniqueAllocatedHours(t,{auditoriumOnly=false,typeId=null}={}){
+function teacherUniqueAllocatedHours(t,{auditoriumOnly=false,typeId=null,allPrograms=false}={}){
   if(!t||t.scope==="external")return 0;
   let total=0;const seen=new Set();
-  db.disciplines.filter(d=>disciplineVisibleInProgram(d)).forEach(d=>{
+  db.disciplines.filter(d=>d.status!=="archived"&&(allPrograms||disciplineVisibleInProgram(d))).forEach(d=>{
     const load=explicitTeacherLoad(d,t.id);if(!load)return;
     db.lessonTypes.forEach(lt=>{
       if(typeId&&Number(lt.id)!==Number(typeId))return;
@@ -2131,7 +2144,7 @@ function plannedForDisciplineTeacher(d,teacherId){
   return load?Object.values(load).reduce((a,b)=>a+num(b),0):0;
 }
 function plannedTypeForTeacher(teacherId,typeId){
-  const t=teacherById(teacherId);return t?teacherUniqueAllocatedHours(t,{typeId:Number(typeId)}):0;
+  const t=teacherById(teacherId);return t?teacherUniqueAllocatedHours(t,{typeId:Number(typeId),allPrograms:true}):0;
 }
 function scheduledForTeacherType(teacherId,typeName){
   return db.schedule.filter(s=>Number(s.teacherId)===Number(teacherId)&&s.disciplineId&&s.type===typeName).reduce((a,s)=>a+num(s.workloadHours),0);
@@ -2143,8 +2156,9 @@ function openTeacherWorkload(id){
     .filter(d=>d.status!=="archived"&&plannedForDisciplineTeacher(d,id)>0)
     .sort((a,b)=>(a.course||99)-(b.course||99)||String(a.group||"").localeCompare(String(b.group||""),"uk")||a.name.localeCompare(b.name,"uk"));
 
-  const totalAllocated=teacherPlannedHours(t);
-  const auditoriumAllocated=teacherAuditoriumPlannedHours(t);
+  const totalAllocated=teacherUniqueAllocatedHours(t,{allPrograms:true});
+  const currentProgramAllocated=teacherPlannedHours(t);
+  const auditoriumAllocated=teacherUniqueAllocatedHours(t,{auditoriumOnly:true,allPrograms:true});
   const auditoriumScheduled=teacherAuditoriumScheduledHours(t);
   const auditoriumRemaining=Math.max(0,auditoriumAllocated-auditoriumScheduled);
 
@@ -2181,8 +2195,9 @@ function openTeacherWorkload(id){
       <span class="badge ok">${esc(db.academicYear)}</span>
     </div>
     <div class="grid-kpi workload-kpi lean-workload-kpi">
-      ${kpi("Розподілено всього",fmtHours(totalAllocated)+" год")}
-      ${kpi("Аудиторних до розкладу",fmtHours(auditoriumAllocated)+" год")}
+      ${kpi("Загальне навантаження · усі програми",fmtHours(totalAllocated)+" год")}
+      ${kpi("У поточній програмі",fmtHours(currentProgramAllocated)+" год")}
+      ${kpi("Аудиторних до розкладу · усі програми",fmtHours(auditoriumAllocated)+" год")}
       ${kpi("Виставлено в розклад",fmtHours(auditoriumScheduled)+" год")}
       ${kpi("Залишилось розставити",fmtHours(auditoriumRemaining)+" год")}
     </div>
@@ -2450,6 +2465,8 @@ function disciplineUnitHoursById(d,typeId){
   return disciplineBaseHoursById(d,typeId)+disciplineExtraHoursById(d,typeId);
 }
 function disciplineTotalHoursById(d,typeId){
+  const lt=lessonTypeById(typeId);
+  if(lt&&!thesisTypeApplicable(d,lt))return 0;
   const unit=disciplineUnitHoursById(d,typeId);
   return isPerStudentTypeId(typeId)?unit*groupStudentCount(d?.group):unit;
 }
@@ -2528,6 +2545,22 @@ function assignedStudentTeacherId(d,typeId,studentId,excludeTeacherId=null){
   }
   return null;
 }
+function thesisSupervisorAssignment(d,lt,studentId,currentTeacherId=null){
+  const kind=thesisKindForType(lt);if(!kind)return null;
+  const sameDisciplineTeacher=assignedStudentTeacherId(d,lt.id,studentId,currentTeacherId);
+  if(sameDisciplineTeacher)return {teacherId:sameDisciplineTeacher,disciplineId:d.id};
+  for(const peer of db.disciplines||[]){
+    if(peer.status==="archived"||Number(peer.id)===Number(d?.id))continue;
+    if(!specialTypeMatches(kind,lt,peer))continue;
+    const byTeacher=peer.teacherStudentLoads||{};
+    for(const [tid,byType] of Object.entries(byTeacher)){
+      const ids=(byType?.[String(lt.id)]||[]).map(Number);
+      if(ids.includes(Number(studentId)))return {teacherId:Number(tid),disciplineId:peer.id};
+    }
+  }
+  return null;
+}
+function studentSupervisorLabel(assignment){const t=assignment?teacherById(assignment.teacherId):null;return t?teacherDisplay(t):"інший викладач";}
 function individualStudentLimit(d,lt){
   if(!d||!lt||!isPerStudentTypeId(lt.id))return 0;
   return perStudentUnitHours(d,lt.id);
@@ -3172,7 +3205,8 @@ function perStudentAllocationStatus(d,tid,lt){
 function perStudentAllocationPickerHtml(d,tid,lt){
   const current=new Set(assignedStudentIds(d,tid,lt.id));
   return `<div class="student-load-picker">${studentsForGroup(d.group).map(s=>{
-    const otherTid=assignedStudentTeacherId(d,lt.id,s.id,tid);
+    const supervision=thesisSupervisorAssignment(d,lt,s.id,tid);
+    const otherTid=supervision?.teacherId||assignedStudentTeacherId(d,lt.id,s.id,tid);
     const other=otherTid?teacherById(otherTid):null;
     const checked=current.has(Number(s.id));
     const used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);
@@ -3183,10 +3217,10 @@ function perStudentAllocationPickerHtml(d,tid,lt){
       <div>
         <b>${esc(s.name)}</b>
         <span>${other
-          ?`уже закріплено: ${esc(teacherDisplay(other))}`
+          ?`уже має керівника: ${esc(teacherDisplay(other))}`
           :checked
             ?`${fmtHours(perStudentUnitHours(d,lt.id))} год на студента${used?` · уже виставлено ${fmtHours(used)} год`:""}`
-            :"вільний для розподілу"}</span>
+            :thesisKindForType(lt)?"без керівника":"вільний для розподілу"}</span>
       </div>
       <strong>${other?"—":checked?"✓":"+"}</strong>
     </button>`;
@@ -3196,6 +3230,10 @@ function openPerStudentAllocationPopup(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
   const lt=lessonTypeById(typeId),t=teacherById(Number(tid));
   if(!d||!lt||!t)return;
+  if(!thesisTypeApplicable(d,lt)){
+    if(isBachelorThesisType(lt))return alert("Керівництво бакалаврською роботою можна призначати тільки студентам 4 курсу бакалаврату.");
+    if(isMasterThesisType(lt))return alert("Керівництво магістерською роботою можна призначати тільки студентам магістратури.");
+  }
   captureAllocationDraft();
 
   disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
@@ -3274,8 +3312,9 @@ function togglePerStudentAllocation(tid,typeId,studentId){
     if(used>0)return alert(`Цьому студенту вже виставлено ${fmtHours(used)} год. Спочатку перенеси або видали ці заняття.`);
     arr.splice(pos,1);
   }else{
-    const other=assignedStudentTeacherId(d,typeId,studentId,tid);
-    if(other)return alert(`Студент уже закріплений за ${teacherDisplay(teacherById(other))}.`);
+    const supervision=thesisSupervisorAssignment(d,lt,studentId,tid);
+    const other=supervision?.teacherId||assignedStudentTeacherId(d,typeId,studentId,tid);
+    if(other)return alert(`Студент уже має керівника: ${teacherDisplay(teacherById(other))}. Спочатку зніми попереднє закріплення.`);
     arr.push(Number(studentId));
   }
 
@@ -3287,8 +3326,9 @@ function selectAllAvailablePerStudent(tid,typeId){
   if(!d)return;
   const key=String(tid),typeKey=String(typeId);
   const arr=new Set(disciplineStudentAllocationDraft[key][typeKey]||[]);
+  const lt=lessonTypeById(typeId);
   studentsForGroup(d.group).forEach(s=>{
-    if(!assignedStudentTeacherId(d,typeId,s.id,tid))arr.add(Number(s.id));
+    if(!assignedStudentTeacherId(d,typeId,s.id,tid)&&!thesisSupervisorAssignment(d,lt,s.id,tid))arr.add(Number(s.id));
   });
   disciplineStudentAllocationDraft[key][typeKey]=[...arr];
   syncPerStudentAllocationLoads(d);
@@ -3636,22 +3676,31 @@ function deleteDiscipline(id){
    ================================================================ */
 const SPECIAL_SCHEDULE_KINDS=[
   {id:"individual",label:"Індивідуальні заняття",short:"Індивідуальні",description:"Окремий студент · 1 академічна година · половина пари"},
-  {id:"consult_bachelor",label:"Консультації бакалаврів",short:"Бакалаври",description:"Конкретні студенти 1–4 курсів · 1 запис = 1 академічна година"},
-  {id:"consult_master",label:"Консультації магістрів",short:"Магістри",description:"Конкретні студенти магістратури · 1 запис = 1 академічна година"}
+  {id:"consult_bachelor",label:"Керівництво бакалаврськими роботами",short:"Бакалаврські роботи",description:"Лише студенти 4 курсу · один студент має одного керівника · один викладач може керувати кількома студентами"},
+  {id:"consult_master",label:"Керівництво магістерськими роботами",short:"Магістерські роботи",description:"Лише студенти магістратури · один студент має одного керівника · один викладач може керувати кількома студентами"}
 ];
 let specialScheduleState={kind:"individual",group:"",disciplineId:null,month:clampAcademicMonth(currentAcademicDate().slice(0,7))};
 function specialKindMeta(id){return SPECIAL_SCHEDULE_KINDS.find(x=>x.id===id)||SPECIAL_SCHEDULE_KINDS[0];}
+function availableSpecialKinds(){return activeProgramId()==="master"?SPECIAL_SCHEDULE_KINDS.filter(x=>x.id==="consult_master"):SPECIAL_SCHEDULE_KINDS.filter(x=>x.id==="individual"||x.id==="consult_bachelor");}
+function normalizeSpecialKindForProgram(){const allowed=availableSpecialKinds();if(!allowed.some(x=>x.id===specialScheduleState.kind))specialScheduleState.kind=allowed[0]?.id||"individual";}
 function studentsForGroup(group){return db.students.filter(s=>s.status!=="archived"&&normIdentity(s.group)===normIdentity(group)).slice().sort((a,b)=>a.name.localeCompare(b.name,"uk"));}
 function isConsultationType(lt){return normIdentity(lt?.name||"").includes("консультац");}
+function isBachelorThesisType(lt){return normIdentity(lt?.name||"")===normIdentity("Керівництво бакалаврською роботою");}
+function isMasterThesisType(lt){return normIdentity(lt?.name||"")===normIdentity("Керівництво магістерською роботою");}
+function thesisKindForType(lt){return isBachelorThesisType(lt)?"consult_bachelor":isMasterThesisType(lt)?"consult_master":"";}
+function thesisTypeApplicable(d,lt){
+  const kind=thesisKindForType(lt);if(!kind)return true;
+  const course=Number(d?.course||groupCourse(d?.group)||0),pid=disciplineProgramId(d);
+  return kind==="consult_master"?pid==="master":pid!=="master"&&course===4;
+}
 function specialTypeMatches(kind,lt,d){
+  const course=Number(d?.course||groupCourse(d?.group)||0),pid=disciplineProgramId(d);
   if(kind==="individual"){
-    return !isConsultationType(lt)
+    return pid!=="master"&&!isBachelorThesisType(lt)&&!isMasterThesisType(lt)&&!isConsultationType(lt)
       &&(lt?.countMode==="per_student"||normIdentity(lt?.name)==="індивідуальне");
   }
-  if(!isConsultationType(lt))return false;
-  const course=Number(d?.course||groupCourse(d?.group)||0);
-  if(kind==="consult_bachelor")return course>0&&course<=4;
-  if(kind==="consult_master")return course>=5;
+  if(kind==="consult_bachelor")return pid!=="master"&&course===4&&isBachelorThesisType(lt);
+  if(kind==="consult_master")return pid==="master"&&isMasterThesisType(lt);
   return false;
 }
 function specialLoadRows(kind=specialScheduleState.kind){
@@ -3717,7 +3766,7 @@ function minutesToTimeValue(v){const h=Math.floor(v/60),m=v%60;return `${String(
 function specialHalfTimes(pairId,half){const p=pairById(pairId);if(!p||!p.start||!p.end)return {start:"",end:""};const start=timeToMinutesValue(p.start),end=timeToMinutesValue(p.end),mid=Math.round((start+end)/2);return Number(half)===2?{start:minutesToTimeValue(mid),end:minutesToTimeValue(end)}:{start:minutesToTimeValue(start),end:minutesToTimeValue(mid)};}
 function specialSlotLabel(x){const p=pairById(x.pairId),half=Number(x.specialHalf)===2?"ІІ половина":"І половина";return `${p?.id||x.pairId||"—"} пара · ${half}${x.start&&x.end?` · ${x.start}–${x.end}`:""}`;}
 function specialStudentName(x){const s=db.students.find(s=>Number(s.id)===Number(x.studentId));return s?.name||x.students||"Студент";}
-function specialKindTabsHtml(){return `<div class="special-kind-tabs">${SPECIAL_SCHEDULE_KINDS.map(k=>{const remaining=specialLoadRows(k.id).reduce((a,x)=>a+x.remaining,0);return `<button class="${specialScheduleState.kind===k.id?"active":""}" onclick="setSpecialKind('${k.id}')"><span>${esc(k.short)}</span><b>${fmtHours(remaining)} год</b></button>`;}).join("")}</div>`;}
+function specialKindTabsHtml(){normalizeSpecialKindForProgram();return `<div class="special-kind-tabs">${availableSpecialKinds().map(k=>{const remaining=specialLoadRows(k.id).reduce((a,x)=>a+x.remaining,0);return `<button class="${specialScheduleState.kind===k.id?"active":""}" onclick="setSpecialKind('${k.id}')"><span>${esc(k.short)}</span><b>${fmtHours(remaining)} год</b></button>`;}).join("")}</div>`;}
 function beginDirectStudentAssignment(disciplineId,teacherId,typeId){
   const d=disciplineById(disciplineId);
   if(!d)return;
@@ -3847,6 +3896,7 @@ function specialScheduleListHtml(){
   return `<div class="special-schedule-days">${dates.map(date=>{const dayRows=rows.filter(x=>x.date===date);return `<section class="special-day"><div class="special-day-date"><b>${formatDate(date)}</b><span>${esc(weekdayNameForDate(date))}</span><strong>${dayRows.length}</strong></div><div class="special-day-events">${dayRows.map(x=>`<div class="special-event-card special-event-editable" style="${scheduleColorVars(x)}" role="button" tabindex="0" onclick="openSpecialScheduleEventEditor(${x.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openSpecialScheduleEventEditor(${x.id});}"><div class="special-event-time"><b>${esc(specialSlotLabel(x))}</b><span>${esc(x.room||"без аудиторії")}</span></div><div class="special-event-student"><span>Студент</span><b>${esc(specialStudentName(x))}</b></div><div class="special-event-context"><b>${esc(x.discipline||"")}</b><span>${esc(x.teacher||"")}</span></div><span class="special-event-edit-hint">Редагувати ✎</span><button class="special-event-delete" title="Видалити" onclick="event.stopPropagation();deleteSpecialScheduleEvent(${x.id})">×</button></div>`).join("")}</div></section>`;}).join("")}</div>`;
 }
 function renderSpecialSchedule(){
+  normalizeSpecialKindForProgram();
   const kind=specialScheduleState.kind,groups=specialGroups(kind);
   if(!groups.some(g=>normIdentity(g.code)===normIdentity(specialScheduleState.group))){
     specialScheduleState.group=groups[0]?.code||"";
@@ -3861,7 +3911,7 @@ function renderSpecialSchedule(){
 
   $("#page-specialSchedule").innerHTML=`<div class="special-schedule-page">
     <div class="special-hero">
-      <div><span>ОКРЕМІ РОЗКЛАДИ</span><h2>Індивідуальні та консультації</h2><p>Тут працюємо не парами, а академічними годинами: <b>1 запис = половина пари = 1 академічна година на одного студента.</b></p></div>
+      <div><span>${activeProgramId()==="master"?"МАГІСТРАТУРА":"ОКРЕМІ РОЗКЛАДИ"}</span><h2>${activeProgramId()==="master"?"Магістерські роботи":"Індивідуальні / бакалаврські роботи"}</h2><p>${kind==="individual"?`Тут працюємо не парами, а академічними годинами: <b>1 запис = половина пари = 1 академічна година на одного студента.</b>`:`<b>Один студент → один керівник.</b> Один викладач може керувати кількома студентами. Години керівництва входять у педагогічне навантаження викладача.`}</p></div>
       <div class="special-hero-kpi"><b>${fmtHours(remaining)}</b><span>годин залишилось у вибраному режимі / групі</span></div>
     </div>
 
