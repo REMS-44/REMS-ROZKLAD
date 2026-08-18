@@ -2973,6 +2973,7 @@ function loadDisciplineRowHtml(d){
 
     <div class="compact-discipline-actions">
       <button class="${s.status==="done"?"secondary":"primary-inline"}" onclick="openDisciplineModal(${d.id})">${s.status==="done"?"Переглянути":"Розподілити години"}</button>
+      <button class="secondary bulk-across-groups-btn" onclick="openBulkDisciplineAllocation(${d.id})">По всіх групах</button>
       <button class="quiet-danger" onclick="deleteDiscipline(${d.id})">Видалити</button>
     </div>
   </article>`;
@@ -3049,6 +3050,102 @@ function renderLoadDisciplinePanel(){
       </section>`:"";
     })():""}`;
 }
+
+/* v2.0.11 · discipline-first workload matrix */
+let bulkDisciplineAllocationState={disciplineId:null,typeId:null,mode:"separate"};
+function bulkDisciplineFamilyKey(d){
+  return [disciplineProgramId(d),normIdentity(d?.name||""),Number(d?.course||groupCourse(d?.group)||0),Number(d?.semester||0),String(d?.academicYear||db.academicYear||"")].join("|");
+}
+function bulkDisciplineFamilyPeers(d){
+  if(!d)return[];const key=bulkDisciplineFamilyKey(d);
+  return loadPageRows().filter(x=>bulkDisciplineFamilyKey(x)===key)
+    .sort((a,b)=>String(a.group||"").localeCompare(String(b.group||""),"uk"));
+}
+function bulkDisciplineFamilies(){
+  const map=new Map();loadPageRows().forEach(d=>{const key=bulkDisciplineFamilyKey(d);if(!map.has(key))map.set(key,{key,d,peers:[]});map.get(key).peers.push(d);});
+  return [...map.values()].sort((a,b)=>(a.d.course||99)-(b.d.course||99)||Number(a.d.semester||99)-Number(b.d.semester||99)||String(a.d.name||"").localeCompare(String(b.d.name||""),"uk"));
+}
+function bulkDisciplineFamilyLabel(f){return `${f.d.name} · ${courseDisplayLabel(f.d.course||groupCourse(f.d.group))} · ${f.d.semester||"—"} сем. · ${f.peers.length} гр.`;}
+function bulkAllocationTypes(peers){
+  return db.lessonTypes.filter(lt=>!isPerStudentTypeId(lt.id)&&peers.some(d=>disciplineTotalHoursById(d,lt.id)>0));
+}
+function bulkTypeAllocatedTeachers(d,typeId){
+  return Object.entries(d?.teacherLoads||{}).map(([tid,load])=>({tid:Number(tid),hours:num(load?.[typeId])})).filter(x=>x.tid&&x.hours>0&&teacherById(x.tid));
+}
+function bulkTypeOtherHours(d,typeId,excludeTeacherId){
+  return bulkTypeAllocatedTeachers(d,typeId).filter(x=>Number(x.tid)!==Number(excludeTeacherId)).reduce((a,x)=>a+x.hours,0);
+}
+function bulkTeacherSelectOptions(selected=""){
+  return `<option value="">— оберіть викладача —</option>`+visibleTeachers().slice().sort((a,b)=>teacherDisplay(a).localeCompare(teacherDisplay(b),"uk")).map(t=>`<option value="${t.id}" ${Number(t.id)===Number(selected)?"selected":""}>${esc(teacherDisplay(t))}</option>`).join("");
+}
+function bulkTeacherChipsForType(d,typeId){
+  const rows=bulkTypeAllocatedTeachers(d,typeId);if(!rows.length)return `<span class="bulk-current-empty">ще не розподілено</span>`;
+  return `<div class="bulk-current-chips">${rows.map(x=>`<span>${esc(teacherDisplay(teacherById(x.tid)))} · <b>${fmtHours(x.hours)} год</b></span>`).join("")}</div>`;
+}
+function bulkPersistDetachTeacherStream(d,teacherId,typeId){
+  const tid=String(teacherId),lt=String(typeId),stream=d?.teacherStreams?.[tid]?.[lt]||d?.teacherStreams?.[teacherId]?.[typeId];
+  if(!stream)return;const streamId=String(stream.streamId||"");const ids=[...new Set((stream.disciplineIds||[d.id]).map(Number).filter(Boolean))];
+  ids.forEach(id=>{const peer=disciplineById(id);if(!peer?.teacherStreams)return;const byTeacher=peer.teacherStreams[tid]||peer.teacherStreams[teacherId];const candidate=byTeacher?.[lt]||byTeacher?.[typeId];if(candidate&&(!streamId||String(candidate.streamId||"")===streamId)){delete byTeacher[lt];delete byTeacher[typeId];if(!Object.keys(byTeacher).length){delete peer.teacherStreams[tid];delete peer.teacherStreams[teacherId];}}});
+}
+function bulkSetTeacherTypeHours(d,teacherId,typeId,hours){
+  const tid=String(teacherId),lt=String(typeId);d.teacherLoads=d.teacherLoads||{};d.teacherLoads[tid]=d.teacherLoads[tid]||{};d.teacherLoads[tid][lt]=num(hours);d.teacherIds=d.teacherIds||[];
+  if(num(hours)>0)d.teacherIds=[...new Set([...d.teacherIds.map(Number),Number(teacherId)])];
+  if(num(hours)<=0){delete d.teacherLoads[tid][lt];if(!Object.values(d.teacherLoads[tid]||{}).some(v=>num(v)>0))delete d.teacherLoads[tid];}
+  d.teacherIds=d.teacherIds.filter(id=>{const load=d.teacherLoads?.[String(id)]||{};const student=(d.teacherStudentLoads?.[String(id)]||{});const studentHours=(d.teacherStudentHours?.[String(id)]||{});return Object.values(load).some(v=>num(v)>0)||Object.values(student).some(v=>(v||[]).length)||Object.values(studentHours).some(m=>Object.values(m||{}).some(v=>num(v)>0));});
+}
+function openBulkDisciplineAllocation(disciplineId=null){
+  const families=bulkDisciplineFamilies();if(!families.length)return alert("Спочатку додай дисципліни з навчального плану.");
+  let family=disciplineId?families.find(f=>f.peers.some(d=>Number(d.id)===Number(disciplineId))):null;family=family||families[0];
+  const peers=family.peers,types=bulkAllocationTypes(peers);if(!types.length)return alert("У цієї дисципліни немає аудиторних видів занять для швидкого розподілу.");
+  bulkDisciplineAllocationState.disciplineId=Number(family.d.id);if(!types.some(lt=>Number(lt.id)===Number(bulkDisciplineAllocationState.typeId)))bulkDisciplineAllocationState.typeId=Number(types[0].id);bulkDisciplineAllocationState.mode="separate";
+  openModal(`<div class="bulk-load-modal">
+    <div class="bulk-load-hero"><div><span>ШВИДКИЙ РОЗПОДІЛ НАВАНТАЖЕННЯ</span><h2>Одна дисципліна — одразу всі групи</h2><p>Призначай різних викладачів різним групам або створи спільний потік без переходів між картками.</p></div><div class="bulk-load-hero-badge"><b>${peers.length}</b><span>груп</span></div></div>
+    <div class="bulk-load-controls">
+      <label>Дисципліна<select id="bulkFamilySelect">${families.map(f=>`<option value="${f.d.id}" ${Number(f.d.id)===Number(family.d.id)?"selected":""}>${esc(bulkDisciplineFamilyLabel(f))}</option>`).join("")}</select></label>
+      <label>Вид занять<select id="bulkTypeSelect">${types.map(lt=>`<option value="${lt.id}" ${Number(lt.id)===Number(bulkDisciplineAllocationState.typeId)?"selected":""}>${esc(lt.name)}</option>`).join("")}</select></label>
+    </div>
+    <div class="bulk-mode-switch"><button type="button" id="bulkModeSeparate" class="active" onclick="setBulkDisciplineAllocationMode('separate')"><b>Групи окремо</b><span>різні викладачі для різних груп</span></button><button type="button" id="bulkModeStream" onclick="setBulkDisciplineAllocationMode('stream')"><b>Спільний потік</b><span>один викладач читає кільком групам разом</span></button></div>
+    <div id="bulkAllocationBody"></div>
+  </div>`,true);
+  $("#bulkFamilySelect").onchange=e=>openBulkDisciplineAllocation(Number(e.target.value));
+  $("#bulkTypeSelect").onchange=e=>{bulkDisciplineAllocationState.typeId=Number(e.target.value);renderBulkDisciplineAllocationBody();};
+  renderBulkDisciplineAllocationBody();
+}
+function setBulkDisciplineAllocationMode(mode){bulkDisciplineAllocationState.mode=mode==="stream"?"stream":"separate";$("#bulkModeSeparate")?.classList.toggle("active",bulkDisciplineAllocationState.mode==="separate");$("#bulkModeStream")?.classList.toggle("active",bulkDisciplineAllocationState.mode==="stream");renderBulkDisciplineAllocationBody();}
+function bulkSeparateRowHtml(d,typeId){
+  const allocations=bulkTypeAllocatedTeachers(d,typeId),single=allocations.length===1?allocations[0]:null,plan=disciplineTotalHoursById(d,typeId),other=single?bulkTypeOtherHours(d,typeId,single.tid):allocations.reduce((a,x)=>a+x.hours,0),suggest=single?single.hours:Math.max(0,plan-other),checked=allocations.length<=1;
+  return `<div class="bulk-group-row ${allocations.length>1?"complex":""}" data-bulk-row data-discipline="${d.id}">
+    <label class="bulk-row-check"><input type="checkbox" data-bulk-check ${checked?"checked":""}><span>✓</span></label>
+    <div class="bulk-group-identity"><b>${esc(d.group)}</b><span>${esc(courseDisplayLabel(d.course||groupCourse(d.group)))} · план ${fmtHours(plan)} год</span></div>
+    <div class="bulk-existing"><small>Зараз</small>${bulkTeacherChipsForType(d,typeId)}</div>
+    <label class="bulk-teacher-field"><span>Викладач</span><select data-bulk-teacher>${bulkTeacherSelectOptions(single?.tid||"")}</select></label>
+    <label class="bulk-hours-field"><span>Годин</span><input data-bulk-hours type="number" min="0" step="0.01" value="${fmtHours(suggest)}"></label>
+    ${allocations.length>1?`<div class="bulk-complex-note">Уже є кілька викладачів. Обери, кого саме змінюєш; решта навантаження збережеться.</div>`:""}
+  </div>`;
+}
+function renderBulkDisciplineAllocationBody(){
+  const d=disciplineById(bulkDisciplineAllocationState.disciplineId),box=$("#bulkAllocationBody");if(!d||!box)return;const peers=bulkDisciplineFamilyPeers(d),typeId=Number(bulkDisciplineAllocationState.typeId),lt=lessonTypeById(typeId);if(!lt)return;
+  if(bulkDisciplineAllocationState.mode==="stream"){
+    const plans=peers.map(x=>disciplineTotalHoursById(x,typeId)).filter(x=>x>0),suggest=plans.length?Math.min(...plans):0;
+    box.innerHTML=`<div class="bulk-stream-panel"><div class="bulk-stream-explain"><b>${esc(lt.name)} · ${esc(d.name)}</b><span>Вибрані групи отримають одного викладача і однакову кількість годин. У розкладі це буде одна спільна пара потоку.</span></div><div class="bulk-stream-fields"><label>Викладач<select id="bulkStreamTeacher">${bulkTeacherSelectOptions("")}</select></label><label>Годин кожній групі<input id="bulkStreamHours" type="number" min="0" step="0.01" value="${fmtHours(suggest)}"></label></div><div class="bulk-stream-toolbar"><button type="button" class="secondary" onclick="bulkSetStreamChecks(true)">Обрати всі</button><button type="button" class="secondary" onclick="bulkSetStreamChecks(false)">Очистити</button></div><div class="bulk-stream-groups">${peers.map(x=>`<label><input type="checkbox" data-bulk-stream-group value="${x.id}" checked><span><b>${esc(x.group)}</b><small>план ${fmtHours(disciplineTotalHoursById(x,typeId))} год · ${bulkTypeAllocatedTeachers(x,typeId).length?bulkTypeAllocatedTeachers(x,typeId).map(a=>`${teacherDisplay(teacherById(a.tid))} ${fmtHours(a.hours)}`).join(", "):"ще не розподілено"}</small></span></label>`).join("")}</div><div class="bulk-load-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button type="button" class="primary" onclick="saveBulkStreamAllocation()">Створити / оновити потік</button></div></div>`;
+    return;
+  }
+  box.innerHTML=`<div class="bulk-separate-panel"><div class="bulk-apply-bar"><div><b>${esc(lt.name)} · ${esc(d.name)}</b><span>Познач групи й задай викладачів. Можна всім поставити одного, а потім змінити окремі рядки.</span></div><div class="bulk-apply-tools"><select id="bulkCommonTeacher">${bulkTeacherSelectOptions("")}</select><button type="button" class="secondary" onclick="bulkApplyCommonTeacher()">Поставити обраним</button><button type="button" class="secondary" onclick="bulkFillSeparateRemaining()">Заповнити залишок годин</button></div></div><div class="bulk-select-toolbar"><button type="button" class="secondary" onclick="bulkSetSeparateChecks(true)">Позначити всі</button><button type="button" class="secondary" onclick="bulkSetSeparateChecks(false)">Зняти вибір</button></div><div class="bulk-group-matrix">${peers.map(x=>bulkSeparateRowHtml(x,typeId)).join("")}</div><div class="bulk-load-actions"><button type="button" class="secondary" onclick="closeModal()">Скасувати</button><button type="button" class="primary" onclick="saveBulkSeparateAllocation()">Зберегти для всіх обраних груп</button></div></div>`;
+}
+function bulkSetSeparateChecks(value){$$('[data-bulk-check]').forEach(x=>x.checked=!!value);}
+function bulkSetStreamChecks(value){$$('[data-bulk-stream-group]').forEach(x=>x.checked=!!value);}
+function bulkApplyCommonTeacher(){const tid=Number($("#bulkCommonTeacher")?.value);if(!tid)return alert("Оберіть викладача.");$$('[data-bulk-row]').forEach(row=>{if(!row.querySelector('[data-bulk-check]')?.checked)return;const sel=row.querySelector('[data-bulk-teacher]');if(sel)sel.value=String(tid);});bulkFillSeparateRemaining();}
+function bulkFillSeparateRemaining(){const typeId=Number(bulkDisciplineAllocationState.typeId);$$('[data-bulk-row]').forEach(row=>{if(!row.querySelector('[data-bulk-check]')?.checked)return;const d=disciplineById(Number(row.dataset.discipline)),tid=Number(row.querySelector('[data-bulk-teacher]')?.value),input=row.querySelector('[data-bulk-hours]');if(!d||!tid||!input)return;const plan=disciplineTotalHoursById(d,typeId),other=bulkTypeOtherHours(d,typeId,tid);input.value=fmtHours(Math.max(0,plan-other));});}
+function saveBulkSeparateAllocation(){
+  const typeId=Number(bulkDisciplineAllocationState.typeId),lt=lessonTypeById(typeId),rows=$$('[data-bulk-row]').filter(row=>row.querySelector('[data-bulk-check]')?.checked);if(!rows.length)return alert("Познач хоча б одну групу.");const changes=[],errors=[];
+  rows.forEach(row=>{const d=disciplineById(Number(row.dataset.discipline)),tid=Number(row.querySelector('[data-bulk-teacher]')?.value),hours=num(row.querySelector('[data-bulk-hours]')?.value);if(!d)return;if(!tid){errors.push(`${d.group}: не обрано викладача.`);return;}const plan=disciplineTotalHoursById(d,typeId),other=bulkTypeOtherHours(d,typeId,tid),scheduled=lt?scheduledLoad(d.id,tid,lt.name):0;if(hours+0.001<scheduled)errors.push(`${d.group}: вже виставлено ${fmtHours(scheduled)} год у розкладі.`);if(other+hours>plan+0.001)errors.push(`${d.group}: разом вийде ${fmtHours(other+hours)} год при плані ${fmtHours(plan)}.`);changes.push({d,tid,hours});});
+  if(errors.length)return alert("Не можу зберегти:\n\n"+errors.join("\n"));changes.forEach(x=>{bulkPersistDetachTeacherStream(x.d,x.tid,typeId);bulkSetTeacherTypeHours(x.d,x.tid,typeId,x.hours);});closeModal();save();
+}
+function saveBulkStreamAllocation(){
+  const source=disciplineById(bulkDisciplineAllocationState.disciplineId),typeId=Number(bulkDisciplineAllocationState.typeId),lt=lessonTypeById(typeId),tid=Number($("#bulkStreamTeacher")?.value),hours=num($("#bulkStreamHours")?.value),ids=$$('[data-bulk-stream-group]').filter(x=>x.checked).map(x=>Number(x.value)).filter(Boolean);if(!source||!lt)return;if(!tid)return alert("Оберіть викладача.");if(ids.length<2)return alert("Для потоку обери щонайменше дві групи.");if(hours<=0)return alert("Вкажи кількість годин.");const errors=[];ids.forEach(id=>{const d=disciplineById(id);if(!d)return;const plan=disciplineTotalHoursById(d,typeId),other=bulkTypeOtherHours(d,typeId,tid),scheduled=scheduledLoad(d.id,tid,lt.name);if(hours+0.001<scheduled)errors.push(`${d.group}: вже виставлено ${fmtHours(scheduled)} год.`);if(other+hours>plan+0.001)errors.push(`${d.group}: разом ${fmtHours(other+hours)} год при плані ${fmtHours(plan)}.`);});if(errors.length)return alert("Не можу створити потік:\n\n"+errors.join("\n"));
+  ids.forEach(id=>{const d=disciplineById(id);if(d)bulkPersistDetachTeacherStream(d,tid,typeId);});const streamId=`BLS-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,groups=ids.map(id=>disciplineById(id)?.group).filter(Boolean),stream={streamId,teacherId:tid,typeId,disciplineIds:ids,groups,hours,semester:Number(source.semester)||null,disciplineName:source.name};ids.forEach(id=>{const d=disciplineById(id);if(!d)return;bulkSetTeacherTypeHours(d,tid,typeId,hours);d.teacherStreams=d.teacherStreams||{};d.teacherStreams[String(tid)]=d.teacherStreams[String(tid)]||{};d.teacherStreams[String(tid)][String(typeId)]=clone(stream);});closeModal();save();
+}
+
 function renderDisciplines(){
   const rows=loadPageRows();
   const groups=loadPageActiveGroups(rows);
@@ -3085,9 +3182,9 @@ function renderDisciplines(){
     <div class="load-workspace-head">
       <div>
         <h1>Навантаження</h1>
-        <p>Спочатку обери групу. На сторінці одночасно показуються дисципліни тільки однієї групи.</p>
+        <p>Можна працювати по групах, як раніше, або відкрити одну дисципліну й одразу розподілити її між усіма групами.</p>
       </div>
-      <button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button>
+      <div class="load-head-actions"><button class="bulk-load-launch" onclick="openBulkDisciplineAllocation()"><span>⚡ ШВИДКО</span><b>Розподілити дисципліну по групах</b><small>лекції · практичні · потоки · різні викладачі</small></button><button class="primary" onclick="openDisciplineModal()">+ Додати дисципліну</button></div>
     </div>
 
     <div class="load-overview-strip">
