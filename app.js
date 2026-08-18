@@ -458,15 +458,9 @@ function migrate(old){
   fresh.lessonTypes=(old.lessonTypes||fresh.lessonTypes).map((x,i)=>typeof x==="string"?{
     id:i+1,name:x,countMode:"manual",defaultUnit:1,description:""
   }:{...x,id:x.id||i+1});
-  // v2.0.12: older cloud data may not contain Seminar. Core auditorium types must never disappear.
+  // v2.0.13: «Семінар» — базовий вид заняття і не повинен зникати зі старих хмарних даних.
   if(!fresh.lessonTypes.some(lt=>normIdentity(lt.name)===normIdentity("Семінар"))){
-    fresh.lessonTypes.push({
-      id:uid(fresh.lessonTypes),
-      name:"Семінар",
-      countMode:"academic_pair",
-      defaultUnit:2,
-      description:"Аудиторні години; 2 академічні години = 1 пара"
-    });
+    fresh.lessonTypes.push({id:uid(fresh.lessonTypes),name:"Семінар",countMode:"academic_pair",defaultUnit:2,description:"Аудиторні години; 2 академічні години = 1 пара"});
   }
   fresh.lessonTypes.forEach(lt=>{const n=normIdentity(lt.name);if(["лекція","семінар","практичне","лабораторне"].includes(n)){lt.countMode="academic_pair";lt.defaultUnit=2;if(!lt.description)lt.description="Аудиторні години; 2 академічні години = 1 пара";}});
   // v2.0.8: thesis supervision is its own workload type, separate from generic consultations.
@@ -5043,6 +5037,12 @@ function readySeriesModeHtml(){
     </div>
   </div>`;
 }
+function setSeriesPanelVisible(el,visible){
+  if(!el)return;
+  el.classList.toggle("hidden",!visible);
+  el.hidden=!visible;
+  el.style.display=visible?"":"none";
+}
 let readySeriesMethod=null;
 function setReadySeriesMethod(method){
   readySeriesMethod=method==="rule"?"rule":method==="dates"?"dates":null;
@@ -5053,9 +5053,9 @@ function setReadySeriesMethod(method){
   const hint=$("#readySeriesMethodHint");
   if(datesBtn)datesBtn.classList.toggle("active",readySeriesMethod==="dates");
   if(ruleBtn)ruleBtn.classList.toggle("active",readySeriesMethod==="rule");
-  if(datesBody)datesBody.classList.toggle("hidden",readySeriesMethod!=="dates");
-  if(ruleBody)ruleBody.classList.toggle("hidden",readySeriesMethod!=="rule");
-  if(hint)hint.classList.toggle("hidden",!!readySeriesMethod);
+  setSeriesPanelVisible(datesBody,readySeriesMethod==="dates");
+  setSeriesPanelVisible(ruleBody,readySeriesMethod==="rule");
+  setSeriesPanelVisible(hint,!readySeriesMethod);
 }
 function bindReadyMode(existing=null){
   const row0=$("[data-ready-row]");
@@ -5067,10 +5067,16 @@ function bindReadyMode(existing=null){
   if(form)form.onsubmit=e=>saveReadySchedule(e,existing?.id||null);
 
   if(readyScheduleMode==="series"){
+    const datesMethodBtn=$("#readySeriesMethodDates");
+    const ruleMethodBtn=$("#readySeriesMethodRule");
+    if(datesMethodBtn)datesMethodBtn.onclick=e=>{e.preventDefault();setReadySeriesMethod("dates");};
+    if(ruleMethodBtn)ruleMethodBtn.onclick=e=>{e.preventDefault();setReadySeriesMethod("rule");};
     $("#readyAddRow").onclick=()=>addReadyScheduleRow();
-    $("#readyAddDates").onclick=addReadyDatesFromText;
+    $("#readyAddDates").onclick=e=>{e.preventDefault();addReadyDatesFromText();};
     $("#readyApplyDefaults").onclick=applyReadyDefaults;
     $("#readyGenerateRule").onclick=generateReadyDatesByRule;
+    const paste=$("#readyDatesPaste");
+    if(paste)paste.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addReadyDatesFromText();}};
   }
 }
 
@@ -5289,7 +5295,7 @@ function parseReadyDateToken(token){
 function addReadyDatesFromText(){
   const input=$("#readyDatesPaste");
   const raw=(input?.value||"").trim();
-  if(!raw)return;
+  if(!raw)return alert("Встав дати через кому. Наприклад: 03.09, 10.09, 17.09");
   const tokens=raw.split(/[\s,;]+/).filter(Boolean);
   const dates=tokens.map(parseReadyDateToken).filter(Boolean);
   if(!dates.length)return alert("Не знайшов дат. Можна вставити, наприклад: 03.09, 10.09, 17.09");
@@ -6644,9 +6650,9 @@ function setPlannerSeriesMethod(method){
   const hint=$("#plannerSeriesMethodHint");
   if(datesBtn)datesBtn.classList.toggle("active",plannerSeriesMethod==="dates");
   if(ruleBtn)ruleBtn.classList.toggle("active",plannerSeriesMethod==="rule");
-  if(datesBody)datesBody.classList.toggle("hidden",plannerSeriesMethod!=="dates");
-  if(ruleBody)ruleBody.classList.toggle("hidden",plannerSeriesMethod!=="rule");
-  if(hint)hint.classList.toggle("hidden",!!plannerSeriesMethod);
+  setSeriesPanelVisible(datesBody,plannerSeriesMethod==="dates");
+  setSeriesPanelVisible(ruleBody,plannerSeriesMethod==="rule");
+  setSeriesPanelVisible(hint,!plannerSeriesMethod);
 }
 function setPlannerEntryMode(mode){
   disciplinePlannerState.entryMode=mode==="series"?"series":mode==="single"?"single":null;
@@ -6761,7 +6767,7 @@ function plannerAddSeriesRow(d,t,preset={}){
 function plannerAddSeriesDatesFromText(d,t){
   const input=$("#plannerSeriesDatesPaste");
   const raw=(input?.value||"").trim();
-  if(!raw)return;
+  if(!raw)return alert("Встав дати через кому. Наприклад: 03.09, 10.09, 17.09");
 
   const dates=raw.split(/[\s,;]+/).filter(Boolean).map(parseReadyDateToken).filter(Boolean);
   if(!dates.length)return alert("Не знайшов дат. Наприклад: 03.09, 10.09, 17.09");
@@ -7431,13 +7437,13 @@ function openPlannerSeriesPopup(disciplineId,teacherId){
     ${plannerSeriesPanelHtml(d,t)}
   </div>`,true);
 
-  // v2.0.12: bind method buttons explicitly after the popup is mounted.
-  // This fixes the case where “Конкретні дати” looked clickable but did not switch the panel.
-  const seriesDatesMethodBtn=$("#plannerSeriesMethodDates");
-  const seriesRuleMethodBtn=$("#plannerSeriesMethodRule");
-  if(seriesDatesMethodBtn)seriesDatesMethodBtn.onclick=()=>setPlannerSeriesMethod("dates");
-  if(seriesRuleMethodBtn)seriesRuleMethodBtn.onclick=()=>setPlannerSeriesMethod("rule");
-  $("#plannerSeriesAddDates").onclick=()=>plannerAddSeriesDatesFromText(d,t);
+  const plannerDatesMethodBtn=$("#plannerSeriesMethodDates");
+  const plannerRuleMethodBtn=$("#plannerSeriesMethodRule");
+  if(plannerDatesMethodBtn)plannerDatesMethodBtn.onclick=e=>{e.preventDefault();setPlannerSeriesMethod("dates");};
+  if(plannerRuleMethodBtn)plannerRuleMethodBtn.onclick=e=>{e.preventDefault();setPlannerSeriesMethod("rule");};
+  $("#plannerSeriesAddDates").onclick=e=>{e.preventDefault();plannerAddSeriesDatesFromText(d,t);};
+  const plannerPaste=$("#plannerSeriesDatesPaste");
+  if(plannerPaste)plannerPaste.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();plannerAddSeriesDatesFromText(d,t);}};
   $("#plannerSeriesGenerate").onclick=()=>plannerGenerateSeries(d,t);
   $("#plannerSeriesAddRow").onclick=()=>plannerAddSeriesRow(d,t);
   $("#plannerSeriesApplyDefaults").onclick=()=>plannerApplySeriesDefaults(d,t);
@@ -7606,19 +7612,17 @@ function openAllocationScheduler(disciplineId,typeName,teacherId){openDiscipline
 function addDays(dateStr,days){const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
 function datesForPattern(pattern,from,to,weekday,specific,bounds=academicYearBounds()){if(pattern==="dates")return [...new Set((specific||"").split(/[\s,;]+/).map(parseReadyDateToken).filter(x=>x&&dateInBounds(x,bounds)))].sort();const result=[];if(!from||!to)return result;let d=from;while(d<=to){if(dateInBounds(d,bounds)&&weekdayId(d)===Number(weekday))result.push(d);d=addDays(d,1);}return pattern==="biweekly"?result.filter((_,i)=>i%2===0):result;}
 function openBulkScheduleModal(presetGroup=null){
-  const group=presetGroup||bestWorkloadGroup();openModal(`<h2>Розставити за правилом</h2><div class="notice">Для випадків, коли одна й та сама пара повторюється щотижня або через тиждень.</div><form id="bf" class="form-grid"><label>Група<select id="bg">${groupOptions(group)}</select></label><label>Дисципліна<select id="bd">${disciplineOptionsForGroup(group,null,false)}</select></label><label>Вид заняття<select id="bt"></select></label><label>Викладач<select id="btea"></select></label><div id="bulkLoadHint" class="wide"></div><label>Повторення<select id="bpattern"><option value="weekly">Щотижня</option><option value="biweekly">Через тиждень</option><option value="dates">Конкретні дати</option></select></label><label>День тижня<select id="bweekday">${db.weekDays.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label><label>Від<input id="bfrom" type="date" ${dateAttrs()}></label><label>До<input id="bto" type="date" ${dateAttrs()}></label><label id="bdatesLabel" class="wide" style="display:none">Конкретні дати<textarea id="bdates" rows="3" placeholder="03.09, 10.09, 17.09 або 2026-09-03, 2026-09-10"></textarea></label><label>Пара<select id="bpair">${pairOptions(bellPairs()[0]?.id||null,false)}</select></label>${programUsesRooms()?`<label>Аудиторія<select id="br"><option value="">—</option>${activeRooms().map(r=>`<option>${esc(r.name)}</option>`).join("")}</select></label>`:`<input id="br" type="hidden" value=""><div class="notice success-notice"><b>Онлайн</b> · без аудиторії</div>`}<label>Годин за заняття<input id="bwh" type="number" min="0.01" step="0.01" value="2"></label><label>Охоплення<select id="bc">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select></label><label class="wide">Примітка<input id="bn"></label><div class="wide"><button class="primary">Створити повтори</button></div></form>`,true);
+  const group=presetGroup||bestWorkloadGroup();openModal(`<h2>Розставити за правилом</h2><div class="notice">Для випадків, коли одна й та сама пара повторюється щотижня або через тиждень.</div><form id="bf" class="form-grid"><label>Група<select id="bg">${groupOptions(group)}</select></label><label>Дисципліна<select id="bd">${disciplineOptionsForGroup(group,null,false)}</select></label><label>Вид заняття<select id="bt"></select></label><label>Викладач<select id="btea"></select></label><div id="bulkLoadHint" class="wide"></div><label>Повторення<select id="bpattern"><option value="weekly">Щотижня</option><option value="biweekly">Через тиждень</option><option value="dates">Конкретні дати</option></select></label><label>День тижня<select id="bweekday">${db.weekDays.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label><label>Від<input id="bfrom" type="date" ${dateAttrs()}></label><label>До<input id="bto" type="date" ${dateAttrs()}></label><label id="bdatesLabel" class="wide" style="display:none">Конкретні дати<textarea id="bdates" rows="3" placeholder="2026-09-03, 2026-09-10, 2026-09-24"></textarea></label><label>Пара<select id="bpair">${pairOptions(bellPairs()[0]?.id||null,false)}</select></label>${programUsesRooms()?`<label>Аудиторія<select id="br"><option value="">—</option>${activeRooms().map(r=>`<option>${esc(r.name)}</option>`).join("")}</select></label>`:`<input id="br" type="hidden" value=""><div class="notice success-notice"><b>Онлайн</b> · без аудиторії</div>`}<label>Годин за заняття<input id="bwh" type="number" min="0.01" step="0.01" value="2"></label><label>Охоплення<select id="bc">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select></label><label class="wide">Примітка<input id="bn"></label><div class="wide"><button class="primary">Створити повтори</button></div></form>`,true);
   const refreshDisc=()=>{$("#bd").innerHTML=disciplineOptionsForGroup($("#bg").value,null,false);refreshType();};const refreshType=()=>{const d=disciplineById(Number($("#bd").value)),types=d?schedulableTypes(d):[];$("#bt").innerHTML=types.map(x=>`<option>${esc(x.name)}</option>`).join("");const b=d?semesterDateBounds(d.semester):academicYearBounds();["#bfrom","#bto"].forEach(id=>{const el=$(id);el.min=b.start;el.max=b.end;if(el.value&&!dateInBounds(el.value,b))el.value="";});refreshTeacher();};const refreshTeacher=()=>{const d=disciplineById(Number($("#bd").value)),type=$("#bt").value,teachers=d?allocatedTeachersForType(d,type):[];$("#btea").innerHTML=teachers.map(t=>`<option value="${t.id}">${esc(teacherDisplay(t))}</option>`).join("");const lt=lessonTypeByName(type);$("#bwh").value=lt?.defaultUnit||1;bulkHint();};const bulkHint=()=>{const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid){$("#bulkLoadHint").innerHTML=`<div class="conflict">Спочатку має бути розподілене навантаження.</div>`;return;}const p=teacherTypePlan(d,tid,type),used=scheduledLoad(d.id,tid,type),r=p-used;$("#bulkLoadHint").innerHTML=`<div class="load-hint-grid"><div><span>План</span><b>${fmtHours(p)} год</b></div><div><span>Виставлено</span><b>${fmtHours(used)} год</b></div><div><span>Залишок</span><b>${fmtHours(r)} год</b></div></div>`;};
   const toggleBulkDateMode=()=>{
     const dates=$("#bpattern")?.value==="dates";
     const label=$("#bdatesLabel");
-    if(label)label.style.display=dates?"":"none";
+    if(label){label.hidden=!dates;label.style.display=dates?"":"none";}
     ["#bweekday","#bfrom","#bto"].forEach(sel=>{const el=$(sel);if(el)el.disabled=dates;});
-    const input=$("#bdates");
-    if(input)input.disabled=!dates;
+    const input=$("#bdates");if(input)input.disabled=!dates;
   };
   $("#bg").onchange=refreshDisc;$("#bd").onchange=refreshType;$("#bt").onchange=refreshTeacher;$("#btea").onchange=bulkHint;
-  $("#bpattern").onchange=toggleBulkDateMode;
-  $("#bpattern").oninput=toggleBulkDateMode;
+  const pattern=$("#bpattern");if(pattern){pattern.onchange=toggleBulkDateMode;pattern.oninput=toggleBulkDateMode;}
   refreshDisc();toggleBulkDateMode();
   $("#bf").onsubmit=e=>{e.preventDefault();const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid)return alert("Немає розподіленого навантаження.");let rem=remainingLoad(d,tid,type,null);if(rem<=0)return alert("Години вже вичерпані.");const bounds=semesterDateBounds(d.semester),dates=datesForPattern($("#bpattern").value,$("#bfrom").value,$("#bto").value,$("#bweekday").value,$("#bdates").value,bounds);if(!dates.length)return alert("Не знайдено дат.");const unit=num($("#bwh").value),valid=[],blocked=[],batchId=`B${Date.now()}`;for(const date of dates){if(rem<=0.0001)break;const wh=Math.min(unit,rem),item=lessonItemFromValues({date,pairId:$("#bpair").value,group:$("#bg").value,disciplineId:d.id,discipline:d.name,type,workloadHours:wh,coverage:$("#bc").value,teacherId:tid,room:$("#br").value,note:$("#bn").value.trim(),repeatBatchId:batchId}),cs=conflictsFor(item,null,valid),info=teacherAvailabilityInfo(item,null);if(cs.length||info.warnings.length){blocked.push({date,reasons:[...conflictReasonLines(item,cs),...info.warnings]});continue;}valid.push(item);rem-=wh;}if(!valid.length)return alert("Усі дати мають конфлікти:\n\n"+blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n"));if(blocked.length&&!confirm(`${blocked.length} дат буде пропущено:\n\n${blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n")}${blocked.length>8?"\n…":""}\n\nПродовжити?`))return;valid.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));closeModal();save();go("schedule");};
 }
