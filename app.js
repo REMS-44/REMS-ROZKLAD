@@ -385,6 +385,27 @@ function mergeSeedTeachers(existing=[],seed=[]){
   return result;
 }
 
+function deriveLegacyStudentHours(d,lessonTypes=[]){
+  const out={};
+  Object.entries(d?.teacherStudentLoads||{}).forEach(([tid,byType])=>{
+    Object.entries(byType||{}).forEach(([typeId,studentIds])=>{
+      const lt=(lessonTypes||[]).find(x=>String(x.id)===String(typeId));
+      if(!lt)return;
+      const name=normIdentity(lt.name||"");
+      const thesis=name===normIdentity("Керівництво бакалаврською роботою")||name===normIdentity("Керівництво магістерською роботою");
+      const splitIndividual=!thesis&&!name.includes("консультац")&&(lt.countMode==="per_student"||name==="індивідуальне");
+      if(!splitIndividual)return;
+      const unit=num(d?.hours?.[typeId])+num(d?.extraHours?.[typeId]);
+      if(unit<=0)return;
+      const map={};
+      [...new Set((studentIds||[]).map(Number).filter(Boolean))].forEach(studentId=>map[String(studentId)]=unit);
+      out[String(tid)]=out[String(tid)]||{};
+      out[String(tid)][String(typeId)]=map;
+    });
+  });
+  return out;
+}
+
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
   if(!old||typeof old!=="object") return fresh;
@@ -480,6 +501,7 @@ function migrate(old){
     programId:(previousSchemaVersion<24&&isMasterGroupCode(d.group))?"master":(d.programId||fresh.groups.find(g=>normIdentity(g.code)===normIdentity(d.group))?.programId||"rems"),
     semester:d.semester||fresh.semester,academicYear:d.academicYear||fresh.academicYear,
     teacherIds:d.teacherIds||[],teacherLoads:d.teacherLoads||{},teacherStudentLoads:d.teacherStudentLoads||{},
+    teacherStudentHours:d.teacherStudentHours||deriveLegacyStudentHours(d,fresh.lessonTypes),
     teacherStreams:d.teacherStreams||{},
     audienceMode:d.audienceMode==="selected"?"selected":"group",
     selectedStudentIds:[...new Set((d.selectedStudentIds||[]).map(Number).filter(Boolean))],
@@ -1521,8 +1543,27 @@ function deleteStudent(id){
   db.schedule=db.schedule.filter(x=>Number(x.studentId)!==Number(id));
   db.disciplines.forEach(d=>{
     if(Array.isArray(d.selectedStudentIds))d.selectedStudentIds=d.selectedStudentIds.filter(sid=>Number(sid)!==Number(id));
-    Object.values(d.teacherStudentLoads||{}).forEach(byType=>{
-      Object.keys(byType||{}).forEach(typeId=>byType[typeId]=(byType[typeId]||[]).filter(sid=>Number(sid)!==Number(id)));
+    Object.entries(d.teacherStudentLoads||{}).forEach(([tid,byType])=>{
+      Object.keys(byType||{}).forEach(typeId=>{
+        byType[typeId]=(byType[typeId]||[]).filter(sid=>Number(sid)!==Number(id));
+        const lt=lessonTypeById(typeId);
+        if(lt&&isPerStudentTypeId(typeId)&&!isSplitIndividualType(lt)){
+          d.teacherLoads=d.teacherLoads||{};d.teacherLoads[String(tid)]=d.teacherLoads[String(tid)]||{};
+          d.teacherLoads[String(tid)][String(typeId)]=byType[typeId].length*perStudentUnitHours(d,typeId);
+        }
+      });
+    });
+    Object.entries(d.teacherStudentHours||{}).forEach(([tid,byType])=>{
+      Object.entries(byType||{}).forEach(([typeId,byStudent])=>{
+        if(byStudent&&Object.prototype.hasOwnProperty.call(byStudent,String(id)))delete byStudent[String(id)];
+        const lt=lessonTypeById(typeId);
+        if(lt&&isSplitIndividualType(lt)){
+          d.teacherLoads=d.teacherLoads||{};d.teacherLoads[String(tid)]=d.teacherLoads[String(tid)]||{};
+          d.teacherLoads[String(tid)][String(typeId)]=Object.values(byStudent||{}).reduce((a,h)=>a+num(h),0);
+          d.teacherStudentLoads=d.teacherStudentLoads||{};d.teacherStudentLoads[String(tid)]=d.teacherStudentLoads[String(tid)]||{};
+          d.teacherStudentLoads[String(tid)][String(typeId)]=Object.entries(byStudent||{}).filter(([,h])=>num(h)>0).map(([sid])=>Number(sid)).filter(Boolean);
+        }
+      });
     });
   });
   db.schedule.forEach(x=>refreshScheduleAudienceMetadata(x));
@@ -2134,6 +2175,7 @@ function deleteTeacher(id){
     d.teacherIds=(d.teacherIds||[]).filter(x=>Number(x)!==Number(id));
     if(d.teacherLoads){delete d.teacherLoads[id];delete d.teacherLoads[String(id)];}
     if(d.teacherStudentLoads){delete d.teacherStudentLoads[id];delete d.teacherStudentLoads[String(id)];}
+    if(d.teacherStudentHours){delete d.teacherStudentHours[id];delete d.teacherStudentHours[String(id)];}
     if(d.teacherStreams){delete d.teacherStreams[id];delete d.teacherStreams[String(id)];}
   });
   db.schedule=db.schedule.filter(s=>Number(resolvedScheduleTeacherId(s,db))!==Number(id));
@@ -2442,11 +2484,12 @@ function deleteCurriculumComponent(curriculumId,componentId){
 function createLoadFromPlan(curriculumId,componentId,rowId){
   const c=curriculumById(curriculumId),comp=curriculumComponent(c,componentId);ensureCurriculumShape(c);const r=comp?.rows?.find(x=>Number(x.id)===Number(rowId));if(!c||!comp||!r)return;const availableGroups=(c.applicableGroups||[]).filter(g=>db.groups.some(x=>x.code===g));
   openModal(`<h2>Створити дисципліну з робочого плану</h2><div class="notice"><b>${esc(comp.name)}</b> · ${r.semester} семестр · ${esc(r.control)}</div><form id="planLoadForm" class="form-grid"><label class="wide">Для яких груп<select id="plGroups" multiple size="${Math.max(2,availableGroups.length)}">${availableGroups.map(g=>`<option value="${esc(g)}" selected>${esc(g)} · ${groupStudentCount(g)} студентів</option>`).join("")}</select><span class="small">Ctrl/⌘ + клік — вибір окремих груп.</span></label><div class="wide"><b>З плану буде перенесено</b><div class="plan-summary" style="margin-top:8px"><span>Лекції ${fmtHours(r.lecture)}</span><span>Семінари ${fmtHours(r.seminar)}</span><span>Практичні ${fmtHours(r.practical)}</span><span>Лабораторні ${fmtHours(r.laboratory)}</span><span>Індивідуальні ${fmtHours(r.individual)}</span></div></div><div class="wide"><button class="primary">Створити в «Дисципліни / навантаження»</button></div></form>`);
-  $("#planLoadForm").onsubmit=e=>{e.preventDefault();const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);if(!groups.length)return alert("Оберіть хоча б одну групу.");const created=[],skipped=[];groups.forEach(group=>{const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(r.id)&&d.group===group);if(exists){skipped.push(group);return;}db.disciplines.push({id:uid(db.disciplines),name:comp.name,course:c.course,group,programId:c.programId||db.groups.find(g=>g.code===group)?.programId||activeProgramId(),semester:Number(r.semester),academicYear:c.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},audienceMode:"group",selectedStudentIds:[],controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,sourceRowId:r.id,planMeta:{credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly}});created.push(group);});save();closeModal();alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);go("disciplines");};
+  $("#planLoadForm").onsubmit=e=>{e.preventDefault();const groups=[...$("#plGroups").selectedOptions].map(o=>o.value);if(!groups.length)return alert("Оберіть хоча б одну групу.");const created=[],skipped=[];groups.forEach(group=>{const exists=db.disciplines.some(d=>Number(d.sourceCurriculumId)===Number(c.id)&&Number(d.sourceComponentId)===Number(comp.id)&&Number(d.sourceRowId)===Number(r.id)&&d.group===group);if(exists){skipped.push(group);return;}db.disciplines.push({id:uid(db.disciplines),name:comp.name,course:c.course,group,programId:c.programId||db.groups.find(g=>g.code===group)?.programId||activeProgramId(),semester:Number(r.semester),academicYear:c.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},teacherStudentHours:{},audienceMode:"group",selectedStudentIds:[],controlForm:r.control,color:"#8b5cf6",hours:planRowToHours(r),note:"",status:"active",sourceCurriculumId:c.id,sourceComponentId:comp.id,sourceRowId:r.id,planMeta:{credits:r.credits,totalHours:r.totalHours,auditoriumHours:r.auditoriumHours,auditoriumPlanHours:r.auditoriumPlanHours,selfStudy:r.selfStudy,practice:r.practice,weekly:r.weekly}});created.push(group);});save();closeModal();alert(`Створено: ${created.length}${skipped.length?`. Уже існувало: ${skipped.join(", ")}`:""}`);go("disciplines");};
 }
 
 let disciplineExtraDraft=null;
 let disciplineStudentAllocationDraft=null;
+let disciplineStudentHoursDraft=null;
 function disciplineBaseHoursById(d,typeId){return num(d?.hours?.[typeId]);}
 function disciplineExtraHoursById(d,typeId){
   const source=(window.__disciplineDraft===d&&disciplineExtraDraft!==null)?disciplineExtraDraft:(d?.extraHours||{});
@@ -2484,10 +2527,20 @@ function studentAssignmentKeyExists(d,teacherId,typeId){
   return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
 }
 function persistedStudentAssignmentExists(d,teacherId,typeId){
+  const lt=lessonTypeById(typeId);
+  if(isSplitIndividualType(lt)){
+    const byHours=d?.teacherStudentHours?.[String(teacherId)]||d?.teacherStudentHours?.[Number(teacherId)];
+    if(byHours&&Object.prototype.hasOwnProperty.call(byHours,String(typeId)))return true;
+  }
   const byTeacher=d?.teacherStudentLoads?.[String(teacherId)]||d?.teacherStudentLoads?.[Number(teacherId)];
   return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
 }
 function persistedAssignedStudentIds(d,teacherId,typeId){
+  const lt=lessonTypeById(typeId);
+  if(isSplitIndividualType(lt)){
+    const byHours=d?.teacherStudentHours?.[String(teacherId)]||d?.teacherStudentHours?.[Number(teacherId)]||{};
+    if(Object.prototype.hasOwnProperty.call(byHours,String(typeId)))return Object.entries(byHours[String(typeId)]||{}).filter(([,h])=>num(h)>0).map(([sid])=>Number(sid)).filter(Boolean);
+  }
   const byTeacher=d?.teacherStudentLoads?.[String(teacherId)]||d?.teacherStudentLoads?.[Number(teacherId)]||{};
   if(!Object.prototype.hasOwnProperty.call(byTeacher,String(typeId)))return [];
   return [...new Set((byTeacher[String(typeId)]||[]).map(Number).filter(Boolean))];
@@ -2514,6 +2567,10 @@ function legacyPerStudentTarget(d,teacherId,typeId){
 }
 
 function assignedStudentIds(d,teacherId,typeId){
+  const lt=lessonTypeById(typeId);
+  if(window.__disciplineDraft===d&&isSplitIndividualType(lt)&&disciplineStudentHoursDraft!==null&&draftStudentHoursKeyExists(teacherId,typeId)){
+    return Object.entries(disciplineStudentHoursDraft?.[String(teacherId)]?.[String(typeId)]||{}).filter(([,h])=>num(h)>0).map(([sid])=>Number(sid)).filter(Boolean);
+  }
   if(window.__disciplineDraft===d&&disciplineStudentAllocationDraft!==null){
     const byTeacher=disciplineStudentAllocationDraft?.[String(teacherId)]||{};
     if(Object.prototype.hasOwnProperty.call(byTeacher,String(typeId))){
@@ -2561,12 +2618,13 @@ function thesisSupervisorAssignment(d,lt,studentId,currentTeacherId=null){
   return null;
 }
 function studentSupervisorLabel(assignment){const t=assignment?teacherById(assignment.teacherId):null;return t?teacherDisplay(t):"інший викладач";}
-function individualStudentLimit(d,lt){
+function individualStudentLimit(d,t,lt,studentId){
   if(!d||!lt||!isPerStudentTypeId(lt.id))return 0;
+  if(isSplitIndividualType(lt))return assignedStudentHours(d,t?.id,lt.id,studentId);
   return perStudentUnitHours(d,lt.id);
 }
 function individualStudentUsage(d,t,lt,studentId,ignoreId=null){
-  const limit=individualStudentLimit(d,lt);
+  const limit=individualStudentLimit(d,t,lt,studentId);
   const used=scheduledStudentLoad(d.id,t.id,lt.name,studentId,ignoreId);
   return {
     limit,
@@ -3126,6 +3184,49 @@ function cloneStudentAllocationLoads(d){
 
   return out;
 }
+function cloneStudentHourAllocations(d){
+  const out={};
+  Object.entries(d?.teacherStudentHours||{}).forEach(([tid,byType])=>{
+    Object.entries(byType||{}).forEach(([typeId,byStudent])=>{
+      const clean={};
+      Object.entries(byStudent||{}).forEach(([studentId,hours])=>{if(num(hours)>0)clean[String(studentId)]=num(hours);});
+      out[String(tid)]=out[String(tid)]||{};
+      out[String(tid)][String(typeId)]=clean;
+    });
+  });
+  return out;
+}
+function studentHourAllocationSource(d){
+  return (window.__disciplineDraft===d&&disciplineStudentHoursDraft!==null)
+    ?disciplineStudentHoursDraft
+    :(d?.teacherStudentHours||{});
+}
+function studentHourKeyExists(d,teacherId,typeId){
+  const source=studentHourAllocationSource(d),byTeacher=source?.[String(teacherId)]||source?.[Number(teacherId)];
+  return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
+}
+function draftStudentHoursKeyExists(teacherId,typeId){
+  const byTeacher=disciplineStudentHoursDraft?.[String(teacherId)];
+  return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
+}
+function studentHoursMapForTeacher(d,teacherId,typeId){
+  const source=studentHourAllocationSource(d),byTeacher=source?.[String(teacherId)]||source?.[Number(teacherId)]||{};
+  const raw=byTeacher?.[String(typeId)]||{};
+  const out={};Object.entries(raw||{}).forEach(([sid,h])=>{if(num(h)>0)out[String(sid)]=num(h);});return out;
+}
+function assignedStudentHours(d,teacherId,typeId,studentId){return num(studentHoursMapForTeacher(d,teacherId,typeId)?.[String(studentId)]);}
+function totalAssignedStudentHours(d,typeId,studentId,excludeTeacherId=null){
+  const source=studentHourAllocationSource(d);let total=0;
+  Object.entries(source||{}).forEach(([tid,byType])=>{if(excludeTeacherId!==null&&Number(tid)===Number(excludeTeacherId))return;total+=num(byType?.[String(typeId)]?.[String(studentId)]);});
+  return total;
+}
+function totalTeacherStudentHours(d,teacherId,typeId){return Object.values(studentHoursMapForTeacher(d,teacherId,typeId)).reduce((a,h)=>a+num(h),0);}
+function syncStudentIdsFromHourDraft(tid,typeId){
+  if(!disciplineStudentHoursDraft||!disciplineStudentAllocationDraft)return;
+  const map=disciplineStudentHoursDraft?.[String(tid)]?.[String(typeId)]||{};
+  disciplineStudentAllocationDraft[String(tid)]=disciplineStudentAllocationDraft[String(tid)]||{};
+  disciplineStudentAllocationDraft[String(tid)][String(typeId)]=Object.entries(map).filter(([,h])=>num(h)>0).map(([sid])=>Number(sid)).filter(Boolean);
+}
 function draftStudentKeyExists(teacherId,typeId){
   const byTeacher=disciplineStudentAllocationDraft?.[String(teacherId)];
   return !!byTeacher&&Object.prototype.hasOwnProperty.call(byTeacher,String(typeId));
@@ -3135,8 +3236,13 @@ function syncPerStudentAllocationLoads(d){
   Object.keys(disciplineAllocationDraft||{}).forEach(tid=>{
     disciplineAllocationDraft[tid]=disciplineAllocationDraft[tid]||{};
     db.lessonTypes.filter(lt=>isPerStudentTypeId(lt.id)).forEach(lt=>{
-      // Old numeric distributions are kept until the administrator explicitly opens
-      // the student picker and chooses concrete students.
+      if(isSplitIndividualType(lt)){
+        if(!draftStudentHoursKeyExists(tid,lt.id))return;
+        syncStudentIdsFromHourDraft(tid,lt.id);
+        disciplineAllocationDraft[tid][lt.id]=totalTeacherStudentHours(d,tid,lt.id);
+        return;
+      }
+      // Thesis supervision remains exclusive: one student -> one supervisor.
       if(!draftStudentKeyExists(tid,lt.id))return;
       const ids=disciplineStudentAllocationDraft[String(tid)][String(lt.id)]||[];
       disciplineAllocationDraft[tid][lt.id]=ids.length*perStudentUnitHours(d,lt.id);
@@ -3190,10 +3296,12 @@ function perStudentAllocationStatus(d,tid,lt){
   const unit=perStudentUnitHours(d,lt.id);
   const legacyHours=num(disciplineAllocationDraft?.[String(tid)]?.[lt.id]);
   const legacyTarget=legacyPerStudentTarget(d,tid,lt.id);
-  const explicit=persistedStudentAssignmentExists(d,tid,lt.id)||draftStudentKeyExists(tid,lt.id);
+  const split=isSplitIndividualType(lt);
+  const explicit=split?(persistedStudentAssignmentExists(d,tid,lt.id)||draftStudentHoursKeyExists(tid,lt.id)):(persistedStudentAssignmentExists(d,tid,lt.id)||draftStudentKeyExists(tid,lt.id));
   const hints=scheduledHintStudentIds(d,tid,lt.id);
+  const total=split?totalTeacherStudentHours(d,tid,lt.id):ids.length*unit;
   return {
-    ids,count:ids.length,unit,total:ids.length*unit,
+    ids,count:ids.length,unit,total,split,
     groupCount:groupStudentCount(d.group),
     unresolved:!explicit&&legacyHours>0,
     legacyHours,
@@ -3202,7 +3310,20 @@ function perStudentAllocationStatus(d,tid,lt){
     missing:Math.max(0,legacyTarget.count-ids.length)
   };
 }
+function splitIndividualAllocationPickerHtml(d,tid,lt){
+  const unit=perStudentUnitHours(d,lt.id),current=studentHoursMapForTeacher(d,tid,lt.id);
+  return `<div class="student-hour-picker">${studentsForGroup(d.group).map(s=>{
+    const own=num(current[String(s.id)]),other=totalAssignedStudentHours(d,lt.id,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);
+    const max=Math.max(used,Math.max(0,unit-other));
+    const total=other+own,remaining=Math.max(0,unit-total);
+    return `<div class="student-hour-option ${own>0?"active":""}">
+      <div class="student-hour-copy"><b>${esc(s.name)}</b><span>План ${fmtHours(unit)} год · інші викладачі ${fmtHours(other)} · залишок ${fmtHours(remaining)}${used?` · уже в розкладі у цього викладача ${fmtHours(used)}`:""}</span></div>
+      <label><span>цьому викладачу</span><input type="number" min="${fmtHours(used)}" max="${fmtHours(max)}" step="1" value="${esc(own)}" onchange="setSplitIndividualHours(${tid},${lt.id},${s.id},this.value)"></label>
+    </div>`;
+  }).join("")}</div>`;
+}
 function perStudentAllocationPickerHtml(d,tid,lt){
+  if(isSplitIndividualType(lt))return splitIndividualAllocationPickerHtml(d,tid,lt);
   const current=new Set(assignedStudentIds(d,tid,lt.id));
   return `<div class="student-load-picker">${studentsForGroup(d.group).map(s=>{
     const supervision=thesisSupervisorAssignment(d,lt,s.id,tid);
@@ -3226,6 +3347,20 @@ function perStudentAllocationPickerHtml(d,tid,lt){
     </button>`;
   }).join("")}</div>`;
 }
+function setSplitIndividualHours(tid,typeId,studentId,value){
+  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);if(!d||!lt)return;
+  const key=String(tid),typeKey=String(typeId),studentKey=String(studentId),unit=perStudentUnitHours(d,typeId);
+  disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};
+  disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};
+  disciplineStudentHoursDraft[key][typeKey]=disciplineStudentHoursDraft[key][typeKey]||{};
+  const other=totalAssignedStudentHours(d,typeId,studentId,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,studentId);
+  const max=Math.max(used,Math.max(0,unit-other)),requested=num(value);
+  if(requested>max+.001){alert(`Цьому студенту можна дати цьому викладачу максимум ${fmtHours(max)} год. Загальний план на студента — ${fmtHours(unit)} год.`);disciplineStudentHoursDraft[key][typeKey][studentKey]=Math.max(used,Math.min(max,num(disciplineStudentHoursDraft[key][typeKey][studentKey])));}
+  else if(requested+0.001<used){alert(`Не можна зменшити нижче ${fmtHours(used)} год: стільки вже виставлено цьому студенту в розкладі.`);disciplineStudentHoursDraft[key][typeKey][studentKey]=used;}
+  else if(requested>0)disciplineStudentHoursDraft[key][typeKey][studentKey]=requested;
+  else delete disciplineStudentHoursDraft[key][typeKey][studentKey];
+  syncStudentIdsFromHourDraft(tid,typeId);syncPerStudentAllocationLoads(d);refreshPerStudentPopup(tid,typeId);
+}
 function openPerStudentAllocationPopup(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
   const lt=lessonTypeById(typeId),t=teacherById(Number(tid));
@@ -3238,10 +3373,21 @@ function openPerStudentAllocationPopup(tid,typeId){
 
   disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
   disciplineStudentAllocationDraft[String(tid)]=disciplineStudentAllocationDraft[String(tid)]||{};
+  disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};
+  disciplineStudentHoursDraft[String(tid)]=disciplineStudentHoursDraft[String(tid)]||{};
 
-  // First opening: existing appointments are only a useful preselection.
-  // The administrator still sees the ENTIRE group and completes the assignment.
-  if(!Object.prototype.hasOwnProperty.call(disciplineStudentAllocationDraft[String(tid)],String(typeId))){
+  if(isSplitIndividualType(lt)){
+    if(!Object.prototype.hasOwnProperty.call(disciplineStudentHoursDraft[String(tid)],String(typeId))){
+      const existingHours=studentHoursMapForTeacher(d,tid,typeId),map={...existingHours};
+      if(!Object.keys(map).length){
+        const unit=perStudentUnitHours(d,typeId);
+        scheduledHintStudentIds(d,tid,typeId).forEach(studentId=>{const used=scheduledStudentLoad(d.id,Number(tid),lt.name,studentId);if(used>0)map[String(studentId)]=Math.min(unit,used);});
+      }
+      disciplineStudentHoursDraft[String(tid)][String(typeId)]=map;
+      syncStudentIdsFromHourDraft(tid,typeId);
+    }
+  }else if(!Object.prototype.hasOwnProperty.call(disciplineStudentAllocationDraft[String(tid)],String(typeId))){
+    // Thesis supervision: existing appointments are a useful preselection, but the final assignment stays exclusive.
     disciplineStudentAllocationDraft[String(tid)][String(typeId)]=scheduledHintStudentIds(d,tid,typeId);
   }
 
@@ -3255,25 +3401,27 @@ function openPerStudentAllocationPopup(tid,typeId){
       </div>
       <div class="student-load-formula">
         <b>${fmtHours(s.unit)} год</b>
-        <span>на одного студента</span>
+        <span>${s.split?"план на одного студента":"на одного студента"}</span>
       </div>
     </div>
 
     <div class="student-load-popup-tools">
       <div><b id="studentLoadSelectedCount">${s.count}</b><span>обрано з ${s.groupCount}</span></div>
       <div><b id="studentLoadTotalHours">${fmtHours(s.total)} год</b><span>навантаження викладача</span></div>
-      <button type="button" class="secondary" onclick="selectAllAvailablePerStudent(${tid},${typeId})">Обрати всіх вільних</button>
+      <button type="button" class="secondary" onclick="selectAllAvailablePerStudent(${tid},${typeId})">${s.split?"Взяти весь вільний залишок":"Обрати всіх вільних"}</button>
       <button type="button" class="secondary" onclick="clearPerStudentAllocation(${tid},${typeId})">Очистити</button>
     </div>
 
     ${s.legacyHours>0?`<div class="student-load-target" id="studentLoadTarget">
       <div>
         <span>ПОПЕРЕДНЄ НАВАНТАЖЕННЯ</span>
-        <b>${fmtHours(s.legacyHours)} год = приблизно ${s.targetCount} студент(ів)</b>
+        <b>${s.split?`${fmtHours(s.legacyHours)} год треба розкласти між студентами`:`${fmtHours(s.legacyHours)} год = приблизно ${s.targetCount} студент(ів)`}</b>
       </div>
-      <p>${s.hintCount
-        ?`Із уже створеного розкладу я знайшов ${s.hintCount} студент(ів) і попередньо відмітив їх. Це <b>не весь список</b> — перевір і закріпи всіх потрібних.`
-        :`Тепер ці години треба розкласти на конкретних студентів. Вибери тих, за кого відповідає цей викладач.`}</p>
+      <p>${s.split
+        ?`Раніше було збережено лише загальну кількість годин викладача. Тепер вкажи, скільки годин він має у кожного студента; одного студента можна поділити між кількома викладачами.`
+        :s.hintCount
+          ?`Із уже створеного розкладу я знайшов ${s.hintCount} студент(ів) і попередньо відмітив їх. Це <b>не весь список</b> — перевір і закріпи всіх потрібних.`
+          :`Тепер ці години треба розкласти на конкретних студентів. Вибери тих, за кого відповідає цей викладач.`}</p>
     </div>`:""}
 
     <div id="studentLoadPicker">${perStudentAllocationPickerHtml(d,tid,lt)}</div>
@@ -3295,9 +3443,11 @@ function refreshPerStudentPopup(tid,typeId){
   const target=$("#studentLoadTarget");
   if(target&&s.legacyHours>0){
     const p=target.querySelector("p");
-    if(p)p.innerHTML=s.missing
-      ?`За старим розподілом орієнтир — ${s.targetCount} студент(ів). Зараз обрано ${s.count}; залишилось вибрати ще <b>${s.missing}</b>.`
-      :`Зараз обрано ${s.count} студент(ів) = <b>${fmtHours(s.total)} год</b>. Можна зберігати або змінити склад.`;
+    if(p)p.innerHTML=s.split
+      ?`Зараз цьому викладачу розподілено <b>${fmtHours(s.total)} год</b> між ${s.count} студент(ами). Попередньо було ${fmtHours(s.legacyHours)} год.`
+      :s.missing
+        ?`За старим розподілом орієнтир — ${s.targetCount} студент(ів). Зараз обрано ${s.count}; залишилось вибрати ще <b>${s.missing}</b>.`
+        :`Зараз обрано ${s.count} студент(ів) = <b>${fmtHours(s.total)} год</b>. Можна зберігати або змінити склад.`;
   }
 }
 function togglePerStudentAllocation(tid,typeId,studentId){
@@ -3324,9 +3474,14 @@ function togglePerStudentAllocation(tid,typeId,studentId){
 function selectAllAvailablePerStudent(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
   if(!d)return;
-  const key=String(tid),typeKey=String(typeId);
+  const key=String(tid),typeKey=String(typeId),lt=lessonTypeById(typeId);
+  if(isSplitIndividualType(lt)){
+    disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};disciplineStudentHoursDraft[key][typeKey]=disciplineStudentHoursDraft[key][typeKey]||{};
+    const map=disciplineStudentHoursDraft[key][typeKey],unit=perStudentUnitHours(d,typeId);
+    studentsForGroup(d.group).forEach(s=>{const other=totalAssignedStudentHours(d,typeId,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id),max=Math.max(used,Math.max(0,unit-other));if(max>0)map[String(s.id)]=max;else delete map[String(s.id)];});
+    syncStudentIdsFromHourDraft(tid,typeId);syncPerStudentAllocationLoads(d);refreshPerStudentPopup(tid,typeId);return;
+  }
   const arr=new Set(disciplineStudentAllocationDraft[key][typeKey]||[]);
-  const lt=lessonTypeById(typeId);
   studentsForGroup(d.group).forEach(s=>{
     if(!assignedStudentTeacherId(d,typeId,s.id,tid)&&!thesisSupervisorAssignment(d,lt,s.id,tid))arr.add(Number(s.id));
   });
@@ -3337,6 +3492,13 @@ function selectAllAvailablePerStudent(tid,typeId){
 function clearPerStudentAllocation(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
   if(!d||!lt)return;
+  if(isSplitIndividualType(lt)){
+    const key=String(tid),typeKey=String(typeId),map={};let locked=0;
+    studentsForGroup(d.group).forEach(s=>{const used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);if(used>0){map[String(s.id)]=used;locked++;}});
+    disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};disciplineStudentHoursDraft[key][typeKey]=map;
+    syncStudentIdsFromHourDraft(tid,typeId);syncPerStudentAllocationLoads(d);refreshPerStudentPopup(tid,typeId);
+    if(locked)alert(`${locked} студент(ів) залишено з мінімальними годинами, бо для них уже є заняття в розкладі.`);return;
+  }
   const locked=assignedStudentIds(d,tid,typeId)
     .filter(sid=>scheduledStudentLoad(d.id,Number(tid),lt.name,sid)>0);
   disciplineStudentAllocationDraft[String(tid)][String(typeId)]=locked;
@@ -3353,26 +3515,29 @@ function applyPerStudentAllocation(tid,typeId){
 }
 function perStudentAllocationFieldHtml(d,tid,lt){
   const s=perStudentAllocationStatus(d,tid,lt);
-  const persisted=persistedAssignedStudentIds(d,tid,lt.id);
-  const names=persisted
-    .map(id=>db.students.find(x=>Number(x.id)===Number(id))?.name)
+  const currentIds=assignedStudentIds(d,tid,lt.id);
+  const hourMap=isSplitIndividualType(lt)?studentHoursMapForTeacher(d,tid,lt.id):{};
+  const names=currentIds
+    .map(id=>{const name=db.students.find(x=>Number(x.id)===Number(id))?.name;if(!name)return null;return {name,hours:num(hourMap[String(id)])};})
     .filter(Boolean);
 
   return `<div class="per-student-allocation-card ${s.unresolved?"unresolved":""}">
     <div class="per-student-allocation-copy">
       <b>${esc(lt.name)}</b>
       ${s.unresolved
-        ?`<span><strong>${fmtHours(s.legacyHours)} год</strong> зі старого розподілу ≈ ${s.targetCount} студент(ів)</span><small>Потрібно один раз закріпити конкретних студентів за цим викладачем.</small>`
-        :`<span>${fmtHours(s.unit)} год × ${s.count} студентів = <strong>${fmtHours(s.total)} год</strong></span><small>${s.count?`${s.count} із ${s.groupCount} студентів закріплено`:"Студентів ще не закріплено"}</small>`}
+        ?`<span><strong>${fmtHours(s.legacyHours)} год</strong> зі старого розподілу</span><small>Потрібно один раз розкласти години на конкретних студентів.</small>`
+        :s.split
+          ?`<span>${s.count} студентів · <strong>${fmtHours(s.total)} год</strong> цьому викладачу</span><small>Години одного студента можна ділити між кількома викладачами. План на студента: ${fmtHours(s.unit)} год.</small>`
+          :`<span>${fmtHours(s.unit)} год × ${s.count} студентів = <strong>${fmtHours(s.total)} год</strong></span><small>${s.count?`${s.count} із ${s.groupCount} студентів закріплено`:"Студентів ще не закріплено"}</small>`}
     </div>
 
     ${names.length?`<div class="per-student-assigned-preview">
-      <span>ЗАКРІПЛЕНІ</span>
-      <div>${names.slice(0,5).map(n=>`<b>${esc(n)}</b>`).join("")}${names.length>5?`<strong>+${names.length-5}</strong>`:""}</div>
+      <span>${s.split?"РОЗПОДІЛ ГОДИН":"ЗАКРІПЛЕНІ"}</span>
+      <div>${names.slice(0,5).map(n=>`<b>${esc(n.name)}${s.split?` · ${fmtHours(n.hours)} год`:""}</b>`).join("")}${names.length>5?`<strong>+${names.length-5}</strong>`:""}</div>
     </div>`:""}
 
     <button type="button" class="${s.unresolved?"primary":"secondary"}" onclick="openPerStudentAllocationPopup(${tid},${lt.id})">
-      ${s.unresolved?"Закріпити студентів":s.count?"Змінити студентів":"Обрати студентів"}
+      ${s.unresolved?(s.split?"Розподілити години":"Закріпити студентів"):s.count?(s.split?"Змінити години":"Змінити студентів"):(s.split?"Розподілити години":"Обрати студентів")}
     </button>
   </div>`;
 }
@@ -3502,6 +3667,8 @@ function addAllocationTeacher(){
   disciplineAllocationDraft[String(tid)]={};db.lessonTypes.forEach(lt=>disciplineAllocationDraft[String(tid)][lt.id]=0);
   disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
   disciplineStudentAllocationDraft[String(tid)]=disciplineStudentAllocationDraft[String(tid)]||{};
+  disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};
+  disciplineStudentHoursDraft[String(tid)]=disciplineStudentHoursDraft[String(tid)]||{};
   renderAllocationEditor(disciplineById(disciplineAllocationId)||window.__disciplineDraft);
 }
 function removeAllocationTeacher(tid){
@@ -3510,7 +3677,7 @@ function removeAllocationTeacher(tid){
   const scheduled=db.lessonTypes.reduce((a,lt)=>a+scheduledLoad(d.id,Number(tid),lt.name),0);
   if(scheduled>0)return alert(`Цього викладача не можна прибрати: у розкладі вже виставлено ${fmtHours(scheduled)} год. Спочатку перенеси або видали ці заняття.`);
   const streams=db.lessonTypes.map(lt=>draftTeacherStreamForType(d,tid,lt.id)).filter(Boolean);if(streams.length)return alert(`Цей викладач має потокове навантаження. Спочатку відкрий відповідний вид занять і поверни його в режим «Окремо».`);
-  delete disciplineAllocationDraft[String(tid)];if(disciplineStudentAllocationDraft)delete disciplineStudentAllocationDraft[String(tid)];renderAllocationEditor(d);
+  delete disciplineAllocationDraft[String(tid)];if(disciplineStudentAllocationDraft)delete disciplineStudentAllocationDraft[String(tid)];if(disciplineStudentHoursDraft)delete disciplineStudentHoursDraft[String(tid)];renderAllocationEditor(d);
 }
 function fillTeacherWithRemaining(tid){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;if(!d)return;
@@ -3520,11 +3687,16 @@ function fillTeacherWithRemaining(tid){
     if(isPerStudentTypeId(lt.id)){
       disciplineStudentAllocationDraft=disciplineStudentAllocationDraft||{};
       disciplineStudentAllocationDraft[key]=disciplineStudentAllocationDraft[key]||{};
-      const selected=new Set(disciplineStudentAllocationDraft[key][String(lt.id)]||[]);
-      studentsForGroup(d.group).forEach(s=>{
-        if(!assignedStudentTeacherId(d,lt.id,s.id,tid))selected.add(Number(s.id));
-      });
-      disciplineStudentAllocationDraft[key][String(lt.id)]=[...selected];
+      if(isSplitIndividualType(lt)){
+        disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};disciplineStudentHoursDraft[key][String(lt.id)]=disciplineStudentHoursDraft[key][String(lt.id)]||{};
+        const map=disciplineStudentHoursDraft[key][String(lt.id)],unit=perStudentUnitHours(d,lt.id);
+        studentsForGroup(d.group).forEach(s=>{const other=totalAssignedStudentHours(d,lt.id,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id),max=Math.max(used,Math.max(0,unit-other));if(max>0)map[String(s.id)]=max;});
+        syncStudentIdsFromHourDraft(tid,lt.id);
+      }else{
+        const selected=new Set(disciplineStudentAllocationDraft[key][String(lt.id)]||[]);
+        studentsForGroup(d.group).forEach(s=>{if(!assignedStudentTeacherId(d,lt.id,s.id,tid))selected.add(Number(s.id));});
+        disciplineStudentAllocationDraft[key][String(lt.id)]=[...selected];
+      }
       return;
     }
     const other=allocationDraftTotal(lt.id,key),plan=disciplineTotalHoursById(d,lt.id),alreadyScheduled=scheduledLoad(d.id,Number(tid),lt.name);
@@ -3538,23 +3710,35 @@ function validateAllocationDraft(d){
   const errors=[];
 
   db.lessonTypes.filter(lt=>isPerStudentTypeId(lt.id)).forEach(lt=>{
+    if(isSplitIndividualType(lt)){
+      Object.entries(disciplineAllocationDraft||{}).forEach(([tid,load])=>{
+        if(num(load?.[lt.id])>0&&!draftStudentHoursKeyExists(tid,lt.id))errors.push(`${teacherDisplay(teacherById(Number(tid)))} · ${lt.name}: години розподілені, але не вказано, скільки годин припадає на конкретних студентів.`);
+      });
+      const unit=perStudentUnitHours(d,lt.id);
+      studentsForGroup(d.group).forEach(student=>{
+        const total=totalAssignedStudentHours(d,lt.id,student.id);
+        if(total>unit+.001)errors.push(`${lt.name}: студент ${student.name} має ${fmtHours(total)} год при плані ${fmtHours(unit)} год.`);
+      });
+      Object.entries(disciplineStudentHoursDraft||{}).forEach(([tid,byType])=>{
+        Object.entries(byType?.[String(lt.id)]||{}).forEach(([studentId,hours])=>{
+          const used=scheduledStudentLoad(d.id,Number(tid),lt.name,Number(studentId));
+          if(num(hours)+.001<used){const st=db.students.find(x=>Number(x.id)===Number(studentId));errors.push(`${teacherDisplay(teacherById(Number(tid)))} · ${st?.name||studentId}: у розкладі вже ${fmtHours(used)} год, тому індивідуальне навантаження не можна зменшити до ${fmtHours(hours)}.`);}
+        });
+      });
+      return;
+    }
+    // Qualification papers remain exclusive: one student can have only one supervisor.
     const seen=new Map();
-
     Object.entries(disciplineAllocationDraft||{}).forEach(([tid,load])=>{
-      if(num(load?.[lt.id])>0&&!draftStudentKeyExists(tid,lt.id)){
-        errors.push(`${teacherDisplay(teacherById(Number(tid)))} · ${lt.name}: години розподілені, але не вказані конкретні студенти.`);
-      }
+      if(num(load?.[lt.id])>0&&!draftStudentKeyExists(tid,lt.id))errors.push(`${teacherDisplay(teacherById(Number(tid)))} · ${lt.name}: години розподілені, але не вказані конкретні студенти.`);
     });
-
     Object.entries(disciplineStudentAllocationDraft||{}).forEach(([tid,byType])=>{
       (byType?.[String(lt.id)]||[]).forEach(studentId=>{
         const old=seen.get(Number(studentId));
         if(old&&Number(old)!==Number(tid)){
-          const s=db.students.find(x=>Number(x.id)===Number(studentId));
-          errors.push(`${lt.name}: студент ${s?.name||studentId} закріплений одразу за двома викладачами.`);
-        }else{
-          seen.set(Number(studentId),Number(tid));
-        }
+          const st=db.students.find(x=>Number(x.id)===Number(studentId));
+          errors.push(`${lt.name}: студент ${st?.name||studentId} закріплений одразу за двома викладачами.`);
+        }else seen.set(Number(studentId),Number(tid));
       });
     });
   });
@@ -3571,10 +3755,11 @@ function validateAllocationDraft(d){
   return errors;
 }
 function openDisciplineModal(id=null){
-  const d=id?disciplineById(id):{id:null,name:"",course:"",group:"",semester:db.semester,academicYear:db.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},audienceMode:"group",selectedStudentIds:[],controlForm:"Немає",color:"#8b5cf6",hours:{},note:"",status:"active"};
+  const d=id?disciplineById(id):{id:null,name:"",course:"",group:"",semester:db.semester,academicYear:db.academicYear,teacherIds:[],teacherLoads:{},teacherStudentLoads:{},teacherStudentHours:{},audienceMode:"group",selectedStudentIds:[],controlForm:"Немає",color:"#8b5cf6",hours:{},note:"",status:"active"};
   const fromPlan=!!d.sourceCurriculumId,lock=fromPlan?'disabled':'',ro=fromPlan?'readonly':'';
   disciplineAllocationId=id;window.__disciplineDraft=d;disciplineAllocationDraft=cloneAllocationLoads(d);
   disciplineStudentAllocationDraft=cloneStudentAllocationLoads(d);
+  disciplineStudentHoursDraft=cloneStudentHourAllocations(d);
   disciplineExtraDraft=clone(d.extraHours||{});
   disciplineStreamDraft=cloneTeacherStreams(d);disciplinePeerLoadDraft={};disciplinePeerStreamDraft={};
   syncPerStudentAllocationLoads(d);
@@ -3627,13 +3812,17 @@ function openDisciplineModal(id=null){
       if(Object.keys(clean).length)teacherStudentLoads[tid]=clean;
     });
 
+    const teacherStudentHours={};
+    Object.entries(disciplineStudentHoursDraft||{}).forEach(([tid,byType])=>{
+      const cleanTypes={};Object.entries(byType||{}).forEach(([typeId,byStudent])=>{const clean={};Object.entries(byStudent||{}).forEach(([sid,h])=>{if(num(h)>0)clean[String(sid)]=num(h);});if(Object.keys(clean).length||draftStudentHoursKeyExists(tid,typeId))cleanTypes[String(typeId)]=clean;});if(Object.keys(cleanTypes).length)teacherStudentHours[String(tid)]=cleanTypes;
+    });
     const extraHours={};Object.entries(disciplineExtraDraft||{}).forEach(([k,v])=>{if(num(v)>0)extraHours[k]=num(v);});
     const obj=fromPlan
-      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
-      :{name:$("#dn").value.trim(),group:$("#dg").value,programId:db.groups.find(g=>g.code===$("#dg").value)?.programId||activeProgramId(),course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
+      ?{teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStudentHours,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
+      :{name:$("#dn").value.trim(),group:$("#dg").value,programId:db.groups.find(g=>g.code===$("#dg").value)?.programId||activeProgramId(),course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStudentHours,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
     if(id)Object.assign(d,obj);else db.disciplines.push({id:uid(db.disciplines),...obj});
     applyPeerAllocationDrafts();
-    disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineExtraDraft=null;disciplineStreamDraft=null;disciplinePeerLoadDraft={};disciplinePeerStreamDraft={};delete window.__disciplineDraft;closeModal();save();
+    disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineStudentHoursDraft=null;disciplineExtraDraft=null;disciplineStreamDraft=null;disciplinePeerLoadDraft={};disciplinePeerStreamDraft={};delete window.__disciplineDraft;closeModal();save();
   };
 }
 
@@ -3675,7 +3864,7 @@ function deleteDiscipline(id){
    Individual + consultation schedules
    ================================================================ */
 const SPECIAL_SCHEDULE_KINDS=[
-  {id:"individual",label:"Індивідуальні заняття",short:"Індивідуальні",description:"Окремий студент · 1 академічна година · половина пари"},
+  {id:"individual",label:"Індивідуальні заняття",short:"Індивідуальні",description:"Години одного студента можна ділити між кількома викладачами · 1 запис = 1 академічна година"},
   {id:"consult_bachelor",label:"Керівництво бакалаврськими роботами",short:"Бакалаврські роботи",description:"Лише студенти 4 курсу · один студент має одного керівника · один викладач може керувати кількома студентами"},
   {id:"consult_master",label:"Керівництво магістерськими роботами",short:"Магістерські роботи",description:"Лише студенти магістратури · один студент має одного керівника · один викладач може керувати кількома студентами"}
 ];
@@ -3688,6 +3877,10 @@ function isConsultationType(lt){return normIdentity(lt?.name||"").includes("ко
 function isBachelorThesisType(lt){return normIdentity(lt?.name||"")===normIdentity("Керівництво бакалаврською роботою");}
 function isMasterThesisType(lt){return normIdentity(lt?.name||"")===normIdentity("Керівництво магістерською роботою");}
 function thesisKindForType(lt){return isBachelorThesisType(lt)?"consult_bachelor":isMasterThesisType(lt)?"consult_master":"";}
+function isSplitIndividualType(lt){
+  if(!lt)return false;
+  return isPerStudentTypeId(lt.id)&&!thesisKindForType(lt)&&!isConsultationType(lt);
+}
 function thesisTypeApplicable(d,lt){
   const kind=thesisKindForType(lt);if(!kind)return true;
   const course=Number(d?.course||groupCourse(d?.group)||0),pid=disciplineProgramId(d);
@@ -3775,6 +3968,7 @@ function beginDirectStudentAssignment(disciplineId,teacherId,typeId){
   window.__disciplineDraft=d;
   disciplineAllocationDraft=cloneAllocationLoads(d);
   disciplineStudentAllocationDraft=cloneStudentAllocationLoads(d);
+  disciplineStudentHoursDraft=cloneStudentHourAllocations(d);
   disciplineExtraDraft=clone(d.extraHours||{});
 
   window.__directStudentAssignment={
@@ -3809,13 +4003,21 @@ function saveDirectStudentAssignment(tid,typeId){
     });
   });
 
+  const teacherStudentHours={...clone(d.teacherStudentHours||{})};
+  Object.entries(disciplineStudentHoursDraft||{}).forEach(([teacherId,byType])=>{
+    teacherStudentHours[String(teacherId)]=teacherStudentHours[String(teacherId)]||{};
+    Object.entries(byType||{}).forEach(([ltId,byStudent])=>{const clean={};Object.entries(byStudent||{}).forEach(([sid,h])=>{if(num(h)>0)clean[String(sid)]=num(h);});teacherStudentHours[String(teacherId)][String(ltId)]=clean;});
+  });
+
   d.teacherLoads=teacherLoads;
   d.teacherStudentLoads=teacherStudentLoads;
+  d.teacherStudentHours=teacherStudentHours;
   d.teacherIds=[...new Set([...(d.teacherIds||[]).map(Number),...ids])];
 
   disciplineAllocationId=null;
   disciplineAllocationDraft={};
   disciplineStudentAllocationDraft=null;
+  disciplineStudentHoursDraft=null;
   disciplineExtraDraft=null;
   delete window.__disciplineDraft;
   delete window.__directStudentAssignment;
@@ -3833,6 +4035,8 @@ function specialLoadCardHtml(x){
   const hintCount=perStudent?scheduledHintStudentIds(x.d,x.t.id,x.lt.id).length:0;
   const legacyTarget=perStudent?legacyPerStudentTarget(x.d,x.t.id,x.lt.id):{count:0,hours:0};
   const unit=perStudent?perStudentUnitHours(x.d,x.lt.id):0;
+  const split=perStudent&&isSplitIndividualType(x.lt);
+  const assignedHours=split?totalTeacherStudentHours(x.d,x.t.id,x.lt.id):assigned*unit;
 
   return `<article class="special-load-card ${done?"done":""} ${!resolved?"needs-students":""}" style="${scheduleColorVars({group:x.d.group,discipline:x.d.name})}">
     <div class="special-load-card-head">
@@ -3844,10 +4048,10 @@ function specialLoadCardHtml(x){
 
     ${perStudent
       ?resolved
-        ?`<div class="special-student-formula"><b>${assigned} студентів</b><span>× ${fmtHours(unit)} год = ${fmtHours(x.planned)} год навантаження</span></div>`
+        ?`<div class="special-student-formula"><b>${assigned} студентів</b><span>${split?`${fmtHours(assignedHours)} год розподілено між ними`:`× ${fmtHours(unit)} год = ${fmtHours(x.planned)} год навантаження`}</span></div>`
         :`<div class="special-assignment-warning">
-            <b>Спочатку закріпи студентів</b>
-            <span>${legacyTarget.hours?`Попереднє навантаження ${fmtHours(legacyTarget.hours)} год ≈ ${legacyTarget.count} студент(ів).`:""} ${hintCount?`У старому розкладі вже знайдено ${hintCount} студент(ів) — вони будуть попередньо відмічені.`:""}</span>
+            <b>${split?"Спочатку розподіли години між студентами":"Спочатку закріпи студентів"}</b>
+            <span>${legacyTarget.hours?`Попереднє навантаження ${fmtHours(legacyTarget.hours)} год${split?"":` ≈ ${legacyTarget.count} студент(ів)`}.`:""} ${hintCount?`У старому розкладі вже знайдено ${hintCount} студент(ів).`:""}</span>
           </div>`
       :""}
 
@@ -3857,7 +4061,7 @@ function specialLoadCardHtml(x){
     </div>
 
     ${!resolved
-      ?`<button class="primary" onclick="beginDirectStudentAssignment(${x.d.id},${x.t.id},${x.lt.id})">Закріпити студентів</button>`
+      ?`<button class="primary" onclick="beginDirectStudentAssignment(${x.d.id},${x.t.id},${x.lt.id})">${split?"Розподілити години":"Закріпити студентів"}</button>`
       :`<button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати студенту"}</button>`}
   </article>`;
 }
@@ -3911,7 +4115,7 @@ function renderSpecialSchedule(){
 
   $("#page-specialSchedule").innerHTML=`<div class="special-schedule-page">
     <div class="special-hero">
-      <div><span>${activeProgramId()==="master"?"МАГІСТРАТУРА":"ОКРЕМІ РОЗКЛАДИ"}</span><h2>${activeProgramId()==="master"?"Магістерські роботи":"Індивідуальні / бакалаврські роботи"}</h2><p>${kind==="individual"?`Тут працюємо не парами, а академічними годинами: <b>1 запис = половина пари = 1 академічна година на одного студента.</b>`:`<b>Один студент → один керівник.</b> Один викладач може керувати кількома студентами. Години керівництва входять у педагогічне навантаження викладача.`}</p></div>
+      <div><span>${activeProgramId()==="master"?"МАГІСТРАТУРА":"ОКРЕМІ РОЗКЛАДИ"}</span><h2>${activeProgramId()==="master"?"Магістерські роботи":"Індивідуальні / бакалаврські роботи"}</h2><p>${kind==="individual"?`Тут працюємо не парами, а академічними годинами: <b>1 запис = половина пари = 1 академічна година.</b> Планові години одного студента можна розподілити між кількома викладачами.`:`<b>Один студент → один керівник.</b> Один викладач може керувати кількома студентами. Години керівництва входять у педагогічне навантаження викладача.`}</p></div>
       <div class="special-hero-kpi"><b>${fmtHours(remaining)}</b><span>годин залишилось у вибраному режимі / групі</span></div>
     </div>
 
@@ -4070,7 +4274,7 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
         <span>${editing?"РЕДАГУВАННЯ · ":""}${esc(specialKindMeta(specialScheduleState.kind).label)}</span>
         <h2>${esc(d.name)}</h2>
         <strong>${esc(teacherDisplay(t))}</strong>
-        <p>${esc(d.group)} · ${esc(lt.name)} · ${editing?"редагуємо існуючий запис":`залишок викладача ${fmtHours(remaining)} год`}${isPerStudentTypeId(lt.id)?` · <b>${fmtHours(perStudentUnitHours(d,lt.id))} год = максимум ${fmtHours(perStudentUnitHours(d,lt.id))} ${personalMeetingLabel(lt)} на кожного студента</b>`:""}</p>
+        <p>${esc(d.group)} · ${esc(lt.name)} · ${editing?"редагуємо існуючий запис":`залишок викладача ${fmtHours(remaining)} год`}${isPerStudentTypeId(lt.id)?(isSplitIndividualType(lt)?` · <b>план на студента ${fmtHours(perStudentUnitHours(d,lt.id))} год; цьому викладачу — за вашим розподілом</b>`:` · <b>${fmtHours(perStudentUnitHours(d,lt.id))} год = максимум ${fmtHours(perStudentUnitHours(d,lt.id))} ${personalMeetingLabel(lt)} на кожного студента</b>`):""}</p>
       </div>
       <div class="special-one-hour"><b>1</b><span>академічна година</span><small>= ½ пари</small></div>
     </div>
@@ -4169,7 +4373,7 @@ function saveSpecialScheduleEvent(e,d,t,lt,editId=null){
       return alert("Для цього студента в навчальному плані не передбачено індивідуальних годин.");
     }
     if(usage.used+1>usage.limit+.001){
-      return alert(`Ліміт вичерпано. За планом цьому студенту передбачено ${fmtHours(usage.limit)} год = максимум ${fmtHours(usage.limit)} ${personalMeetingLabel(lt)}. Уже виставлено ${fmtHours(usage.used)}.`);
+      return alert(`Ліміт цього викладача для студента вичерпано. Йому розподілено ${fmtHours(usage.limit)} год, уже виставлено ${fmtHours(usage.used)}.`);
     }
   }
 

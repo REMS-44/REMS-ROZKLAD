@@ -7481,3 +7481,48 @@ td .small{font-size:12px}
 .room-event-external{background:#f3f4f6;border-left:4px solid #9ca3af;cursor:default;color:#374151}
 .room-event-external .room-event-badge{color:#6b7280!important}
 .room-event-external b{color:#374151}
+
+/* v2.0.9 · split individual hours between several teachers */
+.student-hour-picker{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+  gap:8px;
+  max-height:56vh;
+  overflow:auto;
+  padding:2px;
+}
+.student-hour-option{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 118px;
+  gap:12px;
+  align-items:center;
+  min-height:72px;
+  padding:10px 12px;
+  border:1px solid #ded7e2;
+  border-radius:11px;
+  background:#fff;
+}
+.student-hour-option.active{
+  border-color:#34896d;
+  background:#f1faf6;
+  box-shadow:inset 0 0 0 1px #34896d;
+}
+.student-hour-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.student-hour-copy b{font-size:12px;color:#44364c}
+.student-hour-copy span{font-size:9px;line-height:1.4;color:#756b7b}
+.student-hour-option label{display:flex;flex-direction:column;gap:4px;margin:0!important}
+.student-hour-option label span{font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.35px;color:#5f756c}
+.student-hour-option input{
+  width:100%;
+  min-height:38px;
+  padding:7px 8px;
+  border:1px solid #bcd5cb;
+  border-radius:8px;
+  background:#fff;
+  font-weight:800;
+  color:#276b55;
+}
+@media(max-width:700px){
+  .student-hour-picker{grid-template-columns:1fr}
+  .student-hour-option{grid-template-columns:minmax(0,1fr) 105px}
+}
