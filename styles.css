@@ -7526,3 +7526,41 @@ td .small{font-size:12px}
   .student-hour-picker{grid-template-columns:1fr}
   .student-hour-option{grid-template-columns:minmax(0,1fr) 105px}
 }
+
+
+/* v2.0.10 · bulk equal hours for selected individual students */
+.student-hour-option{grid-template-columns:76px minmax(0,1fr) 118px}
+.student-hour-option.bulk-selected{outline:2px solid rgba(52,137,109,.28);outline-offset:-2px}
+.student-hour-select{
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:center;
+  justify-content:flex-start;
+  gap:7px!important;
+  padding:7px 8px;
+  border-radius:8px;
+  background:#f5f8f7;
+  cursor:pointer;
+}
+.student-hour-select input{width:16px!important;min-height:16px!important;height:16px;margin:0;padding:0}
+.student-hour-select span{font-size:8px!important;color:#49685c!important}
+.student-hour-bulk-tools{
+  display:grid;
+  grid-template-columns:minmax(210px,1.3fr) 130px auto auto auto;
+  gap:8px;
+  align-items:stretch;
+  padding:10px;
+  border:1px solid #cfe2da;
+  border-radius:12px;
+  background:#f5faf8;
+}
+.student-hour-bulk-copy{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 4px}
+.student-hour-bulk-copy>span{font-size:8px;font-weight:900;letter-spacing:.7px;color:#3d7e67}
+.student-hour-bulk-copy>b{font-size:13px;color:#2e5749}
+.student-hour-bulk-copy small{font-size:9px;line-height:1.35;color:#6c7f77}
+.student-hour-bulk-tools label{display:flex;flex-direction:column;justify-content:center;gap:4px;margin:0!important}
+.student-hour-bulk-tools label span{font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.35px;color:#5f756c}
+.student-hour-bulk-tools input{min-height:42px;border:1px solid #bcd5cb;border-radius:8px;padding:7px 9px;font-weight:800;color:#276b55;background:#fff}
+.student-hour-bulk-tools button{min-height:52px;white-space:nowrap}
+@media(max-width:1050px){.student-hour-bulk-tools{grid-template-columns:1fr 130px 1fr}.student-hour-bulk-tools button:nth-last-child(-n+2){min-height:42px}.student-hour-option{grid-template-columns:72px minmax(0,1fr) 110px}}
+@media(max-width:700px){.student-hour-bulk-tools{grid-template-columns:1fr 1fr}.student-hour-bulk-copy{grid-column:1/-1}.student-hour-bulk-tools .primary{grid-column:1/-1}.student-hour-option{grid-template-columns:64px minmax(0,1fr) 92px}}
