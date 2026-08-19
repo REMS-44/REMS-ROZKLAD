@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=26;
+const APP_SCHEMA_VERSION=27;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -434,9 +434,11 @@ function migrate(old){
 // v2.0.4: seed students are imported only while upgrading an older database.
   // From schema 22 onward the cloud/user list is authoritative, so a student
   // that the administrator deletes must NOT be silently re-created from data.js.
-  fresh.students=previousSchemaVersion<APP_SCHEMA_VERSION
-    ?mergeSeedStudents(old.students||[],fresh.students||[])
-    :clone(old.students||[]);
+  // Student roster is user/cloud data, not functional seed data.
+  // If a database already has a students array, keep it EXACTLY as the authority:
+  // future schema upgrades must never restore deleted students, old names or old group membership.
+  fresh.students=Array.isArray(old.students)?clone(old.students):clone(fresh.students||[]);
+  fresh.adHocRooms=uniqueStrings(old.adHocRooms||fresh.adHocRooms||[]);
   fresh.rooms=mergeSeedRooms(old.rooms||[],fresh.rooms||[]).map((r,i)=>{
     const seed=(fresh.rooms||[]).find(x=>roomSeedKey(x)===roomSeedKey(r));
     const oldProgramIds=Array.isArray(r.programIds)&&r.programIds.length?r.programIds:[];
@@ -1586,6 +1588,53 @@ function roomAreaTabs(active="grid"){
   return `<div class="subtabs"><button class="${active==="grid"?"active":""}" onclick="go('roomGrid',{focusCurrentCalendar:false})">Сітка зайнятості</button><button class="${active==="directory"?"active":""}" onclick="go('rooms')">Довідник аудиторій</button></div>`;
 }
 function activeRooms(){return programUsesRooms()?db.rooms.filter(roomVisibleInProgram):[];}
+function adHocRoomNames(){
+  const directoryKeys=new Set((db.rooms||[]).map(r=>normIdentity(r.name)).filter(Boolean));
+  return uniqueStrings([
+    ...(db.adHocRooms||[]),
+    ...(db.schedule||[]).map(x=>x.room||""),
+    ...(db.roomBookings||[]).map(x=>x.room||"")
+  ]).filter(name=>!directoryKeys.has(normIdentity(name)));
+}
+function scheduleRoomNames(selected=""){
+  return uniqueStrings([...activeRooms().map(r=>r.name),...adHocRoomNames(),selected||""])
+    .sort((a,b)=>a.localeCompare(b,"uk",{numeric:true}));
+}
+function rememberAdHocRoom(name){
+  const raw=String(name||"").trim();
+  if(!raw||raw==="__other__")return "";
+  const inDirectory=(db.rooms||[]).some(r=>normIdentity(r.name)===normIdentity(raw));
+  if(!inDirectory)db.adHocRooms=uniqueStrings([...(db.adHocRooms||[]),raw]);
+  return raw;
+}
+function scheduleRoomOptionsHtml(selected="",options={}){
+  const emptyLabel=options.emptyLabel===undefined?"— обери аудиторію —":options.emptyLabel;
+  const allowEmpty=options.allowEmpty!==false;
+  const names=scheduleRoomNames(selected);
+  return `${allowEmpty?`<option value="">${esc(emptyLabel)}</option>`:""}${names.map(name=>`<option value="${esc(name)}" ${normIdentity(name)===normIdentity(selected)?"selected":""}>${esc(name)}</option>`).join("")}<option value="__other__">+ Інша аудиторія…</option>`;
+}
+function resolveAdHocRoomSelect(select){
+  if(!select||select.value!=="__other__")return select?.value||"";
+  const previous=select.dataset.previousRoom||"";
+  const raw=prompt("Введи номер або назву аудиторії:","");
+  const name=String(raw||"").trim();
+  if(!name){select.value=previous;return previous;}
+  rememberAdHocRoom(name);
+  let option=[...select.options].find(o=>normIdentity(o.value)===normIdentity(name));
+  if(!option){option=document.createElement("option");option.value=name;option.textContent=name;const other=[...select.options].find(o=>o.value==="__other__");select.insertBefore(option,other||null);}
+  select.value=option.value;
+  select.dataset.previousRoom=option.value;
+  return option.value;
+}
+function initAdHocRoomSelect(select,onResolved=null){
+  if(!select)return;
+  if(select.value&&select.value!=="__other__")select.dataset.previousRoom=select.value;
+  select.addEventListener("change",()=>{
+    if(select.value==="__other__")resolveAdHocRoomSelect(select);
+    else select.dataset.previousRoom=select.value||"";
+    if(onResolved)onResolved(select.value||"");
+  });
+}
 function roomOrderValue(r){const n=Number(r.gridOrder);return Number.isFinite(n)?n:999999;}
 function gridRooms(){return activeRooms().filter(r=>r.showInGrid!==false).slice().sort((a,b)=>roomOrderValue(a)-roomOrderValue(b)||a.name.localeCompare(b.name,"uk",{numeric:true}));}
 function roomGridPosition(id){
@@ -1695,10 +1744,10 @@ function roomBookingProgramId(b){
 }
 function roomEvents(date,room,pairId){
   const schedule=db.schedule
-    .filter(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))
+    .filter(x=>x.date===date&&normIdentity(x.room)===normIdentity(room)&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))
     .map(x=>({source:"schedule",data:x,external:!scheduleVisibleInProgram(x)}));
   const bookings=db.roomBookings
-    .filter(x=>x.date===date&&x.room===room&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))
+    .filter(x=>x.date===date&&normIdentity(x.room)===normIdentity(room)&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))
     .map(x=>({source:"booking",data:x,external:roomBookingProgramId(x)!==activeProgramId()}));
   return [...schedule,...bookings];
 }
@@ -1752,17 +1801,17 @@ function shiftRoomGridDate(days){const next=addDays(roomGridState.date,days);if(
 function roomGridToday(){selectRoomGridDate(currentAcademicDate());}
 function bookingConflicts(item,ignoreId=null){
   const conflicts=[];
-  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&x.room===item.room)conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
-  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&x.room===item.room)conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
+  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&normIdentity(x.room)===normIdentity(item.room))conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
+  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&normIdentity(x.room)===normIdentity(item.room))conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
   return [...new Set(conflicts)];
 }
 function openRoomBookingModal(id=null,preset={}){
   const b=id?roomBookingById(id):{kind:"Репетиція",title:"",date:clampDate(preset.date||roomGridState.date||localTodayISO()),pairId:preset.pairId||bellPairs()[0]?.id||null,room:preset.room||gridRooms()[0]?.name||activeRooms()[0]?.name||"",group:"",teacherId:null,teacher:"",showInTimetable:false,note:""};
   if(!b)return;
-  openModal(`<h2>${id?"Редагувати":"Нове"} бронювання аудиторії</h2><div class="notice">Цей запис блокує аудиторію. Він не впливає на навчальне навантаження викладача.</div><form id="roomBookingForm" class="form-grid"><label>Тип<select id="rbKind">${ROOM_BOOKING_KINDS.map(k=>`<option ${k===b.kind?"selected":""}>${esc(k)}</option>`).join("")}</select></label><label>Назва<input id="rbTitle" value="${esc(b.title||"")}" placeholder="Напр. Репетиція показу"></label><label>Дата<input id="rbDate" type="date" ${dateAttrs()} value="${esc(clampDate(b.date))}" required></label><label>Пара<select id="rbPair">${pairOptions(b.pairId)}</select></label><label>Аудиторія<select id="rbRoom">${activeRooms().slice().sort((a,c)=>a.name.localeCompare(c.name,"uk",{numeric:true})).map(r=>`<option ${r.name===b.room?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label><label>Група (необов’язково)<select id="rbGroup"><option value="">— без групи —</option>${groupOptions(b.group||"")}</select></label><label>Викладач / відповідальний (необов’язково)<select id="rbTeacher"><option value="">—</option>${activeTeacherOptions(b.teacherId)}</select></label><label class="check-label"><span>Основний розклад</span><span class="check-inline"><input id="rbShow" type="checkbox" ${b.showInTimetable?"checked":""}> Показувати в календарі обраної групи</span></label><label class="wide">Примітка<textarea id="rbNote" rows="3">${esc(b.note||"")}</textarea></label><div id="rbConflict" class="wide"></div><div class="wide actions"><button class="primary">${id?"Зберегти":"Забронювати"}</button>${id?`<button type="button" class="danger" onclick="deleteRoomBooking(${b.id})">Видалити бронювання</button>`:""}</div></form>`,true);
+  openModal(`<h2>${id?"Редагувати":"Нове"} бронювання аудиторії</h2><div class="notice">Цей запис блокує аудиторію. Він не впливає на навчальне навантаження викладача.</div><form id="roomBookingForm" class="form-grid"><label>Тип<select id="rbKind">${ROOM_BOOKING_KINDS.map(k=>`<option ${k===b.kind?"selected":""}>${esc(k)}</option>`).join("")}</select></label><label>Назва<input id="rbTitle" value="${esc(b.title||"")}" placeholder="Напр. Репетиція показу"></label><label>Дата<input id="rbDate" type="date" ${dateAttrs()} value="${esc(clampDate(b.date))}" required></label><label>Пара<select id="rbPair">${pairOptions(b.pairId)}</select></label><label>Аудиторія<select id="rbRoom">${scheduleRoomOptionsHtml(b.room,{allowEmpty:false})}</select></label><label>Група (необов’язково)<select id="rbGroup"><option value="">— без групи —</option>${groupOptions(b.group||"")}</select></label><label>Викладач / відповідальний (необов’язково)<select id="rbTeacher"><option value="">—</option>${activeTeacherOptions(b.teacherId)}</select></label><label class="check-label"><span>Основний розклад</span><span class="check-inline"><input id="rbShow" type="checkbox" ${b.showInTimetable?"checked":""}> Показувати в календарі обраної групи</span></label><label class="wide">Примітка<textarea id="rbNote" rows="3">${esc(b.note||"")}</textarea></label><div id="rbConflict" class="wide"></div><div class="wide actions"><button class="primary">${id?"Зберегти":"Забронювати"}</button>${id?`<button type="button" class="danger" onclick="deleteRoomBooking(${b.id})">Видалити бронювання</button>`:""}</div></form>`,true);
   const preview=()=>{const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),item={id:b.id,date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:$("#rbRoom").value,group:$("#rbGroup").value,teacherId:tid,teacher:teacherDisplay(t)};const cs=bookingConflicts(item,id);$("#rbConflict").innerHTML=cs.length?`<div class="conflict"><b>Конфлікт:</b><br>${cs.map(esc).join("<br>")}</div>`:`<div class="ok-box">Час вільний.</div>`;};
-  ["rbDate","rbPair","rbRoom","rbGroup","rbTeacher"].forEach(x=>$("#"+x).onchange=preview);preview();
-  $("#roomBookingForm").onsubmit=e=>{e.preventDefault();if(!dateInBounds($("#rbDate").value))return alert(`Дата має бути в межах навчального року: ${academicDateMessage()}.`);const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),group=$("#rbGroup").value,programId=db.groups.find(g=>normIdentity(g.code)===normIdentity(group))?.programId||activeProgramId(),obj={kind:$("#rbKind").value,title:$("#rbTitle").value.trim(),date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:$("#rbRoom").value,group,teacherId:tid,teacher:teacherDisplay(t),programId,showInTimetable:$("#rbShow").checked,note:$("#rbNote").value.trim()};const cs=bookingConflicts(obj,id);if(cs.length)return alert("Не можна зберегти через конфлікт:\n\n"+cs.join("\n"));if(id)Object.assign(b,obj);else db.roomBookings.push({id:uid(db.roomBookings),...obj});roomGridState.date=obj.date;closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();};
+  initAdHocRoomSelect($("#rbRoom"),preview);["rbDate","rbPair","rbGroup","rbTeacher"].forEach(x=>$("#"+x).onchange=preview);preview();
+  $("#roomBookingForm").onsubmit=e=>{e.preventDefault();if(!dateInBounds($("#rbDate").value))return alert(`Дата має бути в межах навчального року: ${academicDateMessage()}.`);const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),group=$("#rbGroup").value,programId=db.groups.find(g=>normIdentity(g.code)===normIdentity(group))?.programId||activeProgramId(),obj={kind:$("#rbKind").value,title:$("#rbTitle").value.trim(),date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:rememberAdHocRoom($("#rbRoom").value),group,teacherId:tid,teacher:teacherDisplay(t),programId,showInTimetable:$("#rbShow").checked,note:$("#rbNote").value.trim()};const cs=bookingConflicts(obj,id);if(cs.length)return alert("Не можна зберегти через конфлікт:\n\n"+cs.join("\n"));if(id)Object.assign(b,obj);else db.roomBookings.push({id:uid(db.roomBookings),...obj});roomGridState.date=obj.date;closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();};
 }
 function deleteRoomBooking(id){const b=roomBookingById(id);if(!b)return;if(confirm(`Видалити бронювання «${roomBookingLabel(b)}»?`)){db.roomBookings=db.roomBookings.filter(x=>Number(x.id)!==Number(id));closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();}}
 
@@ -3934,8 +3983,7 @@ function openDisciplineModal(id=null){
     <label class="wide">Назва дисципліни<input id="dn" value="${esc(d.name)}" required ${ro}></label>
     <label>Група<select id="dg" ${lock}><option value="">—</option>${groupOptions(d.group)}</select></label>
     <label>Курс<select id="dc" ${lock}><option value="">—</option>${[1,2,3,4,5,6].map(x=>`<option value="${x}" ${Number(d.course)===x?"selected":""}>${esc(courseDisplayLabel(x))}</option>`).join("")}</select></label>
-    <label>Навчальний рік<input id="dy" value="${esc(d.academicYear||db.academicYear)}" ${ro}></label>
-    <label>Семестр<select id="ds" ${lock}>${[1,2,3,4,5,6,7,8,9,10].map(x=>`<option ${Number(d.semester)===x?"selected":""}>${x}</option>`).join("")}</select></label>
+    <label>Семестр<select id="ds" ${lock}>${[1,2,3,4,5,6,7,8,9,10].map(x=>`<option ${Number(d.semester)===x?"selected":""}>${x}</option>`).join("")}</select><small>Рік для дат визначається автоматично за семестром.</small></label>
     <label>Форма контролю<select id="dctrl" ${lock}>${db.controlForms.map(v=>`<option ${v===d.controlForm?"selected":""}>${esc(v)}</option>`).join("")}</select></label>
     <label>Колір<input id="dcolor" type="color" value="${esc(d.color||"#8b5cf6")}"></label>
     <div class="wide"><b>Години за робочим планом</b><div class="hours-grid" style="margin-top:8px">${hours}</div></div>
@@ -3985,7 +4033,7 @@ function openDisciplineModal(id=null){
     const extraHours={};Object.entries(disciplineExtraDraft||{}).forEach(([k,v])=>{if(num(v)>0)extraHours[k]=num(v);});
     const obj=fromPlan
       ?{teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStudentHours,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,color:$("#dcolor").value,note:$("#dnote").value.trim(),status:"active"}
-      :{name:$("#dn").value.trim(),group:$("#dg").value,programId:db.groups.find(g=>g.code===$("#dg").value)?.programId||activeProgramId(),course:+$("#dc").value||"",academicYear:$("#dy").value.trim(),semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStudentHours,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
+      :{name:$("#dn").value.trim(),group:$("#dg").value,programId:db.groups.find(g=>g.code===$("#dg").value)?.programId||activeProgramId(),course:+$("#dc").value||"",academicYear:d.academicYear||db.academicYear,semester:+$("#ds").value,teacherIds:ids,teacherLoads,teacherStudentLoads,teacherStudentHours,teacherStreams:clone(disciplineStreamDraft||{}),audienceMode:disciplineAudienceMode(d),selectedStudentIds:disciplineSelectedStudentIds(d),extraHours,controlForm:$("#dctrl").value,color:$("#dcolor").value,hours:hs,note:$("#dnote").value.trim(),status:"active"};
     if(id)Object.assign(d,obj);else db.disciplines.push({id:uid(db.disciplines),...obj});
     applyPeerAllocationDrafts();
     disciplineAllocationId=null;disciplineAllocationDraft={};disciplineStudentAllocationDraft=null;disciplineStudentHoursDraft=null;disciplineExtraDraft=null;disciplineStreamDraft=null;disciplinePeerLoadDraft={};disciplinePeerStreamDraft={};delete window.__disciplineDraft;closeModal();save();
@@ -4365,11 +4413,11 @@ let specialEditEventId=null;
 function specialRoomOptions(date,pairId,half,selected="",ignoreId=specialEditEventId){
   const times=specialHalfTimes(pairId,half);
   return `<option value="">— без аудиторії —</option>`+
-    activeRooms().map(r=>{
-      const conflict=roomConflictRecord(date,times.start,times.end,pairId,r.name,ignoreId);
+    scheduleRoomNames(selected).map(name=>{
+      const conflict=roomConflictRecord(date,times.start,times.end,pairId,name,ignoreId);
       const busy=!!conflict;
-      return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(roomBusyOptionLabel(r.name,conflict))}</option>`;
-    }).join("");
+      return `<option value="${esc(name)}" ${normIdentity(name)===normIdentity(selected)?"selected":""} ${busy&&normIdentity(name)!==normIdentity(selected)?"disabled":""}>${esc(roomBusyOptionLabel(name,conflict))}</option>`;
+    }).join("")+`<option value="__other__">+ Інша аудиторія…</option>`;
 }
 function refreshSpecialRoomOptions(){
   const room=$("#specialRoom");
@@ -4466,7 +4514,7 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
       </div>
 
       <div class="special-form-section">
-        <div class="special-form-title"><span>3</span><div><b>${programUsesRooms()?"Місце":"Формат"}</b><small>${programUsesRooms()?"аудиторія необов’язкова; якщо вказана — вона буде зайнята в сітці аудиторій":"магістратура навчається онлайн"}</small></div></div>
+        <div class="special-form-title"><span>3</span><div><b>${programUsesRooms()?"Місце":"Формат"}</b><small>${programUsesRooms()?"аудиторія необов’язкова; система перевіряє її конфлікти, а в сітці показуються лише кафедральні аудиторії":"магістратура навчається онлайн"}</small></div></div>
         <div class="special-time-grid">
           ${programUsesRooms()?`<label>Аудиторія<select id="specialRoom">${specialRoomOptions(defaultDate,firstPair,defaultHalf,defaultRoom,editId)}</select></label>`:`<input id="specialRoom" type="hidden" value=""><div class="notice success-notice"><b>Онлайн-заняття</b><br><span class="small">Фізична аудиторія не резервується.</span></div>`}
           <label>Примітка<input id="specialNote" value="${esc(defaultNote)}" placeholder="необов’язково"></label>
@@ -4485,6 +4533,7 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
 
   $("#specialPair").onchange=refreshSpecialHalfButtons;
   $("#specialDate").onchange=refreshSpecialRoomOptions;
+  initAdHocRoomSelect($("#specialRoom"),()=>refreshSpecialRoomOptions());
   $("#specialScheduleForm").onsubmit=e=>saveSpecialScheduleEvent(e,d,t,lt,editId);
 }
 function saveSpecialScheduleEvent(e,d,t,lt,editId=null){
@@ -4498,7 +4547,7 @@ function saveSpecialScheduleEvent(e,d,t,lt,editId=null){
   const pairId=$("#specialPair").value;
   const half=Number($("#specialHalf").value||1);
   const times=specialHalfTimes(pairId,half);
-  const room=$("#specialRoom").value;
+  const room=rememberAdHocRoom($("#specialRoom").value);
 
   const previous=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
   const item={
@@ -5214,11 +5263,7 @@ function readyTeacherDatalist(){
     .join("");
 }
 function readyRoomDatalist(){
-  return activeRooms()
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name,"uk",{numeric:true}))
-    .map(r=>`<option value="${esc(r.name)}"></option>`)
-    .join("");
+  return scheduleRoomNames().map(name=>`<option value="${esc(name)}"></option>`).join("");
 }
 function readyTypeOptions(selected=""){
   return db.lessonTypes.map(lt=>`<option value="${esc(lt.name)}" ${lt.name===selected?"selected":""}>${esc(lt.name)}</option>`).join("");
@@ -5286,29 +5331,40 @@ function applyReadyDateBounds(){
   const hint=$("#readyDateHint");
   if(hint)hint.textContent=`Дати: ${formatDate(b.start)} — ${formatDate(b.end)}`;
 }
-function parseReadyDateToken(token){
+function parseReadyDateToken(token,bounds=academicYearBounds()){
   const s=String(token||"").trim();
   if(!s)return null;
-  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
-  const m=s.match(/^(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?$/);
-  if(!m)return null;
-  const day=Number(m[1]),month=Number(m[2]);
-  if(month<1||month>12||day<1||day>31)return null;
-  const ay=parseAcademicYear();
-  let year=m[3]?Number(m[3]):(month>=9?ay.startYear:ay.endYear);
-  if(year<100)year+=2000;
+  let year,month,day;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)){
+    [year,month,day]=s.split("-").map(Number);
+  }else{
+    const m=s.match(/^(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?$/);
+    if(!m)return null;
+    day=Number(m[1]);month=Number(m[2]);
+    if(m[3]){year=Number(m[3]);if(year<100)year+=2000;}
+    else{
+      const startYear=Number(String(bounds.start||"").slice(0,4));
+      const endYear=Number(String(bounds.end||"").slice(0,4));
+      // For one-semester bounds both dates are in the same calendar year.
+      // For a full academic year September–December belong to startYear, January–June to endYear.
+      year=startYear===endYear?startYear:(month>=9?startYear:endYear);
+    }
+  }
+  if(!year||month<1||month>12||day<1||day>31)return null;
+  const dt=new Date(Date.UTC(year,month-1,day));
+  if(dt.getUTCFullYear()!==year||dt.getUTCMonth()!==month-1||dt.getUTCDate()!==day)return null;
   return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
 }
 function addReadyDatesFromText(){
   const input=$("#readyDatesPaste");
   const raw=(input?.value||"").trim();
   if(!raw)return alert("Встав дати через кому. Наприклад: 03.09, 10.09, 17.09");
-  const tokens=raw.split(/[\s,;]+/).filter(Boolean);
-  const dates=tokens.map(parseReadyDateToken).filter(Boolean);
-  if(!dates.length)return alert("Не знайшов дат. Можна вставити, наприклад: 03.09, 10.09, 17.09");
   const group=$("#readyGroup").value;
   const ref=$("#readyDiscipline").value;
   const b=readyDateBounds(group,ref);
+  const tokens=raw.split(/[\s,;]+/).filter(Boolean);
+  const dates=tokens.map(token=>parseReadyDateToken(token,b)).filter(Boolean);
+  if(!dates.length)return alert("Не знайшов дат. Можна вставити, наприклад: 03.09, 10.09, 17.09");
   const invalid=dates.filter(d=>!dateInBounds(d,b));
   if(invalid.length)return alert(`Ці дати не входять у дозволений період: ${invalid.map(formatDate).join(", ")}`);
 
@@ -5365,7 +5421,7 @@ function readyBuildItem(row,common){
     students:"",
     teacherId:teacherId||null,
     teacher:teacherObj?teacherDisplay(teacherObj):common.teacher,
-    room:programUsesRooms()?row.querySelector("[data-ready-room]").value.trim():"",
+    room:programUsesRooms()?rememberAdHocRoom(row.querySelector("[data-ready-room]").value.trim()):"",
     note:common.note,
     repeatBatchId:common.batchId,
     scheduleSource:"ready_external",
@@ -6014,8 +6070,8 @@ function roomBusyOptionLabel(room,record){
 
 function conflictsFor(item,ignore=null,extra=[]){
   const sameSlot=x=>{if(x.date!==item.date)return false;if(item.specialSchedule||x.specialSchedule)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);};
-  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&x.room===item.room)||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
-  const bookingConflicts=db.roomBookings.filter(x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))).filter(x=>(item.room&&x.room===item.room)||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
+  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>x.id!==ignore&&sameSlot(x)).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
+  const bookingConflicts=db.roomBookings.filter(x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }
 function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
@@ -6135,16 +6191,17 @@ function openLessonModal(id=null,preset={}){
     <label>Вид заняття<select id="lt"></select></label><label>Викладач<select id="ltea"></select></label><div id="loadHint" class="wide"></div>
     <label>Дата<input id="ld" type="date" ${dateAttrs()} value="${esc(clampDate(x.date))}" required></label><label>Пара<select id="lpair">${pairOptions(pairSelected,true)}</select></label>
     <div id="customTimeBox" class="wide form-grid" style="display:${pairSelected==="__custom__"?"grid":"none"}"><label>Початок<input id="ls" type="time" value="${esc(x.start||"")}"></label><label>Кінець<input id="le" type="time" value="${esc(x.end||"")}"></label></div>
-    ${programUsesRooms()?`<label>Аудиторія<select id="lr"><option value="">—</option>${activeRooms().map(r=>`<option ${r.name===x.room?"selected":""}>${esc(r.name)}</option>`).join("")}</select></label>`:`<input id="lr" type="hidden" value=""><div class="notice success-notice"><b>Онлайн</b><br><span class="small">Аудиторія для магістратури не потрібна.</span></div>`}<label>Годин у навантаження<input id="lwh" type="number" min="0.01" step="0.01" value="${esc(x.workloadHours||2)}"></label>
+    ${programUsesRooms()?`<label>Аудиторія<select id="lr">${scheduleRoomOptionsHtml(x.room,{emptyLabel:"—"})}</select></label>`:`<input id="lr" type="hidden" value=""><div class="notice success-notice"><b>Онлайн</b><br><span class="small">Аудиторія для магістратури не потрібна.</span></div>`}<label>Годин у навантаження<input id="lwh" type="number" min="0.01" step="0.01" value="${esc(x.workloadHours||2)}"></label>
     <label>Охоплення<select id="lc">${db.coverageTypes.map(v=>`<option ${v===x.coverage?"selected":""}>${esc(v)}</option>`).join("")}</select></label><label>Студент(и) / підгрупа<input id="lst" value="${esc(x.students||"")}"></label>
     <label class="wide">Примітка<input id="ln" value="${esc(x.note||"")}"></label><div id="conflictBox" class="wide"></div><div class="wide entity-form-actions"><button class="primary">${id?"Зберегти":"Додати"}</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteLesson(${id})">Видалити заняття</button>`:""}</div>
   </form>`,true);
   populateLessonFormFromLoad({type:x.type,teacherId:x.teacherId});
+  if(programUsesRooms())initAdHocRoomSelect($("#lr"),()=>check?.());
   if(x.disciplineId)$("#ldi").value=x.disciplineId;else if(x.discipline)$("#ldi").value="__custom__";
   if(!x.disciplineId&&x.discipline)$("#ldiCustom").value=x.discipline;
   const applyLessonDateBounds=()=>{const did=$("#ldi").value,d=did&&did!=="__custom__"?disciplineById(Number(did)):null,b=d?semesterDateBounds(d.semester):academicYearBounds(),input=$("#ld");input.min=b.start;input.max=b.end;if(!dateInBounds(input.value,b))input.value=clampDate(input.value,b);};
   applyLessonDateBounds();
-  const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;const item=lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:$("#lr").value,note:$("#ln").value.trim()});if(id&&existing){item.audienceGroups=existing.audienceGroups||item.audienceGroups;item.disciplineIds=existing.disciplineIds||item.disciplineIds;}refreshScheduleAudienceMetadata(item);return item;};
+  const readLesson=()=>{const did=$("#ldi").value,disciplineId=did&&did!=="__custom__"?Number(did):null,d=disciplineById(disciplineId),tid=$("#ltea").value?Number($("#ltea").value):null,pv=$("#lpair").value;const item=lessonItemFromValues({date:$("#ld").value,pairId:pv,start:$("#ls")?.value,end:$("#le")?.value,group:$("#lg").value,disciplineId,discipline:did==="__custom__"?$("#ldiCustom").value.trim():(d?.name||""),type:$("#lt").value,workloadHours:$("#lwh").value,coverage:$("#lc").value,students:$("#lst").value.trim(),teacherId:tid,room:rememberAdHocRoom($("#lr").value),note:$("#ln").value.trim()});if(id&&existing){item.audienceGroups=existing.audienceGroups||item.audienceGroups;item.disciplineIds=existing.disciplineIds||item.disciplineIds;}refreshScheduleAudienceMetadata(item);return item;};
   const check=()=>{const item=readLesson(),cs=conflictsFor(item,id),info=teacherAvailabilityInfo(item,id);let html="";if(cs.length||info.warnings.length)html+=conflictDetailsHtml(item,cs,info.warnings);if(info.notes.length)html+=`<div class="notice">${info.notes.map(esc).join("<br>")}</div>`;$("#conflictBox").innerHTML=html;};
   $("#lg").onchange=()=>{$("#ldi").innerHTML=disciplineOptionsForGroup($("#lg").value,null,true);populateLessonFormFromLoad({});check();};$("#ldi").onchange=()=>{populateLessonFormFromLoad({});applyLessonDateBounds();check();};$("#lt").onchange=()=>{refreshTeachersAndLoad(null);check();};$("#ltea").onchange=()=>{renderLoadHint();check();};
   $("#lpair").onchange=()=>{$("#customTimeBox").style.display=$("#lpair").value==="__custom__"?"grid":"none";check();};["ld","lr","lwh"].forEach(k=>$("#"+k).onchange=check);check();
@@ -6368,12 +6425,11 @@ function plannerRoomBusy(date,pairId,room){
   return !!plannerRoomBusyRecord(date,pairId,room);
 }
 function plannerRoomOptions(date,pairId,selected=""){
-  const rooms=(typeof gridRooms==="function"?gridRooms():db.rooms.filter(r=>r.status!=="archived"));
-  return `<option value="">— обери аудиторію —</option>`+rooms.map(r=>{
-    const conflict=plannerRoomBusyRecord(date,pairId,r.name);
+  return `<option value="">— обери аудиторію —</option>`+scheduleRoomNames(selected).map(name=>{
+    const conflict=plannerRoomBusyRecord(date,pairId,name);
     const busy=!!conflict;
-    return `<option value="${esc(r.name)}" ${r.name===selected?"selected":""} ${busy&&r.name!==selected?"disabled":""}>${esc(roomBusyOptionLabel(r.name,conflict))}</option>`;
-  }).join("");
+    return `<option value="${esc(name)}" ${normIdentity(name)===normIdentity(selected)?"selected":""} ${busy&&normIdentity(name)!==normIdentity(selected)?"disabled":""}>${esc(roomBusyOptionLabel(name,conflict))}</option>`;
+  }).join("")+`<option value="__other__">+ Інша аудиторія…</option>`;
 }
 function plannerAvailableTypeOptions(d,t,selected=null){return plannerTypes(d,t.id).map(x=>`<option value="${esc(x.lt.name)}" ${x.lt.name===selected?"selected":""} ${x.remaining<=0?"disabled":""}>${esc(x.lt.name)} · залишок ${fmtHours(x.remaining)} год</option>`).join("");}
 function plannerNextFreePair(date,d,t){return bellPairs().find(p=>{const b=plannerPairBusyInfo(date,p.id,d,t);return !b.teacher&&!b.group;})?.id||bellPairs()[0]?.id||null;}
@@ -6434,6 +6490,7 @@ function bindPlannerEntryRow(row,d,t){
     updatePlannerStreamAudience(d.id,t.id);
   };
   pair.onchange=refreshRoom;
+  initAdHocRoomSelect(room,()=>{refreshRoom();updatePlannerStreamAudience(d.id,t.id);});
   row.querySelector("[data-planner-remove]").onclick=()=>{
     row.remove();
     renumberPlannerEntries();
@@ -6608,7 +6665,7 @@ function plannerSeriesPanelHtml(d,t){
           <select id="plannerSeriesBulkPair"><option value="">— не змінювати —</option>${pairOptions(defaultPair,false)}</select>
         </label>
         <label>Аудиторія для всіх
-          <select id="plannerSeriesBulkRoom"><option value="">— не змінювати —</option>${gridRooms().map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")}</select>
+          <select id="plannerSeriesBulkRoom"><option value="">— не змінювати —</option>${scheduleRoomNames().map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join("")}<option value="__other__">+ Інша аудиторія…</option></select>
         </label>
         <div class="planner-series-default-actions">
           <button type="button" class="secondary" id="plannerSeriesApplyDefaults">Застосувати до всіх</button>
@@ -6738,7 +6795,7 @@ function plannerBindSeriesRow(row,d,t){
     plannerUpdateSeriesSummary(d,t);
     updatePlannerStreamAudience(d.id,t.id);
   };
-  if(roomEl)roomEl.onchange=()=>plannerUpdateSeriesSummary(d,t);
+  if(roomEl)initAdHocRoomSelect(roomEl,()=>plannerUpdateSeriesSummary(d,t));
   if(dateEl)dateEl.onchange=()=>plannerSeriesRefreshRow(row,d,t);
   if(pairEl)pairEl.onchange=()=>plannerSeriesRefreshRow(row,d,t);
   if(remove)remove.onclick=()=>{
@@ -6776,10 +6833,9 @@ function plannerAddSeriesDatesFromText(d,t){
   const raw=(input?.value||"").trim();
   if(!raw)return alert("Встав дати через кому. Наприклад: 03.09, 10.09, 17.09");
 
-  const dates=raw.split(/[\s,;]+/).filter(Boolean).map(parseReadyDateToken).filter(Boolean);
-  if(!dates.length)return alert("Не знайшов дат. Наприклад: 03.09, 10.09, 17.09");
-
   const b=plannerSeriesBounds(d);
+  const dates=raw.split(/[\s,;]+/).filter(Boolean).map(token=>parseReadyDateToken(token,b)).filter(Boolean);
+  if(!dates.length)return alert("Не знайшов дат. Наприклад: 03.09, 10.09, 17.09");
   const invalid=dates.filter(date=>!dateInBounds(date,b));
   if(invalid.length)return alert(`Ці дати не входять у семестр: ${invalid.map(formatDate).join(", ")}`);
 
@@ -6820,7 +6876,7 @@ function plannerGenerateSeries(d,t){
 function plannerApplySeriesDefaults(d,t){
   const type=$("#plannerSeriesBulkType").value;
   const pairId=$("#plannerSeriesBulkPair").value;
-  const room=$("#plannerSeriesBulkRoom").value;
+  const room=rememberAdHocRoom($("#plannerSeriesBulkRoom").value);
 
   $$("[data-series-row]").forEach(row=>{
     const use=row.querySelector("[data-series-use]");
@@ -6875,7 +6931,7 @@ function plannerSeriesSelection(d,t){
       date:row.querySelector("[data-series-date]")?.value||"",
       type:row.querySelector("[data-series-type]")?.value||"",
       pairId:row.querySelector("[data-series-pair]")?.value||"",
-      room:row.querySelector("[data-series-room]")?.value||""
+      room:rememberAdHocRoom(row.querySelector("[data-series-room]")?.value||"")
     });
   });
   return result;
@@ -7453,6 +7509,7 @@ function openPlannerSeriesPopup(disciplineId,teacherId){
   if(plannerPaste)plannerPaste.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();plannerAddSeriesDatesFromText(d,t);}};
   $("#plannerSeriesGenerate").onclick=()=>plannerGenerateSeries(d,t);
   $("#plannerSeriesAddRow").onclick=()=>plannerAddSeriesRow(d,t);
+  initAdHocRoomSelect($("#plannerSeriesBulkRoom"));
   $("#plannerSeriesApplyDefaults").onclick=()=>plannerApplySeriesDefaults(d,t);
   $("#plannerSeriesAutofill").onclick=()=>plannerAutofillSeriesTypes(d,t);
   $("#plannerSeriesSave").onclick=()=>savePlannerSeries(d,t);
@@ -7592,7 +7649,7 @@ function savePlannerDateEntries(e,d,t){
   const date=disciplinePlannerState.date,byType={},draft=[],problems=[];
 
   rows.forEach((row,i)=>{
-    const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=row.querySelector("[data-planner-room]").value;
+    const type=row.querySelector("[data-planner-type]").value,pairId=row.querySelector("[data-planner-pair]").value,room=rememberAdHocRoom(row.querySelector("[data-planner-room]").value);
     if(!type||!pairId||!room){problems.push(`Рядок ${i+1}: обери вид, пару й аудиторію.`);return;}
     const allocation=workloadAudienceForType(d,t.id,type);
     const coverageIds=plannerDisciplineIdsForAudience(d,t,type,allocation.groups);
@@ -7617,10 +7674,10 @@ function savePlannerDateEntries(e,d,t){
 }
 function openAllocationScheduler(disciplineId,typeName,teacherId){openDisciplineTeacherScheduler(disciplineId,teacherId);}
 function addDays(dateStr,days){const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()+days);return d.toISOString().slice(0,10);}
-function datesForPattern(pattern,from,to,weekday,specific,bounds=academicYearBounds()){if(pattern==="dates")return [...new Set((specific||"").split(/[\s,;]+/).map(parseReadyDateToken).filter(x=>x&&dateInBounds(x,bounds)))].sort();const result=[];if(!from||!to)return result;let d=from;while(d<=to){if(dateInBounds(d,bounds)&&weekdayId(d)===Number(weekday))result.push(d);d=addDays(d,1);}return pattern==="biweekly"?result.filter((_,i)=>i%2===0):result;}
+function datesForPattern(pattern,from,to,weekday,specific,bounds=academicYearBounds()){if(pattern==="dates")return [...new Set((specific||"").split(/[\s,;]+/).map(token=>parseReadyDateToken(token,bounds)).filter(x=>x&&dateInBounds(x,bounds)))].sort();const result=[];if(!from||!to)return result;let d=from;while(d<=to){if(dateInBounds(d,bounds)&&weekdayId(d)===Number(weekday))result.push(d);d=addDays(d,1);}return pattern==="biweekly"?result.filter((_,i)=>i%2===0):result;}
 function openBulkScheduleModal(presetGroup=null){
-  const group=presetGroup||bestWorkloadGroup();openModal(`<h2>Розставити за правилом</h2><div class="notice">Для випадків, коли одна й та сама пара повторюється щотижня або через тиждень.</div><form id="bf" class="form-grid"><label>Група<select id="bg">${groupOptions(group)}</select></label><label>Дисципліна<select id="bd">${disciplineOptionsForGroup(group,null,false)}</select></label><label>Вид заняття<select id="bt"></select></label><label>Викладач<select id="btea"></select></label><div id="bulkLoadHint" class="wide"></div><label>Повторення<select id="bpattern"><option value="weekly">Щотижня</option><option value="biweekly">Через тиждень</option><option value="dates">Конкретні дати</option></select></label><label>День тижня<select id="bweekday">${db.weekDays.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label><label>Від<input id="bfrom" type="date" ${dateAttrs()}></label><label>До<input id="bto" type="date" ${dateAttrs()}></label><label id="bdatesLabel" class="wide" style="display:none">Конкретні дати<textarea id="bdates" rows="3" placeholder="2026-09-03, 2026-09-10, 2026-09-24"></textarea></label><label>Пара<select id="bpair">${pairOptions(bellPairs()[0]?.id||null,false)}</select></label>${programUsesRooms()?`<label>Аудиторія<select id="br"><option value="">—</option>${activeRooms().map(r=>`<option>${esc(r.name)}</option>`).join("")}</select></label>`:`<input id="br" type="hidden" value=""><div class="notice success-notice"><b>Онлайн</b> · без аудиторії</div>`}<label>Годин за заняття<input id="bwh" type="number" min="0.01" step="0.01" value="2"></label><label>Охоплення<select id="bc">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select></label><label class="wide">Примітка<input id="bn"></label><div class="wide"><button class="primary">Створити повтори</button></div></form>`,true);
-  const refreshDisc=()=>{$("#bd").innerHTML=disciplineOptionsForGroup($("#bg").value,null,false);refreshType();};const refreshType=()=>{const d=disciplineById(Number($("#bd").value)),types=d?schedulableTypes(d):[];$("#bt").innerHTML=types.map(x=>`<option>${esc(x.name)}</option>`).join("");const b=d?semesterDateBounds(d.semester):academicYearBounds();["#bfrom","#bto"].forEach(id=>{const el=$(id);el.min=b.start;el.max=b.end;if(el.value&&!dateInBounds(el.value,b))el.value="";});refreshTeacher();};const refreshTeacher=()=>{const d=disciplineById(Number($("#bd").value)),type=$("#bt").value,teachers=d?allocatedTeachersForType(d,type):[];$("#btea").innerHTML=teachers.map(t=>`<option value="${t.id}">${esc(teacherDisplay(t))}</option>`).join("");const lt=lessonTypeByName(type);$("#bwh").value=lt?.defaultUnit||1;bulkHint();};const bulkHint=()=>{const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid){$("#bulkLoadHint").innerHTML=`<div class="conflict">Спочатку має бути розподілене навантаження.</div>`;return;}const p=teacherTypePlan(d,tid,type),used=scheduledLoad(d.id,tid,type),r=p-used;$("#bulkLoadHint").innerHTML=`<div class="load-hint-grid"><div><span>План</span><b>${fmtHours(p)} год</b></div><div><span>Виставлено</span><b>${fmtHours(used)} год</b></div><div><span>Залишок</span><b>${fmtHours(r)} год</b></div></div>`;};
+  const group=presetGroup||bestWorkloadGroup();openModal(`<h2>Розставити за правилом</h2><div class="notice">Для випадків, коли одна й та сама пара повторюється щотижня або через тиждень.</div><form id="bf" class="form-grid"><label>Група<select id="bg">${groupOptions(group)}</select></label><label>Дисципліна<select id="bd">${disciplineOptionsForGroup(group,null,false)}</select></label><label>Вид заняття<select id="bt"></select></label><label>Викладач<select id="btea"></select></label><div id="bulkLoadHint" class="wide"></div><label>Повторення<select id="bpattern"><option value="weekly">Щотижня</option><option value="biweekly">Через тиждень</option><option value="dates">Конкретні дати</option></select></label><label>День тижня<select id="bweekday">${db.weekDays.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label><label>Від<input id="bfrom" type="date" ${dateAttrs()}></label><label>До<input id="bto" type="date" ${dateAttrs()}></label><label id="bdatesLabel" class="wide" style="display:none">Конкретні дати<textarea id="bdates" rows="3" placeholder="03.09, 10.09, 17.09, 24.09"></textarea></label><label>Пара<select id="bpair">${pairOptions(bellPairs()[0]?.id||null,false)}</select></label>${programUsesRooms()?`<label>Аудиторія<select id="br">${scheduleRoomOptionsHtml("",{emptyLabel:"—"})}</select></label>`:`<input id="br" type="hidden" value=""><div class="notice success-notice"><b>Онлайн</b> · без аудиторії</div>`}<label>Годин за заняття<input id="bwh" type="number" min="0.01" step="0.01" value="2"></label><label>Охоплення<select id="bc">${db.coverageTypes.map(v=>`<option>${esc(v)}</option>`).join("")}</select></label><label class="wide">Примітка<input id="bn"></label><div class="wide"><button class="primary">Створити повтори</button></div></form>`,true);
+  const refreshDisc=()=>{$("#bd").innerHTML=disciplineOptionsForGroup($("#bg").value,null,false);refreshType();};const refreshType=()=>{const d=disciplineById(Number($("#bd").value)),types=d?schedulableTypes(d):[];$("#bt").innerHTML=types.map(x=>`<option>${esc(x.name)}</option>`).join("");const b=d?semesterDateBounds(d.semester):academicYearBounds();const from=$("#bfrom"),to=$("#bto");[from,to].forEach(el=>{el.min=b.start;el.max=b.end;});if(!from.value||!dateInBounds(from.value,b))from.value=b.start;if(!to.value||!dateInBounds(to.value,b))to.value=b.end;refreshTeacher();};const refreshTeacher=()=>{const d=disciplineById(Number($("#bd").value)),type=$("#bt").value,teachers=d?allocatedTeachersForType(d,type):[];$("#btea").innerHTML=teachers.map(t=>`<option value="${t.id}">${esc(teacherDisplay(t))}</option>`).join("");const lt=lessonTypeByName(type);$("#bwh").value=lt?.defaultUnit||1;bulkHint();};const bulkHint=()=>{const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid){$("#bulkLoadHint").innerHTML=`<div class="conflict">Спочатку має бути розподілене навантаження.</div>`;return;}const p=teacherTypePlan(d,tid,type),used=scheduledLoad(d.id,tid,type),r=p-used;$("#bulkLoadHint").innerHTML=`<div class="load-hint-grid"><div><span>План</span><b>${fmtHours(p)} год</b></div><div><span>Виставлено</span><b>${fmtHours(used)} год</b></div><div><span>Залишок</span><b>${fmtHours(r)} год</b></div></div>`;};
   const toggleBulkDateMode=()=>{
     const dates=$("#bpattern")?.value==="dates";
     const label=$("#bdatesLabel");
@@ -7628,10 +7685,10 @@ function openBulkScheduleModal(presetGroup=null){
     ["#bweekday","#bfrom","#bto"].forEach(sel=>{const el=$(sel);if(el)el.disabled=dates;});
     const input=$("#bdates");if(input)input.disabled=!dates;
   };
-  $("#bg").onchange=refreshDisc;$("#bd").onchange=refreshType;$("#bt").onchange=refreshTeacher;$("#btea").onchange=bulkHint;
+  $("#bg").onchange=refreshDisc;$("#bd").onchange=refreshType;$("#bt").onchange=refreshTeacher;$("#btea").onchange=bulkHint;if(programUsesRooms())initAdHocRoomSelect($("#br"));
   const pattern=$("#bpattern");if(pattern){pattern.onchange=toggleBulkDateMode;pattern.oninput=toggleBulkDateMode;}
   refreshDisc();toggleBulkDateMode();
-  $("#bf").onsubmit=e=>{e.preventDefault();const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid)return alert("Немає розподіленого навантаження.");let rem=remainingLoad(d,tid,type,null);if(rem<=0)return alert("Години вже вичерпані.");const bounds=semesterDateBounds(d.semester),dates=datesForPattern($("#bpattern").value,$("#bfrom").value,$("#bto").value,$("#bweekday").value,$("#bdates").value,bounds);if(!dates.length)return alert("Не знайдено дат.");const unit=num($("#bwh").value),valid=[],blocked=[],batchId=`B${Date.now()}`;for(const date of dates){if(rem<=0.0001)break;const wh=Math.min(unit,rem),item=lessonItemFromValues({date,pairId:$("#bpair").value,group:$("#bg").value,disciplineId:d.id,discipline:d.name,type,workloadHours:wh,coverage:$("#bc").value,teacherId:tid,room:$("#br").value,note:$("#bn").value.trim(),repeatBatchId:batchId}),cs=conflictsFor(item,null,valid),info=teacherAvailabilityInfo(item,null);if(cs.length||info.warnings.length){blocked.push({date,reasons:[...conflictReasonLines(item,cs),...info.warnings]});continue;}valid.push(item);rem-=wh;}if(!valid.length)return alert("Усі дати мають конфлікти:\n\n"+blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n"));if(blocked.length&&!confirm(`${blocked.length} дат буде пропущено:\n\n${blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n")}${blocked.length>8?"\n…":""}\n\nПродовжити?`))return;valid.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));closeModal();save();go("schedule");};
+  $("#bf").onsubmit=e=>{e.preventDefault();const d=disciplineById(Number($("#bd").value)),tid=Number($("#btea").value),type=$("#bt").value;if(!d||!tid)return alert("Немає розподіленого навантаження.");let rem=remainingLoad(d,tid,type,null);if(rem<=0)return alert("Години вже вичерпані.");const bounds=semesterDateBounds(d.semester),dates=datesForPattern($("#bpattern").value,$("#bfrom").value,$("#bto").value,$("#bweekday").value,$("#bdates").value,bounds);if(!dates.length)return alert("Не знайдено дат.");const unit=num($("#bwh").value),valid=[],blocked=[],batchId=`B${Date.now()}`;for(const date of dates){if(rem<=0.0001)break;const wh=Math.min(unit,rem),item=lessonItemFromValues({date,pairId:$("#bpair").value,group:$("#bg").value,disciplineId:d.id,discipline:d.name,type,workloadHours:wh,coverage:$("#bc").value,teacherId:tid,room:rememberAdHocRoom($("#br").value),note:$("#bn").value.trim(),repeatBatchId:batchId}),cs=conflictsFor(item,null,valid),info=teacherAvailabilityInfo(item,null);if(cs.length||info.warnings.length){blocked.push({date,reasons:[...conflictReasonLines(item,cs),...info.warnings]});continue;}valid.push(item);rem-=wh;}if(!valid.length)return alert("Усі дати мають конфлікти:\n\n"+blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n"));if(blocked.length&&!confirm(`${blocked.length} дат буде пропущено:\n\n${blocked.slice(0,8).map(x=>`${formatDate(x.date)} — ${x.reasons.join(" ")}`).join("\n")}${blocked.length>8?"\n…":""}\n\nПродовжити?`))return;valid.forEach(item=>db.schedule.push({id:uid(db.schedule),...item}));closeModal();save();go("schedule");};
 }
 function deleteLesson(id){
   const x=db.schedule.find(s=>Number(s.id)===Number(id));if(!x)return;

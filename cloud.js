@@ -314,7 +314,7 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
   setSidebar("syncing","Завантаження…",user.email||"");
-  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=22;
+  const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=Number(st.schemaVersion)||27;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
     for(const name of ARRAY_COLLECTIONS){
@@ -417,7 +417,7 @@ async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:22,academicYear:st.academicYear,semester:st.semester,bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
+function settingsPart(st){return clean({schemaVersion:Number(st.schemaVersion)||27,academicYear:st.academicYear,semester:st.semester,adHocRooms:st.adHocRooms||[],bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;

@@ -1,7 +1,8 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 26,
+  "schemaVersion": 27,
   "academicYear": "2026/2027",
   "semester": 1,
+  "adHocRooms": [],
   "groups": [
     {
       "id": 1,
