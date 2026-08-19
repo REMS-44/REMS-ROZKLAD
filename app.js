@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=25;
+const APP_SCHEMA_VERSION=26;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -344,15 +344,21 @@ function isMasterGroupCode(code){return normIdentity(code).startsWith("мсм-")
 
 function mergeSeedStudents(existing=[],seed=[]){
   const result=clone(existing||[]);
-  const keys=new Set(result.map(studentSeedKey));
+  const byKey=new Map(result.map(s=>[studentSeedKey(s),s]));
   (seed||[]).forEach(s=>{
     const key=studentSeedKey(s);
-    if(key&&!keys.has(key)){
-      const copy=clone(s);
-      copy.id=uid(result);
-      result.push(copy);
-      keys.add(key);
+    if(!key)return;
+    const current=byKey.get(key);
+    if(current){
+      // v2.0.14: enrich a manually created matching first-year student with funding data,
+      // but never change status or resurrect an archived record.
+      if(!current.funding&&s.funding)current.funding=s.funding;
+      return;
     }
+    const copy=clone(s);
+    copy.id=uid(result);
+    result.push(copy);
+    byKey.set(key,copy);
   });
   return result;
 }
@@ -424,7 +430,8 @@ function migrate(old){
     }
     return out;
   });
-  // v2.0.4: seed students are imported only while upgrading an older database.
+  // v2.0.14: schema 26 adds the received first-year TA/TR student lists; the one-time upgrade imports them into existing databases.
+// v2.0.4: seed students are imported only while upgrading an older database.
   // From schema 22 onward the cloud/user list is authoritative, so a student
   // that the administrator deletes must NOT be silently re-created from data.js.
   fresh.students=previousSchemaVersion<APP_SCHEMA_VERSION
