@@ -1308,13 +1308,16 @@ function openPlannerActionModal(html,wide=false){
   const layer=ensurePlannerActionModal();
   $("#plannerActionBody").innerHTML=html;
   layer.classList.remove("hidden");
-  layer.querySelector(".planner-action-card").classList.toggle("wide",!!wide);
+  const card=layer.querySelector(".planner-action-card");
+  card.classList.toggle("wide",!!wide);
+  card.classList.toggle("student-load-mode",!!layer.querySelector(".student-load-popup"));
   document.body.classList.add("planner-action-open");
 }
 function closePlannerActionModal(){
   const layer=$("#plannerActionModal");
   if(!layer)return;
   layer.classList.add("hidden");
+  layer.querySelector(".planner-action-card")?.classList.remove("student-load-mode");
   const body=$("#plannerActionBody");
   if(body)body.innerHTML="";
   document.body.classList.remove("planner-action-open");
@@ -2730,9 +2733,18 @@ function disciplineAllocatedForType(d,typeId){
 function disciplineWorkloadPlan(d){return disciplinePlannedTypes(d).reduce((a,lt)=>a+disciplineTotalHoursById(d,lt.id),0);}
 function disciplineWorkloadAllocated(d){return disciplinePlannedTypes(d).reduce((a,lt)=>a+disciplineAllocatedForType(d,lt.id),0);}
 function explicitlyAllocatedTeacherIds(d){
-  return Object.entries(d?.teacherLoads||{})
-    .filter(([tid,load])=>teacherById(Number(tid))&&Object.values(load||{}).some(v=>num(v)>0))
-    .map(([tid])=>Number(tid));
+  const ids=new Set([
+    ...Object.keys(d?.teacherLoads||{}),
+    ...Object.keys(d?.teacherStudentLoads||{}),
+    ...Object.keys(d?.teacherStudentHours||{})
+  ]);
+  return [...ids].map(Number).filter(tid=>{
+    if(!teacherById(tid))return false;
+    const hasLoad=Object.values(d?.teacherLoads?.[String(tid)]||d?.teacherLoads?.[tid]||{}).some(v=>num(v)>0);
+    const hasStudents=Object.values(d?.teacherStudentLoads?.[String(tid)]||d?.teacherStudentLoads?.[tid]||{}).some(ids=>Array.isArray(ids)&&ids.length>0);
+    const hasStudentHours=Object.values(d?.teacherStudentHours?.[String(tid)]||d?.teacherStudentHours?.[tid]||{}).some(byStudent=>Object.values(byStudent||{}).some(h=>num(h)>0));
+    return hasLoad||hasStudents||hasStudentHours;
+  });
 }
 function explicitlyAllocatedTeacherNames(d){
   return explicitlyAllocatedTeacherIds(d).map(id=>teacherDisplay(teacherById(id))).filter(Boolean).join(", ");
@@ -3480,7 +3492,7 @@ function splitIndividualAllocationPickerHtml(d,tid,lt){
     const own=num(current[String(s.id)]),other=totalAssignedStudentHours(d,lt.id,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);
     const max=Math.max(used,Math.max(0,unit-other));
     const total=other+own,remaining=Math.max(0,unit-total),checked=selected.has(Number(s.id));
-    return `<div class="student-hour-option ${own>0?"active":""} ${checked?"bulk-selected":""}">
+    return `<div class="student-hour-option ${own>0?"active":""} ${checked?"bulk-selected":""}" data-split-student="${s.id}">
       <label class="student-hour-select" title="Обрати для масового встановлення годин"><input type="checkbox" ${checked?"checked":""} onchange="toggleSplitIndividualBulkStudent(${tid},${lt.id},${s.id},this.checked)"><span>обрати</span></label>
       <div class="student-hour-copy"><b>${esc(s.name)}</b><span>План ${fmtHours(unit)} год · інші викладачі ${fmtHours(other)} · залишок ${fmtHours(remaining)}${used?` · уже в розкладі у цього викладача ${fmtHours(used)}`:""}</span></div>
       <label><span>цьому викладачу</span><input type="number" min="${fmtHours(used)}" max="${fmtHours(max)}" step="1" value="${esc(own)}" onchange="setSplitIndividualHours(${tid},${lt.id},${s.id},this.value)"></label>
@@ -3501,14 +3513,19 @@ function toggleSplitIndividualBulkStudent(tid,typeId,studentId,checked){
   const selected=splitIndividualSelectedSet(tid,typeId),sid=Number(studentId);
   if(checked)selected.add(sid);else selected.delete(sid);
   const counter=$("#splitBulkSelectedCount");if(counter)counter.textContent=selected.size;
-  const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
-  if(d&&lt&&$("#studentLoadPicker"))$("#studentLoadPicker").innerHTML=perStudentAllocationPickerHtml(d,tid,lt);
+  const row=$(`[data-split-student="${sid}"]`);
+  if(row)row.classList.toggle("bulk-selected",!!checked);
 }
 function selectSplitIndividualBulkStudents(tid,typeId,on=true){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;if(!d)return;
   const selected=splitIndividualSelectedSet(tid,typeId);selected.clear();
   if(on)studentsForGroup(d.group).forEach(s=>selected.add(Number(s.id)));
-  refreshPerStudentPopup(tid,typeId);
+  $$('#studentLoadPicker [data-split-student]').forEach(row=>{
+    const sid=Number(row.dataset.splitStudent),checked=selected.has(sid);
+    row.classList.toggle("bulk-selected",checked);
+    const cb=row.querySelector('.student-hour-select input[type="checkbox"]');if(cb)cb.checked=checked;
+  });
+  const counter=$("#splitBulkSelectedCount");if(counter)counter.textContent=selected.size;
 }
 function applySplitIndividualBulkHours(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);if(!d||!lt)return;
@@ -3618,9 +3635,9 @@ function openPerStudentAllocationPopup(tid,typeId){
     </div>
 
     <div class="student-load-popup-tools">
-      <div><b id="studentLoadSelectedCount">${s.count}</b><span>обрано з ${s.groupCount}</span></div>
+      <div><b id="studentLoadSelectedCount">${s.count}</b><span>${s.split?"мають години":"обрано"} з ${s.groupCount}</span></div>
       <div><b id="studentLoadTotalHours">${fmtHours(s.total)} год</b><span>навантаження викладача</span></div>
-      <button type="button" class="secondary" onclick="selectAllAvailablePerStudent(${tid},${typeId})">${s.split?"Взяти весь вільний залишок":"Обрати всіх вільних"}</button>
+      <button type="button" class="secondary" onclick="selectAllAvailablePerStudent(${tid},${typeId})">${s.split?"Віддати весь вільний залишок":"Обрати всіх вільних"}</button>
       <button type="button" class="secondary" onclick="clearPerStudentAllocation(${tid},${typeId})">Очистити</button>
     </div>
 
@@ -3642,7 +3659,7 @@ function openPerStudentAllocationPopup(tid,typeId){
 
     <div class="planner-popup-footer">
       <button type="button" class="primary" onclick="${window.__directStudentAssignment?`saveDirectStudentAssignment(${tid},${typeId})`:`applyPerStudentAllocation(${tid},${typeId})`}">
-        ${window.__directStudentAssignment?"Зберегти закріплення":"Застосувати розподіл"}
+        ${window.__directStudentAssignment?"Зберегти розподіл":"Зберегти розподіл"}
       </button>
     </div>
   </div>`,true);
@@ -3650,8 +3667,9 @@ function openPerStudentAllocationPopup(tid,typeId){
 function refreshPerStudentPopup(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft,lt=lessonTypeById(typeId);
   if(!d||!lt)return;
+  const picker=$("#studentLoadPicker"),oldScroll=picker?.scrollTop||0;
   const s=perStudentAllocationStatus(d,tid,lt);
-  if($("#studentLoadPicker"))$("#studentLoadPicker").innerHTML=perStudentAllocationPickerHtml(d,tid,lt);
+  if(picker){picker.innerHTML=perStudentAllocationPickerHtml(d,tid,lt);picker.scrollTop=oldScroll;}
   if($("#studentLoadSelectedCount"))$("#studentLoadSelectedCount").textContent=s.count;
   if($("#studentLoadTotalHours"))$("#studentLoadTotalHours").textContent=`${fmtHours(s.total)} год`;
   if($("#splitBulkSelectedCount"))$("#splitBulkSelectedCount").textContent=splitIndividualSelectedSet(tid,typeId).size;
@@ -3721,10 +3739,30 @@ function clearPerStudentAllocation(tid,typeId){
   refreshPerStudentPopup(tid,typeId);
   if(locked.length)alert(`${locked.length} студент(ів) залишено, бо для них уже є заняття в розкладі.`);
 }
+function persistPerStudentAllocationType(d,tid,typeId){
+  if(!d?.id)return false;
+  syncPerStudentAllocationLoads(d);
+  const tkey=String(tid),lkey=String(typeId),hours=num(disciplineAllocationDraft?.[tkey]?.[lkey]);
+  d.teacherLoads=d.teacherLoads||{};d.teacherLoads[tkey]=d.teacherLoads[tkey]||{};d.teacherLoads[tkey][lkey]=hours;
+  d.teacherStudentLoads=d.teacherStudentLoads||{};d.teacherStudentLoads[tkey]=d.teacherStudentLoads[tkey]||{};
+  d.teacherStudentLoads[tkey][lkey]=[...new Set((disciplineStudentAllocationDraft?.[tkey]?.[lkey]||[]).map(Number).filter(Boolean))];
+  const lt=lessonTypeById(typeId);
+  if(isSplitIndividualType(lt)){
+    d.teacherStudentHours=d.teacherStudentHours||{};d.teacherStudentHours[tkey]=d.teacherStudentHours[tkey]||{};
+    const clean={};Object.entries(disciplineStudentHoursDraft?.[tkey]?.[lkey]||{}).forEach(([sid,h])=>{if(num(h)>0)clean[String(sid)]=num(h);});
+    d.teacherStudentHours[tkey][lkey]=clean;
+  }
+  const hasAny=Object.values(d.teacherLoads[tkey]||{}).some(v=>num(v)>0);
+  d.teacherIds=[...new Set((d.teacherIds||[]).map(Number).filter(Boolean).concat(hasAny?[Number(tid)]:[]))];
+  if(!hasAny)d.teacherIds=d.teacherIds.filter(id=>Number(id)!==Number(tid));
+  save();
+  return true;
+}
 function applyPerStudentAllocation(tid,typeId){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;
   if(!d)return;
   syncPerStudentAllocationLoads(d);
+  persistPerStudentAllocationType(d,tid,typeId);
   closePlannerActionModal();
   renderAllocationEditor(d);
 }
@@ -4276,7 +4314,7 @@ function specialLoadCardHtml(x){
 
     ${!resolved
       ?`<button class="primary" onclick="beginDirectStudentAssignment(${x.d.id},${x.t.id},${x.lt.id})">${split?"Розподілити години":"Закріпити студентів"}</button>`
-      :`<button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати студенту"}</button>`}
+      :`<div class="special-load-actions"><button class="${done?"secondary":"primary"}" onclick="openSpecialScheduleModal(${x.d.id},${x.t.id},${x.lt.id})" ${done?"disabled":""}>${done?"Навантаження вичерпано":"Додати годину студенту"}</button>${perStudent?`<button class="secondary" onclick="beginDirectStudentAssignment(${x.d.id},${x.t.id},${x.lt.id})">${split?"Змінити розподіл годин":"Змінити студентів"}</button>`:""}</div>`}
   </article>`;
 }
 function specialDisciplineTabsHtml(){
@@ -4401,7 +4439,7 @@ function specialStudentButtonsHtml(d,t,lt,selected=null,ignoreId=null){
       ${p.done?"disabled":""}
       onclick="selectSpecialStudent(${s.id})">
         <span>${esc(s.name)}</span>
-        ${isPerStudentTypeId(lt.id)?`<small>${fmtHours(p.used)} / ${fmtHours(p.plan)} год · ${fmtHours(p.used)} / ${fmtHours(p.plan)} ${personalMeetingLabel(lt)}${p.done?" · ГОТОВО":` · залишилось ${fmtHours(p.remaining)}`}</small>`:""}
+        ${isPerStudentTypeId(lt.id)?`<small>цьому викладачу ${fmtHours(p.plan)} год · виставлено ${fmtHours(p.used)} · ${p.done?"ГОТОВО":`залишилось ${fmtHours(p.remaining)}`}</small>`:""}
     </button>`;
   }).join("")}</div>`;
 }
@@ -4648,7 +4686,14 @@ function disciplineTypePlan(d,typeName){const id=lessonTypeIdByName(typeName);re
 function teacherTypePlan(d,teacherId,typeName){
   if(!d||!teacherId)return 0;
   const id=lessonTypeIdByName(typeName);if(!id)return 0;
+  const lt=lessonTypeById(id);
 
+  // Для поділених індивідуальних годин беремо фактичну частку викладача.
+  if(isSplitIndividualType(lt)&&studentHourKeyExists(d,teacherId,id)){
+    const actual=totalTeacherStudentHours(d,teacherId,id);
+    const legacy=num(explicitTeacherLoad(d,teacherId)?.[id]);
+    return actual>0||legacy<=0?actual:legacy;
+  }
   if(isPerStudentTypeId(id)&&studentAssignmentKeyExists(d,teacherId,id)){
     return assignedStudentIds(d,teacherId,id).length*perStudentUnitHours(d,id);
   }
