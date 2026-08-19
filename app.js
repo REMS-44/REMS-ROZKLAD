@@ -4472,6 +4472,158 @@ function refreshSpecialHalfButtons(){
   if(box)box.innerHTML=specialHalfOptionsHtml(pairId,half);
   refreshSpecialRoomOptions();
 }
+
+
+/* v2.0.17 · visual planner for individual / personal schedule */
+let specialPlannerState={
+  disciplineId:null,teacherId:null,typeId:null,view:"day",weekday:1,weekStart:"",month:"",selectedDate:"",selectedPairId:null,selectedHalf:1,studentId:null,room:"",note:"",onlyUseful:false
+};
+function specialPlannerWeekdayName(day){return (["Неділя","Понеділок","Вівторок","Середа","Четвер","П’ятниця","Субота"])[Number(day)]||"";}
+function specialPlannerWeekdayShort(day){return (["Нд","Пн","Вт","Ср","Чт","Пт","Сб"])[Number(day)]||"";}
+function specialPlannerSemesterMonths(d){
+  const b=semesterDateBounds(d.semester),out=[];let cur=b.start.slice(0,7),guard=0;
+  while(cur<=b.end.slice(0,7)&&guard++<12){out.push(cur);const [y,m]=cur.split('-').map(Number),dt=new Date(y,m,1);cur=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;}
+  return out;
+}
+function specialPlannerMonday(date){const dt=new Date(date+'T12:00:00'),shift=(dt.getDay()+6)%7;return addDays(date,-shift);}
+function specialPlannerClampWeekStart(date,bounds){
+  let start=specialPlannerMonday(date||bounds.start);if(addDays(start,6)<bounds.start)start=specialPlannerMonday(bounds.start);if(start>bounds.end)start=specialPlannerMonday(bounds.end);return start;
+}
+function specialPlannerInitialDate(d){const b=semesterDateBounds(d.semester);return clampDate(currentAcademicDate(),b);}
+function specialPlannerReset(d,t,lt){
+  const b=semesterDateBounds(d.semester),date=specialPlannerInitialDate(d),months=specialPlannerSemesterMonths(d);
+  specialPlannerState={disciplineId:d.id,teacherId:t.id,typeId:lt.id,view:"day",weekday:weekdayId(date),weekStart:specialPlannerClampWeekStart(date,b),month:months.includes(date.slice(0,7))?date.slice(0,7):(months[0]||date.slice(0,7)),selectedDate:"",selectedPairId:null,selectedHalf:1,studentId:null,room:"",note:"",onlyUseful:false};
+}
+function specialPlannerContext(){return {d:disciplineById(specialPlannerState.disciplineId),t:teacherById(specialPlannerState.teacherId),lt:lessonTypeById(specialPlannerState.typeId)};}
+function specialPlannerWeekdayDates(d,weekday){const b=semesterDateBounds(d.semester),out=[];let date=b.start;while(date<=b.end){if(weekdayId(date)===Number(weekday))out.push(date);date=addDays(date,1);}return out;}
+function specialPlannerWeekDates(d){const b=semesterDateBounds(d.semester),start=specialPlannerClampWeekStart(specialPlannerState.weekStart||specialPlannerInitialDate(d),b),out=[];for(let i=0;i<7;i++){const date=addDays(start,i);if(date>=b.start&&date<=b.end)out.push(date);}return out;}
+function specialPlannerTeacherBusyRecord(t,date,start,end){
+  const scheduleHit=db.schedule.find(x=>x.date===date&&Number(resolvedScheduleTeacherId(x,db))===Number(t.id)&&timeOverlap(start,end,x.start,x.end));
+  if(scheduleHit)return scheduleHit;
+  const bookingHit=db.roomBookings.find(x=>x.date===date&&Number(x.teacherId)===Number(t.id)&&timeOverlap(start,end,x.start,x.end));
+  return bookingHit?{...bookingHit,discipline:bookingHit.title||bookingHit.kind||"Бронювання",source:"booking"}:null;
+}
+function specialPlannerStudentBusyRecord(studentId,date,start,end){
+  const st=db.students.find(s=>Number(s.id)===Number(studentId));if(!st)return null;
+  const probe={specialSchedule:true,studentId:Number(studentId),group:st.group,date,start,end};
+  const scheduleHit=db.schedule.find(x=>x.date===date&&timeOverlap(start,end,x.start,x.end)&&scheduleAudienceOverlap(probe,x,db));
+  if(scheduleHit)return scheduleHit;
+  const bookingHit=db.roomBookings.find(x=>x.date===date&&x.group&&normIdentity(x.group)===normIdentity(st.group)&&timeOverlap(start,end,x.start,x.end));
+  return bookingHit?{...bookingHit,discipline:bookingHit.title||bookingHit.kind||"Бронювання",source:"booking"}:null;
+}
+function specialPlannerTeacherSlotInfo(d,t,lt,date,pairId,half){
+  const times=specialHalfTimes(pairId,half),busy=specialPlannerTeacherBusyRecord(t,date,times.start,times.end);
+  const probe={date,start:times.start,end:times.end,pairId,teacherId:t.id,group:d.group,disciplineId:d.id,discipline:d.name,type:lt.name,specialSchedule:true,specialHalf:half,studentId:null,room:""};
+  const availability=teacherAvailabilityInfo(probe,null);
+  return {times,busy,warnings:availability.warnings||[],notes:availability.notes||[],free:!busy&&!(availability.warnings||[]).length};
+}
+function specialPlannerAvailableStudents(d,t,lt,date,pairId,half){
+  const times=specialHalfTimes(pairId,half);
+  return specialStudentsForLoad(d,t,lt).filter(st=>{
+    const progress=specialStudentProgress(d,t,lt,st.id);if(progress.remaining<1-.001)return false;
+    return !specialPlannerStudentBusyRecord(st.id,date,times.start,times.end);
+  });
+}
+function specialPlannerFreeRooms(date,pairId,half){
+  if(!programUsesRooms())return[];const times=specialHalfTimes(pairId,half);
+  return scheduleRoomNames().filter(name=>!roomConflictRecord(date,times.start,times.end,pairId,name,null));
+}
+function specialPlannerSlotInfo(d,t,lt,date,pairId,half){
+  const teacher=specialPlannerTeacherSlotInfo(d,t,lt,date,pairId,half),students=teacher.free?specialPlannerAvailableStudents(d,t,lt,date,pairId,half):[],rooms=teacher.free?specialPlannerFreeRooms(date,pairId,half):[];
+  const preferred=Number(specialPlannerState.studentId)||null,preferredFree=preferred?students.some(s=>Number(s.id)===preferred):false;
+  return {teacher,students,rooms,preferredFree};
+}
+function specialPlannerBusyLabel(rec){
+  if(!rec)return"";if(rec.specialSchedule)return specialStudentName(rec);return rec.discipline||rec.title||rec.kind||rec.group||"зайнято";
+}
+function specialPlannerRoomMini(rooms=[]){if(!programUsesRooms())return"онлайн";if(!rooms.length)return"аудиторій немає";const shown=rooms.slice(0,2).join(', ');return rooms.length>2?`${shown} +${rooms.length-2}`:shown;}
+function specialPlannerSlotButtonHtml(d,t,lt,date,pairId,half){
+  const info=specialPlannerSlotInfo(d,t,lt,date,pairId,half),times=info.teacher.times,preferred=Number(specialPlannerState.studentId)||null;
+  if(info.teacher.busy){const rec=info.teacher.busy,editable=rec.specialSchedule&&Number(resolvedScheduleTeacherId(rec,db))===Number(t.id);return `<button type="button" class="sp-slot busy" ${editable?`onclick="openSpecialScheduleEventEditor(${Number(rec.id)})"`:'disabled'}><b>${half===1?'І':'ІІ'} · ${esc(times.start)}–${esc(times.end)}</b><span>${esc(specialPlannerBusyLabel(rec))}</span><small>${editable?'натисни для редагування':'викладач зайнятий'}</small></button>`;}
+  if(info.teacher.warnings.length)return `<button type="button" class="sp-slot blocked" disabled><b>${half===1?'І':'ІІ'} · ${esc(times.start)}–${esc(times.end)}</b><span>недоступно</span><small>${esc(info.teacher.warnings[0])}</small></button>`;
+  if(!info.students.length)return `<button type="button" class="sp-slot no-students" disabled><b>${half===1?'І':'ІІ'} · ${esc(times.start)}–${esc(times.end)}</b><span>викладач вільний</span><small>немає вільних студентів</small></button>`;
+  const preferredText=preferred?(info.preferredFree?'обраний студент вільний':'обраний студент зайнятий'):`${info.students.length} студ. вільні`;
+  const cls=preferred&&!info.preferredFree?'student-busy':'free';
+  return `<button type="button" class="sp-slot ${cls}" onclick="specialPlannerSelectSlot('${date}',${Number(pairId)},${Number(half)})"><b>${half===1?'І':'ІІ'} · ${esc(times.start)}–${esc(times.end)}</b><span>${esc(preferredText)}</span><small>${esc(specialPlannerRoomMini(info.rooms))}</small></button>`;
+}
+function specialPlannerDateGridHtml(d,t,lt,dates){
+  const pairs=bellPairs();if(!dates.length)return `<div class="empty">У межах семестру немає таких дат.</div>`;
+  return `<div class="sp-grid-wrap"><div class="sp-grid" style="--sp-days:${dates.length}"><div class="sp-corner"><b>Пара</b><span>2 половини</span></div>${dates.map(date=>`<div class="sp-date ${date===localTodayISO()?'today':''}"><b>${formatDate(date)}</b><span>${esc(specialPlannerWeekdayShort(weekdayId(date)))}</span></div>`).join('')}${pairs.map(pair=>`<div class="sp-pair"><b>${esc(pair.id)}</b><span>${esc(pair.start)}–${esc(pair.end)}</span></div>${dates.map(date=>`<div class="sp-cell">${specialPlannerSlotButtonHtml(d,t,lt,date,pair.id,1)}${specialPlannerSlotButtonHtml(d,t,lt,date,pair.id,2)}</div>`).join('')}`).join('')}</div></div>`;
+}
+function specialPlannerSingleDateHtml(d,t,lt,date){
+  if(!date)return"";return `<div class="sp-month-date-detail"><div class="sp-month-date-title"><div><span>ОБРАНА ДАТА</span><b>${formatDate(date)} · ${esc(specialPlannerWeekdayName(weekdayId(date)))}</b></div><small>Обери половину пари — справа одразу з’являться вільні студенти й аудиторії.</small></div><div class="sp-single-date-slots">${bellPairs().map(pair=>`<div class="sp-single-pair"><div><b>${esc(pair.id)} пара</b><span>${esc(pair.start)}–${esc(pair.end)}</span></div>${specialPlannerSlotButtonHtml(d,t,lt,date,pair.id,1)}${specialPlannerSlotButtonHtml(d,t,lt,date,pair.id,2)}</div>`).join('')}</div></div>`;
+}
+function specialPlannerMonthDays(month){const [y,m]=month.split('-').map(Number),days=new Date(y,m,0).getDate(),first=new Date(y,m-1,1,12).getDay(),offset=(first+6)%7,out=[];for(let i=0;i<offset;i++)out.push(null);for(let day=1;day<=days;day++)out.push(`${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`);while(out.length%7)out.push(null);return out;}
+function specialPlannerDateSummary(d,t,lt,date){
+  let useful=0,busy=0,scheduled=0;bellPairs().forEach(pair=>[1,2].forEach(half=>{const info=specialPlannerSlotInfo(d,t,lt,date,pair.id,half);if(info.teacher.busy){busy++;if(info.teacher.busy.specialSchedule&&Number(info.teacher.busy.disciplineId)===Number(d.id))scheduled++;}else if(info.teacher.free&&info.students.length)useful++;}));return{useful,busy,scheduled};
+}
+function specialPlannerMonthHtml(d,t,lt){
+  const b=semesterDateBounds(d.semester),month=specialPlannerState.month,days=specialPlannerMonthDays(month),labels=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+  return `<div class="sp-month"><div class="sp-month-weekheads">${labels.map(x=>`<b>${x}</b>`).join('')}</div><div class="sp-month-grid">${days.map(date=>{if(!date||date<b.start||date>b.end)return `<div class="sp-month-day outside"></div>`;const sum=specialPlannerDateSummary(d,t,lt,date);return `<button type="button" class="sp-month-day ${date===specialPlannerState.selectedDate?'selected':''} ${date===localTodayISO()?'today':''}" onclick="specialPlannerSelectMonthDate('${date}')"><span>${Number(date.slice(-2))}</span><b>${sum.useful} вільних слотів</b><small>${sum.scheduled?`${sum.scheduled} індив. вже є`:sum.busy?`${sum.busy} зайнятих`: 'викладач вільний'}</small></button>`;}).join('')}</div>${specialPlannerSingleDateHtml(d,t,lt,specialPlannerState.selectedDate)}</div>`;
+}
+function specialPlannerStudentsSidebarHtml(d,t,lt){
+  const rows=specialStudentsForLoad(d,t,lt),preferred=Number(specialPlannerState.studentId)||null;
+  return `<div class="sp-students"><div class="sp-side-head"><div><span>СТУДЕНТИ</span><b>Нерозподілені години</b></div><button type="button" class="secondary ${preferred?'':'active'}" onclick="specialPlannerPreferStudent(null)">Усі</button></div><div class="sp-student-list">${rows.map(st=>{const p=specialStudentProgress(d,t,lt,st.id);return `<button type="button" class="sp-student ${Number(st.id)===preferred?'active':''} ${p.done?'done':''}" onclick="specialPlannerPreferStudent(${Number(st.id)})"><b>${esc(st.name)}</b><span>${fmtHours(p.used)} / ${fmtHours(p.plan)} год</span><small>${p.done?'ГОТОВО':`залишилось ${fmtHours(p.remaining)}`}</small></button>`;}).join('')}</div></div>`;
+}
+function specialPlannerSelectionHtml(d,t,lt){
+  const date=specialPlannerState.selectedDate,pairId=specialPlannerState.selectedPairId,half=Number(specialPlannerState.selectedHalf)||1;
+  if(!date||!pairId)return `<div class="sp-selection empty-selection"><b>Обери вільний слот</b><span>Натисни на І або ІІ половину потрібної пари. Тут з’являться студенти та аудиторія.</span></div>`;
+  const info=specialPlannerSlotInfo(d,t,lt,date,pairId,half);if(!info.teacher.free||!info.students.length)return `<div class="sp-selection empty-selection"><b>Цей слот уже недоступний</b><button type="button" class="secondary" onclick="specialPlannerClearSlot()">Очистити вибір</button></div>`;
+  let studentId=Number(specialPlannerState.studentId)||null;if(!info.students.some(s=>Number(s.id)===studentId))studentId=Number(info.students[0]?.id)||null;specialPlannerState.studentId=studentId;
+  const selectedStudent=db.students.find(s=>Number(s.id)===studentId),progress=selectedStudent?specialStudentProgress(d,t,lt,studentId):null;
+  const both=specialPlannerCanPlaceFullPair(d,t,lt,date,pairId,studentId);
+  return `<div class="sp-selection"><div class="sp-selection-head"><span>ПРИЗНАЧЕННЯ</span><b>${formatDate(date)} · ${esc(pairId)} пара · ${half===1?'І':'ІІ'} половина</b><small>${esc(info.teacher.times.start)}–${esc(info.teacher.times.end)}</small></div><label>Студент<select id="spPlannerStudent" onchange="specialPlannerSelectStudent(this.value)">${info.students.map(st=>{const p=specialStudentProgress(d,t,lt,st.id);return `<option value="${st.id}" ${Number(st.id)===studentId?'selected':''}>${esc(st.name)} · залишок ${fmtHours(p.remaining)}</option>`;}).join('')}</select></label>${programUsesRooms()?`<label>Аудиторія<select id="spPlannerRoom">${specialRoomOptions(date,pairId,half,specialPlannerState.room||'',null)}</select><small>${info.rooms.length?`Зараз вільні: ${esc(info.rooms.slice(0,5).join(', '))}${info.rooms.length>5?'…':''}`:'У кафедральному списку немає вільної; можна вказати іншу.'}</small></label>`:`<div class="notice success-notice"><b>Онлайн</b><span>Фізична аудиторія не потрібна.</span></div>`}<label>Примітка<input id="spPlannerNote" value="${esc(specialPlannerState.note||'')}" placeholder="необов’язково"></label>${progress?`<div class="sp-selection-progress"><span>Цьому викладачу</span><b>${fmtHours(progress.used)} / ${fmtHours(progress.plan)} год</b><small>після цієї години залишиться ${fmtHours(Math.max(0,progress.remaining-1))}</small></div>`:''}<div id="spPlannerMessage"></div><div class="sp-selection-actions"><button type="button" class="primary" onclick="specialPlannerSaveOne()">Поставити 1 годину</button>${both?`<button type="button" class="secondary strong" onclick="specialPlannerSaveFullPair()">Поставити всю пару · 2 год</button>`:''}<button type="button" class="secondary" onclick="specialPlannerClearSlot()">Скасувати вибір</button></div></div>`;
+}
+function specialPlannerCanPlaceFullPair(d,t,lt,date,pairId,studentId){
+  const p=specialStudentProgress(d,t,lt,studentId);if(p.remaining<2-.001||remainingLoad(d,t.id,lt.name)<2-.001)return false;
+  return [1,2].every(half=>{const info=specialPlannerSlotInfo(d,t,lt,date,pairId,half);return info.teacher.free&&info.students.some(s=>Number(s.id)===Number(studentId));});
+}
+function specialPlannerControlsHtml(d){
+  const b=semesterDateBounds(d.semester),view=specialPlannerState.view,wdOrder=[1,2,3,4,5,6,0],months=specialPlannerSemesterMonths(d),weekDates=specialPlannerWeekDates(d),weekLabel=weekDates.length?`${formatDate(weekDates[0])} — ${formatDate(weekDates[weekDates.length-1])}`:'';
+  return `<div class="sp-controls"><div class="sp-view-tabs"><button type="button" class="${view==='day'?'active':''}" onclick="specialPlannerSetView('day')"><b>День тижня</b><span>на весь семестр</span></button><button type="button" class="${view==='week'?'active':''}" onclick="specialPlannerSetView('week')"><b>Тиждень</b><span>7 календарних днів</span></button><button type="button" class="${view==='month'?'active':''}" onclick="specialPlannerSetView('month')"><b>Місяць</b><span>загальна картина</span></button></div>${view==='day'?`<div class="sp-weekdays">${wdOrder.map(day=>`<button type="button" class="${Number(specialPlannerState.weekday)===day?'active':''}" onclick="specialPlannerSetWeekday(${day})"><b>${specialPlannerWeekdayShort(day)}</b><span>${specialPlannerWeekdayName(day)}</span></button>`).join('')}</div>`:''}${view==='week'?`<div class="sp-period-nav"><button type="button" class="secondary" onclick="specialPlannerShiftWeek(-1)">←</button><b>${esc(weekLabel)}</b><button type="button" class="secondary" onclick="specialPlannerShiftWeek(1)">→</button></div>`:''}${view==='month'?`<div class="sp-period-nav"><button type="button" class="secondary" onclick="specialPlannerShiftMonth(-1)">←</button><b>${esc(monthLabel(specialPlannerState.month))}</b><button type="button" class="secondary" onclick="specialPlannerShiftMonth(1)">→</button></div><div class="sp-month-tabs">${months.map(m=>`<button type="button" class="${m===specialPlannerState.month?'active':''}" onclick="specialPlannerSetMonth('${m}')">${esc(monthLabel(m).replace(/\s+\d{4}$/,''))}</button>`).join('')}</div>`:''}<div class="sp-semester-note">${esc(d.semester)} семестр · ${formatDate(b.start)} — ${formatDate(b.end)}</div></div>`;
+}
+function specialPlannerCalendarHtml(d,t,lt){
+  if(specialPlannerState.view==='day')return specialPlannerDateGridHtml(d,t,lt,specialPlannerWeekdayDates(d,specialPlannerState.weekday));
+  if(specialPlannerState.view==='week')return specialPlannerDateGridHtml(d,t,lt,specialPlannerWeekDates(d));
+  return specialPlannerMonthHtml(d,t,lt);
+}
+function renderSpecialPlanner(){
+  const {d,t,lt}=specialPlannerContext();if(!d||!t||!lt)return;
+  const body=$("#modalBody");if(!body)return;const remaining=remainingLoad(d,t.id,lt.name),students=specialStudentsForLoad(d,t,lt),done=students.filter(s=>specialStudentProgress(d,t,lt,s.id).done).length;
+  body.innerHTML=`<div class="sp-planner"><div class="sp-hero"><div><span>ПЛАНУВАЛЬНИК ІНДИВІДУАЛЬНИХ</span><h2>${esc(d.name)}</h2><b>${esc(teacherDisplay(t))}</b><p>${esc(d.group)} · ${esc(lt.name)} · бачиш зайнятість викладача, студентів і аудиторій в одному місці.</p></div><div class="sp-kpis"><div><b>${fmtHours(remaining)}</b><span>год викладача лишилось</span></div><div><b>${done}/${students.length}</b><span>студентів готово</span></div></div></div>${specialPlannerControlsHtml(d)}<div class="sp-body"><main class="sp-calendar">${specialPlannerCalendarHtml(d,t,lt)}</main><aside class="sp-sidebar">${specialPlannerStudentsSidebarHtml(d,t,lt)}${specialPlannerSelectionHtml(d,t,lt)}</aside></div><div class="sp-legend"><span><i class="free"></i> викладач + студенти вільні</span><span><i class="student-busy"></i> викладач вільний, обраний студент зайнятий</span><span><i class="busy"></i> викладач зайнятий</span><span><i class="blocked"></i> недоступний час</span><button type="button" class="secondary" onclick="closeModal()">Закрити планувальник</button></div></div>`;
+  const card=$("#modal")?.querySelector('.modal-card');if(card){card.classList.add('special-planner-modal-card');card.classList.add('modal-wide');}
+  const room=$("#spPlannerRoom");if(room)initAdHocRoomSelect(room,value=>{specialPlannerState.room=value||'';});
+  const note=$("#spPlannerNote");if(note)note.oninput=()=>specialPlannerState.note=note.value;
+}
+function openSpecialPlanner(disciplineId,teacherId,typeId){const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=lessonTypeById(typeId);if(!d||!t||!lt)return;specialEditEventId=null;specialPlannerReset(d,t,lt);openModal('<div></div>',true);renderSpecialPlanner();}
+function specialPlannerSetView(view){if(!['day','week','month'].includes(view))return;specialPlannerState.view=view;specialPlannerState.selectedDate='';specialPlannerState.selectedPairId=null;renderSpecialPlanner();}
+function specialPlannerSetWeekday(day){specialPlannerState.weekday=Number(day);specialPlannerState.selectedDate='';specialPlannerState.selectedPairId=null;renderSpecialPlanner();}
+function specialPlannerSetWeekStart(date){const {d}=specialPlannerContext();if(!d)return;specialPlannerState.weekStart=specialPlannerClampWeekStart(date,semesterDateBounds(d.semester));renderSpecialPlanner();}
+function specialPlannerShiftWeek(delta){const {d}=specialPlannerContext();if(!d)return;const b=semesterDateBounds(d.semester),next=addDays(specialPlannerState.weekStart||specialPlannerMonday(specialPlannerInitialDate(d)),Number(delta)*7);if(addDays(next,6)<b.start||next>b.end)return;specialPlannerState.weekStart=specialPlannerClampWeekStart(next,b);specialPlannerState.selectedDate='';specialPlannerState.selectedPairId=null;renderSpecialPlanner();}
+function specialPlannerSetMonth(month){const {d}=specialPlannerContext();if(!d||!specialPlannerSemesterMonths(d).includes(month))return;specialPlannerState.month=month;specialPlannerState.selectedDate='';specialPlannerState.selectedPairId=null;renderSpecialPlanner();}
+function specialPlannerShiftMonth(delta){const {d}=specialPlannerContext();if(!d)return;const months=specialPlannerSemesterMonths(d),i=months.indexOf(specialPlannerState.month),next=months[i+Number(delta)];if(next)specialPlannerSetMonth(next);}
+function specialPlannerSelectMonthDate(date){specialPlannerState.selectedDate=date;specialPlannerState.selectedPairId=null;renderSpecialPlanner();}
+function specialPlannerPreferStudent(id){specialPlannerState.studentId=id?Number(id):null;renderSpecialPlanner();}
+function specialPlannerSelectStudent(id){specialPlannerState.studentId=Number(id)||null;renderSpecialPlanner();}
+function specialPlannerSelectSlot(date,pairId,half){
+  const {d,t,lt}=specialPlannerContext();if(!d||!t||!lt)return;const info=specialPlannerSlotInfo(d,t,lt,date,pairId,half);if(!info.teacher.free||!info.students.length)return;
+  specialPlannerState.selectedDate=date;specialPlannerState.selectedPairId=Number(pairId);specialPlannerState.selectedHalf=Number(half);if(!info.students.some(s=>Number(s.id)===Number(specialPlannerState.studentId)))specialPlannerState.studentId=Number(info.students[0].id);specialPlannerState.room='';specialPlannerState.note='';renderSpecialPlanner();
+}
+function specialPlannerClearSlot(){specialPlannerState.selectedDate='';specialPlannerState.selectedPairId=null;specialPlannerState.room='';specialPlannerState.note='';renderSpecialPlanner();}
+function specialPlannerBuildItem(d,t,lt,date,pairId,half,studentId,room,note){const st=db.students.find(s=>Number(s.id)===Number(studentId)),times=specialHalfTimes(pairId,half);return {id:uid(db.schedule),date,start:times.start,end:times.end,pairId,group:d.group,disciplineId:d.id,discipline:d.name,type:lt.name,coverage:st?.name||'',students:st?.name||'',studentId:Number(studentId),teacherId:t.id,teacher:teacherDisplay(t),room:programUsesRooms()?rememberAdHocRoom(room):'',workloadHours:1,note:String(note||'').trim(),repeatBatchId:null,specialSchedule:true,specialKind:specialScheduleState.kind,specialHalf:Number(half),scheduleSource:'special'};}
+function specialPlannerValidateItem(item,d,t,lt,extra=[]){
+  const st=db.students.find(s=>Number(s.id)===Number(item.studentId));if(!st)return['Оберіть студента.'];if(!assignedStudentIds(d,t.id,lt.id).includes(Number(st.id)))return['Студент не закріплений за цим викладачем.'];const usage=individualStudentUsage(d,t,lt,st.id);if(usage.remaining<1-.001)return['Для цього студента години вже вичерпані.'];if(remainingLoad(d,t.id,lt.name)<1-.001)return['У викладача вже немає залишку годин цього виду.'];const cs=conflictsFor(item,null,extra),info=teacherAvailabilityInfo(item,null,extra);return[...conflictReasonLines(item,cs),...(info.warnings||[])];
+}
+function specialPlannerReadRoom(){const el=$("#spPlannerRoom");return el?el.value:specialPlannerState.room||'';}
+function specialPlannerReadNote(){const el=$("#spPlannerNote");return el?el.value:specialPlannerState.note||'';}
+function specialPlannerSaveOne(){
+  const {d,t,lt}=specialPlannerContext(),date=specialPlannerState.selectedDate,pairId=specialPlannerState.selectedPairId,half=Number(specialPlannerState.selectedHalf),studentId=Number(specialPlannerState.studentId);if(!d||!t||!lt||!date||!pairId||!studentId)return;
+  const item=specialPlannerBuildItem(d,t,lt,date,pairId,half,studentId,specialPlannerReadRoom(),specialPlannerReadNote()),errors=specialPlannerValidateItem(item,d,t,lt);if(errors.length){const box=$("#spPlannerMessage");if(box)box.innerHTML=`<div class="conflict"><b>Не можу поставити:</b><br>${errors.map(esc).join('<br>')}</div>`;return;}db.schedule.push(item);specialScheduleState.disciplineId=d.id;specialScheduleState.group=d.group;specialScheduleState.month=date.slice(0,7);specialPlannerState.selectedHalf=half===1?2:1;specialPlannerState.room=item.room;specialPlannerState.note='';save();renderSpecialPlanner();
+}
+function specialPlannerSaveFullPair(){
+  const {d,t,lt}=specialPlannerContext(),date=specialPlannerState.selectedDate,pairId=specialPlannerState.selectedPairId,studentId=Number(specialPlannerState.studentId);if(!d||!t||!lt||!date||!pairId||!studentId)return;if(!specialPlannerCanPlaceFullPair(d,t,lt,date,pairId,studentId))return alert('Повна пара вже недоступна або студенту / викладачу залишилося менше 2 годин.');const room=specialPlannerReadRoom(),note=specialPlannerReadNote(),first=specialPlannerBuildItem(d,t,lt,date,pairId,1,studentId,room,note),e1=specialPlannerValidateItem(first,d,t,lt);if(e1.length)return alert(e1.join('\n'));const second=specialPlannerBuildItem(d,t,lt,date,pairId,2,studentId,room,note);if(Number(second.id)===Number(first.id))second.id=Number(first.id)+1;const e2=specialPlannerValidateItem(second,d,t,lt,[first]);if(e2.length)return alert(e2.join('\n'));db.schedule.push(first,second);specialScheduleState.disciplineId=d.id;specialScheduleState.group=d.group;specialScheduleState.month=date.slice(0,7);specialPlannerState.selectedDate='';specialPlannerState.selectedPairId=null;specialPlannerState.note='';save();renderSpecialPlanner();
+}
+
 function openSpecialScheduleEventEditor(id){
   const existing=db.schedule.find(x=>Number(x.id)===Number(id));
   if(!existing||!existing.specialSchedule)return;
@@ -4489,6 +4641,7 @@ function openSpecialScheduleEventEditor(id){
 function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
   const d=disciplineById(disciplineId),t=teacherById(teacherId),lt=db.lessonTypes.find(x=>Number(x.id)===Number(typeId));
   if(!d||!t||!lt)return;
+  if(!editId)return openSpecialPlanner(disciplineId,teacherId,typeId);
 
   const existing=editId?db.schedule.find(x=>Number(x.id)===Number(editId)):null;
   const editing=!!existing;
