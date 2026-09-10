@@ -415,6 +415,29 @@ function deriveLegacyStudentHours(d,lessonTypes=[]){
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
   if(!old||typeof old!=="object") return fresh;
+
+  // One-time approved schedule pack release. Replace only working schedule/workload
+  // collections with the bundled faculty schedule. Keep locally maintained faculty
+  // reference data (students/groups/internal teacher cards). Imported external cards
+  // are recreated from the approved source so IDs used by the schedule stay stable.
+  const targetCleanupVersion=String(fresh.dataCleanupVersion||"");
+  if(targetCleanupVersion&&String(old.dataCleanupVersion||"")!==targetCleanupVersion){
+    old=clone(old);
+    old.dataCleanupVersion=targetCleanupVersion;
+    old.adHocRooms=clone(fresh.adHocRooms||[]);
+    old.curricula=clone(fresh.curricula||[]);
+    old.disciplines=clone(fresh.disciplines||[]);
+    old.schedule=clone(fresh.schedule||[]);
+    old.roomBookings=clone(fresh.roomBookings||[]);
+    const previousTeachers=clone(old.teachers||[]);
+    old.teachers=clone(fresh.teachers||[]).map(seedTeacher=>{
+      const prev=previousTeachers.find(t=>teacherSeedKey(t)===teacherSeedKey(seedTeacher));
+      if(!prev)return seedTeacher;
+      return {...seedTeacher,...prev,id:seedTeacher.id,scope:seedTeacher.scope,
+        homeDepartmentId:seedTeacher.homeDepartmentId,
+        programIds:uniqueStrings([...(seedTeacher.programIds||[]),...(prev.programIds||[])])};
+    });
+  }
   const previousSchemaVersion=Number(old.schemaVersion||0);
   fresh.faculty=old.faculty||fresh.faculty||{};
   fresh.departments=mergeSeedReferenceData(old.departments||[],fresh.departments||[]);
@@ -1078,6 +1101,8 @@ function normalizeAudiencePartition(p,state=db){
 function scheduleAudiencePartitions(item,state=db){
   if(!item)return[];
   if(item.specialSchedule){const studentId=Number(item.studentId)||null,student=(state?.students||[]).find(s=>Number(s.id)===studentId),group=item.group||student?.group||"";return group&&studentId?[{group,mode:"selected",studentIds:[studentId]}]:[];}
+  const sourceExplicit=Array.isArray(item.audiencePartitions)&&item.audiencePartitionsSource?item.audiencePartitions.map(p=>normalizeAudiencePartition(p,state)).filter(Boolean):[];
+  if(sourceExplicit.length)return sourceExplicit;
   if(!isReadyExternalScheduleItem(item)){
     const byGroup=new Map();
     scheduleDisciplineIds(item).forEach(id=>{const d=(state?.disciplines||[]).find(x=>Number(x.id)===Number(id));if(!d||d.status==="archived"||!d.group)return;byGroup.set(normIdentity(d.group),disciplineAudiencePartition(d,state));});

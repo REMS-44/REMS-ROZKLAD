@@ -284,6 +284,9 @@ async function loadRemoteState({includeDynamic=true}={}){
   const base=clean(window.REMS_INITIAL_DATA||{});
   const settings=settingsSnap.data();
   Object.assign(base,settings);
+  // Keep the cleanup marker strictly cloud-authoritative. If an older cloud
+  // database has no marker, the clean release can reset only working data once.
+  base.dataCleanupVersion=String(settings.dataCleanupVersion||"");
 
   // Static reference data is read ONCE on connection.
   // It is no longer kept alive by seven separate snapshot listeners.
@@ -362,6 +365,45 @@ async function replaceRoomBookings(items){
   for(const d of snap.docs)await deleteRoomBookingCloud(d.id);
   for(const it of items)await writeRoomBookingCloud(clean(it));
 }
+
+async function applyWorkingDataCleanupOnce(state){
+  const target=String(window.REMS_INITIAL_DATA?.dataCleanupVersion||"");
+  if(!target||!state||profile?.role!=="admin"||String(state.dataCleanupVersion||"")===target)return state;
+
+  setSidebar("syncing","Завантаження затвердженого розкладу…",user?.email||"");
+  const cleaned=clean(state);
+  const seed=clean(window.REMS_INITIAL_DATA||{});
+  cleaned.dataCleanupVersion=target;
+  cleaned.adHocRooms=clean(seed.adHocRooms||[]);
+  cleaned.curricula=clean(seed.curricula||[]);
+  cleaned.disciplines=clean(seed.disciplines||[]);
+  cleaned.schedule=clean(seed.schedule||[]);
+  cleaned.roomBookings=clean(seed.roomBookings||[]);
+
+  // Rebuild teacher IDs from the bundle because schedule and workload rows point to
+  // these IDs. Preserve editable data of already-known cards with the same name.
+  const previousTeachers=clean(cleaned.teachers||[]);
+  cleaned.teachers=(seed.teachers||[]).map(seedTeacher=>{
+    const key=String(seedTeacher.name||seedTeacher.shortName||"").trim().toLocaleLowerCase("uk");
+    const prev=previousTeachers.find(t=>String(t.name||t.shortName||"").trim().toLocaleLowerCase("uk")===key);
+    if(!prev)return seedTeacher;
+    return {...seedTeacher,...prev,id:seedTeacher.id,scope:seedTeacher.scope,homeDepartmentId:seedTeacher.homeDepartmentId,
+      programIds:[...new Set([...(seedTeacher.programIds||[]),...(prev.programIds||[])])]};
+  });
+
+  await replaceCollection("curricula",cleaned.curricula);
+  await replaceCollection("disciplines",cleaned.disciplines);
+  await replaceCollection("teachers",cleaned.teachers);
+  await replaceSchedule(cleaned.schedule);
+  await replaceRoomBookings(cleaned.roomBookings);
+  await setDoc(settingsRef(),settingsPart(cleaned));
+  try{await publishCatalogSignal(["curricula","disciplines","teachers"]);}catch(e){console.warn("Catalog signal after schedule pack failed",e);}
+
+  for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
+  toast("Затверджений розклад ФТКЕ та розподіл фактичного навантаження завантажено.","ok",8000);
+  return cleaned;
+}
+
 async function commitOps(ops){
   for(let i=0;i<ops.length;i+=8){
     const batch=writeBatch(fire);
@@ -417,7 +459,7 @@ async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:Number(st.schemaVersion)||27,academicYear:st.academicYear,semester:st.semester,adHocRooms:st.adHocRooms||[],bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{}});}
+function settingsPart(st){return clean({schemaVersion:Number(st.schemaVersion)||27,academicYear:st.academicYear,semester:st.semester,adHocRooms:st.adHocRooms||[],bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{},dataCleanupVersion:st.dataCleanupVersion||""});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;
@@ -1189,7 +1231,9 @@ async function connectCloudDataWithRetry(generation,{silent=false,maxAttempts=4,
       // Static collections are loaded once.
       // Schedule + room bookings arrive from the first realtime snapshots,
       // so we no longer pay for the same dynamic documents twice on connect.
-      const r=await loadRemoteState({includeDynamic:false});
+      let r=await loadRemoteState({includeDynamic:false});
+      if(!cloudIsSignedInGeneration(generation))return false;
+      r=await applyWorkingDataCleanupOnce(r);
       if(!cloudIsSignedInGeneration(generation))return false;
 
       if(!r){

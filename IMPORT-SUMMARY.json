@@ -1,0 +1,46 @@
+{
+  "raw_source_rows": 2783,
+  "physical_schedule_items": 2646,
+  "discipline_cards": 177,
+  "teachers_total": 87,
+  "source_teacher_tokens": 80,
+  "new_source_teachers": 55,
+  "new_rems_department_teachers": 8,
+  "new_external_teachers": 47,
+  "ad_hoc_rooms": 31,
+  "pure_streams": 63,
+  "parser_issues": [
+    [
+      "TEACHER_COUNT_0",
+      "4 курс ФТКЕ (4).docx",
+      "4",
+      "9",
+      "5",
+      "['РЕМС-43']",
+      "Пр. 18.09; 25.09; 02.10; 09.10; 16.10 ПК; 23.10; 30.10\nауд. 230"
+    ]
+  ],
+  "missing_teacher_schedule_items": 7,
+  "calendar_heading_mismatch_items": 5,
+  "groups": [
+    "РЕМС-34",
+    "РЕМС-43",
+    "РЕМС-44",
+    "РЕМС-45",
+    "РЕМС-46",
+    "РЕМС-76",
+    "ТА-13",
+    "ТА-14",
+    "ТА-15",
+    "ТА-16",
+    "ТА-23",
+    "ТА-24",
+    "ТА-25",
+    "ТА-26",
+    "ТА-53",
+    "ТА-56",
+    "ТА-66",
+    "ТР-33",
+    "ТР-36"
+  ]
+}
