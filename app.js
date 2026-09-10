@@ -2600,6 +2600,8 @@ function disciplineTotalHoursById(d,typeId){
   const lt=lessonTypeById(typeId);
   if(lt&&!thesisTypeApplicable(d,lt))return 0;
   const unit=disciplineUnitHoursById(d,typeId);
+  // For per-student plan rows, the plan value is a norm for ONE student.
+  // Total teaching load = plan hours per student × actual group contingent.
   return isPerStudentTypeId(typeId)?unit*groupStudentCount(d?.group):unit;
 }
 function perStudentUnitHours(d,typeId){
