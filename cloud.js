@@ -373,6 +373,61 @@ async function applyWorkingDataCleanupOnce(state){
   const cleaned=clean(state);
   const seed=clean(window.REMS_INITIAL_DATA||{});
   cleaned.dataCleanupVersion=target;
+
+  // v18+: safe catalogue refresh. It never rewrites the approved timetable or
+  // room bookings. The visible state is updated immediately; Firestore writes
+  // continue in the background so the sidebar cannot get stuck on "loading".
+  const safeCatalogRefresh=target.includes("safe-catalog-refresh");
+  if(safeCatalogRefresh){
+    setSidebar("syncing","Оновлення планів і фото…",user?.email||"");
+
+    const replacePrograms=new Set(["actor","theatre-director"]);
+    const keepCurricula=(cleaned.curricula||[]).filter(c=>!replacePrograms.has(c?.programId));
+    const freshCurricula=(seed.curricula||[]).filter(c=>replacePrograms.has(c?.programId));
+    cleaned.curricula=clean([...keepCurricula,...freshCurricula]);
+
+    // Pull corrected names and starter portraits from the bundle, while never
+    // overwriting a photo uploaded manually from the computer (data: URL) and
+    // respecting an explicit "remove photo" choice.
+    const seedById=new Map((seed.teachers||[]).map(t=>[String(t.id),t]));
+    const seedByShort=new Map((seed.teachers||[]).filter(t=>t.shortName).map(t=>[String(t.shortName).trim().toLocaleLowerCase("uk"),t]));
+    const currentIds=new Set((cleaned.teachers||[]).map(t=>String(t.id)));
+    cleaned.teachers=(cleaned.teachers||[]).map(t=>{
+      const st=seedById.get(String(t.id))||seedByShort.get(String(t.shortName||"").trim().toLocaleLowerCase("uk"));
+      if(!st)return t;
+      const manualPhoto=String(t.photo||"").startsWith("data:");
+      const merged={...t};
+      if(st.name)merged.name=st.name;
+      if(st.shortName)merged.shortName=st.shortName;
+      if(st.homeDepartmentId)merged.homeDepartmentId=st.homeDepartmentId;
+      if(st.scope)merged.scope=st.scope;
+      if(Array.isArray(st.programIds)&&st.programIds.length)merged.programIds=[...new Set([...(t.programIds||[]),...st.programIds])];
+      if(!manualPhoto&&t.photoRemoved!==true&&st.photo)merged.photo=st.photo;
+      return merged;
+    });
+    // Include newly-added teacher cards from the bundle without deleting any
+    // cloud-created cards.
+    (seed.teachers||[]).forEach(st=>{if(!currentIds.has(String(st.id)))cleaned.teachers.push(clean(st));});
+
+    const writeSnapshot=clean(cleaned);
+    (async()=>{
+      try{
+        const ops=[];
+        freshCurricula.forEach(c=>ops.push({type:"set",ref:itemRef("curricula",c.id),data:clean(c)}));
+        writeSnapshot.teachers.forEach(t=>ops.push({type:"set",ref:itemRef("teachers",t.id),data:clean(t)}));
+        await commitOps(ops);
+        await setDoc(settingsRef(),settingsPart(writeSnapshot));
+        try{await publishCatalogSignal(["curricula","teachers"]);}catch(e){console.warn("Catalog signal after safe refresh failed",e);}
+      }catch(e){
+        console.warn("Safe catalogue refresh will retry on the next connection",e);
+      }
+    })();
+
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
+    toast("Плани ТА/ТР та фото викладачів оновлено. Затверджений розклад не перезаписується.","ok",7000);
+    return cleaned;
+  }
+
   const remsOnlyUpdate=target.includes("rems-plans-full-refresh-xlsx");
 
   if(remsOnlyUpdate){

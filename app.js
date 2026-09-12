@@ -2648,6 +2648,10 @@ function normalizeCurricula(){
 }
 function curriculumTotalsFromRows(c){
   ensureCurriculumShape(c);
+  // If the imported working plan contains an official total row, use it for the
+  // plan KPI cards. Elective alternatives are listed in the plan but must not
+  // inflate the official annual 60 ECTS / 1800-hour total.
+  if(c?.sourceTotals&&Number(c.sourceTotals.totalHours)>0)return {...c.sourceTotals};
   const rows=(c.components||[]).flatMap(x=>x.rows||[]);
   const sum=k=>rows.reduce((a,r)=>a+num(r[k]),0);
   return {credits:sum("credits"),totalHours:sum("totalHours"),auditoriumHours:sum("auditoriumHours"),auditoriumPlanHours:sum("auditoriumPlanHours"),lecture:sum("lecture"),seminar:sum("seminar"),practical:sum("practical"),laboratory:sum("laboratory"),individual:sum("individual"),selfStudy:sum("selfStudy"),practice:sum("practice")};
