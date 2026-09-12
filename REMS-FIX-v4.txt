@@ -1,0 +1,7 @@
+REMS v4 — 2026-09-12
+
+1. REMS-only plan refresh no longer enters the legacy full faculty schedule replacement path.
+2. Existing approved schedule is preserved.
+3. disciplineId + disciplineIds are rebuilt by discipline name + semester + every audience group,
+   so shared/stream lessons count for every linked REMS discipline after plan IDs are replaced.
+4. Department workload filtering from v3 is preserved.

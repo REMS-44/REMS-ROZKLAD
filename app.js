@@ -241,17 +241,43 @@ function repairScheduleLinks(state){
     if(audiences.length&&item.group!==audiences[0]){item.group=audiences[0];changed++;}
 
     if(!ready){
-      const d=resolvedScheduleDiscipline(item,state);
-      if(d){
-        if(Number(item.disciplineId)!==Number(d.id)){item.disciplineId=d.id;changed++;}
-        if(item.discipline!==d.name){item.discipline=d.name;changed++;}
-        if(!item.audienceGroups.length&&d.group){item.group=d.group;item.audienceGroups=[d.group];changed++;}
-        const dids=scheduleDisciplineIds(item);
-        if(!dids.includes(Number(d.id))){dids.unshift(Number(d.id));item.disciplineIds=[...new Set(dids)];changed++;}
-        else if(!Array.isArray(item.disciplineIds)){item.disciplineIds=dids;changed++;}
+      // Full plan refresh can replace every discipline ID. Rebuild ALL links
+      // semantically, including every group of a shared/stream lesson.
+      const lessonName=normIdentity(item?.discipline);
+      const sem=Number(item?.sourceSemester||0);
+      const audienceKeys=new Set(scheduleAudienceGroups(item).map(normIdentity));
+      let semanticMatches=(state?.disciplines||[]).filter(d=>
+        lessonName&&normIdentity(d.name)===lessonName&&audienceKeys.has(normIdentity(d.group))
+      );
+      if(sem){
+        const bySem=semanticMatches.filter(d=>Number(d.semester)===sem);
+        if(bySem.length)semanticMatches=bySem;
+      }
+      // Keep one current discipline per audience group, preserving audience order.
+      const rebuiltIds=[];
+      scheduleAudienceGroups(item).forEach(group=>{
+        const gk=normIdentity(group);
+        const match=semanticMatches.find(d=>normIdentity(d.group)===gk);
+        if(match&&!rebuiltIds.includes(Number(match.id)))rebuiltIds.push(Number(match.id));
+      });
+      if(rebuiltIds.length){
+        const primary=(state?.disciplines||[]).find(d=>Number(d.id)===Number(rebuiltIds[0]));
+        if(Number(item.disciplineId)!==Number(rebuiltIds[0])){item.disciplineId=rebuiltIds[0];changed++;}
+        const oldIds=scheduleDisciplineIds(item);
+        if(JSON.stringify(oldIds)!==JSON.stringify(rebuiltIds)){item.disciplineIds=rebuiltIds;changed++;}
+        if(primary&&item.discipline!==primary.name){item.discipline=primary.name;changed++;}
       }else{
-        const g=resolvedScheduleGroup(item,state);
-        if(g&&!item.group){item.group=g;item.audienceGroups=uniqueStrings([g,...item.audienceGroups]);changed++;}
+        const d=resolvedScheduleDiscipline(item,state);
+        if(d){
+          if(Number(item.disciplineId)!==Number(d.id)){item.disciplineId=d.id;changed++;}
+          if(item.discipline!==d.name){item.discipline=d.name;changed++;}
+          if(!item.audienceGroups.length&&d.group){item.group=d.group;item.audienceGroups=[d.group];changed++;}
+          const dids=[Number(d.id)];
+          if(JSON.stringify(scheduleDisciplineIds(item))!==JSON.stringify(dids)){item.disciplineIds=dids;changed++;}
+        }else{
+          const g=resolvedScheduleGroup(item,state);
+          if(g&&!item.group){item.group=g;item.audienceGroups=uniqueStrings([g,...item.audienceGroups]);changed++;}
+        }
       }
     }
 
@@ -428,7 +454,7 @@ function migrate(old){
   if(targetCleanupVersion&&String(old.dataCleanupVersion||"")!==targetCleanupVersion){
     old=clone(old);
     old.dataCleanupVersion=targetCleanupVersion;
-    const remsOnlyUpdate=["2026-09-12-rems-plans-full-refresh-xlsx-v2","2026-09-12-rems-plans-full-refresh-xlsx-v3-links-teachers"].includes(targetCleanupVersion);
+    const remsOnlyUpdate=targetCleanupVersion.includes("rems-plans-full-refresh-xlsx");
     if(remsOnlyUpdate){
       // Verified REMS-only release: refresh only REMS working plans and REMS workload cards.
       // Do not overwrite TA/TR/master plans, faculty schedule, room bookings or teacher cards.

@@ -373,7 +373,7 @@ async function applyWorkingDataCleanupOnce(state){
   const cleaned=clean(state);
   const seed=clean(window.REMS_INITIAL_DATA||{});
   cleaned.dataCleanupVersion=target;
-  const remsOnlyUpdate=target==="2026-09-12-rems-plans-full-refresh-xlsx-v2";
+  const remsOnlyUpdate=target.includes("rems-plans-full-refresh-xlsx");
 
   if(remsOnlyUpdate){
     setSidebar("syncing","Оновлення перевірених планів РЕМС…",user?.email||"");
