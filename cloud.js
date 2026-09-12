@@ -931,6 +931,21 @@ function subscribeRealtime({baseState=null,waitForDynamic=false}={}){
   },cloudErr));
 
   maybeResolveInitial();
+
+  // v2.0.30: never leave the lower-left cloud status stuck on “Завантаження…”.
+  // The app already has a complete local/canonical snapshot, so if Firestore's
+  // first realtime snapshots are slow we show that state immediately and let
+  // listeners refresh it in the background when they arrive.
+  if(waitForDynamic){
+    setTimeout(()=>{
+      if(initialResolved)return;
+      scheduleReady=true;
+      bookingsReady=true;
+      try{apply();}catch(e){console.warn("Deferred realtime apply failed",e);}
+      maybeResolveInitial();
+    },4500);
+  }
+
   return initialPromise;
 }
 function cloudErr(e){
