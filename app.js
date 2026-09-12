@@ -508,11 +508,28 @@ function migrate(old){
       const seedRemsDisciplines=(fresh.disciplines||[]).filter(isRemsDiscipline);
       old.disciplines=[...keepDisciplines,...clone(seedRemsDisciplines)];
       // Department membership corrections confirmed by the administrator.
-      const remsTeacherNames=new Set(["Бзенко В.А.","Клісенко Н.О.","Майкут К.В.","Мельник М.М.","Мясоєдов Н.С."].map(normIdentity));
-      old.teachers=(old.teachers||[]).map(t=>remsTeacherNames.has(normIdentity(t.shortName||t.name))
-        ?{...t,scope:"department",homeDepartmentId:"rems-dept",programIds:uniqueStrings([...(t.programIds||[]),"rems"]),
-          note:"Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем."}
-        :t);
+      const remsTeacherFullNames={
+        "Деркач С.М.":"Деркач Світлана Миколаївна",
+        "Козак З.О.":"Козак Златоміра Олексіївна",
+        "Крикуненко С.В.":"Крикуненко Сергій Віталійович",
+        "Кучер Д.Ю.":"Кучер Дарина Юріївна",
+        "Кучер Р.С.":"Кучер Ростислав Станіславович",
+        "Працков Р.Є.":"Працков Роман Євгенович",
+        "Харченко М.В.":"Харченко Михайло Володимирович",
+        "Бзенко В.А.":"Бзенко Валерія Андріївна",
+        "Клісенко Н.О.":"Клісенко Наталя Олегівна",
+        "Майкут К.В.":"Майкут Кирило Валерійович",
+        "Мельник М.М.":"Мельник Мирослава Миколаївна",
+        "Мясоєдов Н.С.":"Мясоєдов Назар Сергійович",
+        "Кравченко Е.Г.":"Кравченко Елеонора Геннадіївна"
+      };
+      const remsTeacherNames=new Set(Object.keys(remsTeacherFullNames).map(normIdentity));
+      old.teachers=(old.teachers||[]).map(t=>{
+        const shortKey=Object.keys(remsTeacherFullNames).find(k=>normIdentity(k)===normIdentity(t.shortName||t.name));
+        if(!shortKey)return t;
+        return {...t,name:remsTeacherFullNames[shortKey],shortName:shortKey,scope:"department",homeDepartmentId:"rems-dept",programIds:uniqueStrings([...(t.programIds||[]),"rems"]),
+          note:"Викладач кафедри режисури естради і шоу. Кафедральну належність та повне ПІБ уточнено користувачем."};
+      });
     }else{
       old.adHocRooms=clone(fresh.adHocRooms||[]);
       old.curricula=clone(fresh.curricula||[]);

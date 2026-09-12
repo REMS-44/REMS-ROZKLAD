@@ -391,12 +391,27 @@ async function applyWorkingDataCleanupOnce(state){
     cleaned.disciplines=clean([...keepDisciplines,...seedRemsDisciplines]);
 
     // Department membership corrections confirmed by the administrator.
-    const remsTeacherNames=new Set(["Бзенко В.А.","Клісенко Н.О.","Майкут К.В.","Мельник М.М.","Мясоєдов Н.С."].map(x=>x.trim().toLocaleLowerCase("uk")));
+    const remsTeacherFullNames={
+      "Деркач С.М.":"Деркач Світлана Миколаївна",
+      "Козак З.О.":"Козак Златоміра Олексіївна",
+      "Крикуненко С.В.":"Крикуненко Сергій Віталійович",
+      "Кучер Д.Ю.":"Кучер Дарина Юріївна",
+      "Кучер Р.С.":"Кучер Ростислав Станіславович",
+      "Працков Р.Є.":"Працков Роман Євгенович",
+      "Харченко М.В.":"Харченко Михайло Володимирович",
+      "Бзенко В.А.":"Бзенко Валерія Андріївна",
+      "Клісенко Н.О.":"Клісенко Наталя Олегівна",
+      "Майкут К.В.":"Майкут Кирило Валерійович",
+      "Мельник М.М.":"Мельник Мирослава Миколаївна",
+      "Мясоєдов Н.С.":"Мясоєдов Назар Сергійович",
+      "Кравченко Е.Г.":"Кравченко Елеонора Геннадіївна"
+    };
     cleaned.teachers=(cleaned.teachers||[]).map(t=>{
       const key=String(t.shortName||t.name||"").trim().toLocaleLowerCase("uk");
-      return remsTeacherNames.has(key)
-        ?{...t,scope:"department",homeDepartmentId:"rems-dept",programIds:[...new Set([...(t.programIds||[]),"rems"])],
-          note:"Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем."}
+      const shortKey=Object.keys(remsTeacherFullNames).find(k=>k.trim().toLocaleLowerCase("uk")===key);
+      return shortKey
+        ?{...t,name:remsTeacherFullNames[shortKey],shortName:shortKey,scope:"department",homeDepartmentId:"rems-dept",programIds:[...new Set([...(t.programIds||[]),"rems"])],
+          note:"Викладач кафедри режисури естради і шоу. Кафедральну належність та повне ПІБ уточнено користувачем."}
         :t;
     });
 

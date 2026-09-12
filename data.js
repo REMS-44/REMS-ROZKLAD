@@ -4586,7 +4586,7 @@ window.REMS_INITIAL_DATA = {
         "actor",
         "rems"
       ],
-      "name": "Бзенко В.А.",
+      "name": "Бзенко Валерія Андріївна",
       "shortName": "Бзенко В.А.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -4820,7 +4820,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Деркач С.М.",
+      "name": "Деркач Світлана Миколаївна",
       "shortName": "Деркач С.М.",
       "position": "Професор",
       "academicTitle": "",
@@ -4936,7 +4936,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Клісенко Н.О.",
+      "name": "Клісенко Наталя Олегівна",
       "shortName": "Клісенко Н.О.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -4965,7 +4965,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Козак З.О.",
+      "name": "Козак Златоміра Олексіївна",
       "shortName": "Козак З.О.",
       "position": "Асистент",
       "academicTitle": "",
@@ -5019,12 +5019,12 @@ window.REMS_INITIAL_DATA = {
     },
     {
       "id": 1054,
-      "scope": "external",
-      "homeDepartmentId": "",
+      "scope": "department",
+      "homeDepartmentId": "rems-dept",
       "programIds": [
         "rems"
       ],
-      "name": "Кравченко Е.Г.",
+      "name": "Кравченко Елеонора Геннадіївна",
       "shortName": "Кравченко Е.Г.",
       "position": "Асистент",
       "academicTitle": "",
@@ -5041,7 +5041,7 @@ window.REMS_INITIAL_DATA = {
       "preferredRules": [],
       "maxPerDay": "",
       "maxConsecutive": "",
-      "note": "Додано із затвердженого розкладу ФТКЕ на осінній семестр 2026/2027. Кафедральну належність у розкладі не зазначено.",
+      "note": "Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем.",
       "photo": "",
       "status": "active",
       "sourceScheduleImport": true
@@ -5053,7 +5053,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Крикуненко С.В.",
+      "name": "Крикуненко Сергій Віталійович",
       "shortName": "Крикуненко С.В.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -5111,7 +5111,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Кучер Д.Ю.",
+      "name": "Кучер Дарина Юріївна",
       "shortName": "Кучер Д.Ю.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -5140,7 +5140,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Кучер Р.С.",
+      "name": "Кучер Ростислав Станіславович",
       "shortName": "Кучер Р.С.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -5288,7 +5288,7 @@ window.REMS_INITIAL_DATA = {
         "actor",
         "rems"
       ],
-      "name": "Майкут К.В.",
+      "name": "Майкут Кирило Валерійович",
       "shortName": "Майкут К.В.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -5376,7 +5376,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Мельник М.М.",
+      "name": "Мельник Мирослава Миколаївна",
       "shortName": "Мельник М.М.",
       "position": "Професор за наказом",
       "academicTitle": "",
@@ -5434,7 +5434,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Мясоєдов Н.С.",
+      "name": "Мясоєдов Назар Сергійович",
       "shortName": "Мясоєдов Н.С.",
       "position": "Асистент",
       "academicTitle": "",
@@ -5675,7 +5675,7 @@ window.REMS_INITIAL_DATA = {
         "rems",
         "theatre-director"
       ],
-      "name": "Працков Р.Є.",
+      "name": "Працков Роман Євгенович",
       "shortName": "Працков Р.Є.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -5940,7 +5940,7 @@ window.REMS_INITIAL_DATA = {
       "programIds": [
         "rems"
       ],
-      "name": "Харченко М.В.",
+      "name": "Харченко Михайло Володимирович",
       "shortName": "Харченко М.В.",
       "position": "Старший викладач",
       "academicTitle": "",
@@ -139075,5 +139075,5 @@ window.REMS_INITIAL_DATA = {
       "usesRooms": false
     }
   ],
-  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v6-approved-schedule-grid-dept-teachers"
+  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v7-full-teacher-names"
 };
