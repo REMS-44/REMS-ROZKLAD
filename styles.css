@@ -7663,3 +7663,16 @@ td .small{font-size:12px}
   .teacher-photo-editor{grid-template-columns:120px minmax(0,1fr);gap:12px}
   #teacherPhotoPreview{width:120px}
 }
+
+/* v2.0.28 — large teacher portrait in opened workload/schedule */
+.teacher-open-identity{align-items:center;gap:18px}
+.teacher-open-photo.teacher-avatar-xl{width:132px;height:168px;border-radius:18px;box-shadow:0 10px 26px rgba(15,23,42,.12)}
+.teacher-schedule-profile{display:flex;align-items:center;gap:18px;min-width:0}
+.teacher-schedule-photo.teacher-avatar-xl{width:126px;height:160px;border-radius:18px;box-shadow:0 10px 26px rgba(15,23,42,.12)}
+.teacher-schedule-profile h2{margin:0 0 6px;font-size:clamp(24px,2.4vw,38px)}
+.teacher-schedule-profile-head{align-items:center}
+@media(max-width:720px){
+  .teacher-open-identity,.teacher-schedule-profile{align-items:flex-start;gap:12px}
+  .teacher-open-photo.teacher-avatar-xl,.teacher-schedule-photo.teacher-avatar-xl{width:96px;height:124px;border-radius:14px}
+  .teacher-schedule-profile h2{font-size:22px}
+}

@@ -2520,9 +2520,9 @@ function openTeacherWorkload(id){
     return `<tr><td>${esc(lt.name)}</td><td>${fmtHours(allocated)}</td><td>${isAuditoriumPairType(lt)?fmtHours(scheduled):"—"}</td><td>${isAuditoriumPairType(lt)?fmtHours(Math.max(0,allocated-scheduled)):"не розставляється"}</td></tr>`;
   }).join("");
 
-  openModal(`<div class="workload-card">
+  openModal(`<div class="workload-card teacher-open-card">
     <div class="workload-title">
-      <div class="teacher-card-identity">${teacherAvatarHtml(t,"lg")}<div><h2>Навантаження викладача</h2><h3>${esc(t.name)}</h3></div></div>
+      <div class="teacher-card-identity teacher-open-identity">${teacherAvatarHtml(t,"xl","teacher-open-photo")}<div><h2>Навантаження викладача</h2><h3>${esc(t.name)}</h3></div></div>
       <span class="badge ok">${esc(db.academicYear)}</span>
     </div>
     <div class="grid-kpi workload-kpi lean-workload-kpi">
@@ -8695,10 +8695,13 @@ function renderMySchedule(){
 
   $("#page-mySchedule").innerHTML=`<div class="teacher-month-page">
     <div class="card section teacher-month-header">
-      <div class="section-head">
-        <div>
-          <h2>${esc(name)}</h2>
-          <div class="small">Індивідуальний розклад · ${esc(source.academicYear||db.academicYear)}</div>
+      <div class="section-head teacher-schedule-profile-head">
+        <div class="teacher-schedule-profile">
+          ${teacherAvatarHtml(teacherById(teacherId)||{name},"xl","teacher-schedule-photo")}
+          <div>
+            <h2>${esc(name)}</h2>
+            <div class="small">Індивідуальний розклад · ${esc(source.academicYear||db.academicYear)}</div>
+          </div>
         </div>
         <div class="actions">
           ${role!=="teacher"?`<button class="secondary" onclick="go('teachers')">← До викладачів</button>`:""}
