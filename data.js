@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 28,
+  "schemaVersion": 29,
   "academicYear": "2026/2027",
   "semester": 1,
   "adHocRooms": [
@@ -6145,9 +6145,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 20,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6234,9 +6234,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 21,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6351,9 +6351,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 32,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6434,9 +6434,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 120.0,
         "practice": 0.0,
         "weekly": 8.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 30,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6518,9 +6518,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 34,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6574,9 +6574,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 36,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6726,9 +6726,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 28,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6782,9 +6782,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 29.0,
         "practice": 0.0,
         "weekly": 1.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 18,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -6874,9 +6874,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 26,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7002,9 +7002,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 20,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7091,9 +7091,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 21,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7208,9 +7208,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 32,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7291,9 +7291,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 120.0,
         "practice": 0.0,
         "weekly": 8.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 30,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7375,9 +7375,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 34,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7431,9 +7431,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 36,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7583,9 +7583,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 28,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7639,9 +7639,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 29.0,
         "practice": 0.0,
         "weekly": 1.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 18,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -7731,9 +7731,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 26,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -11824,9 +11824,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 50,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -11881,9 +11881,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 32,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -11979,9 +11979,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 38,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12036,9 +12036,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 48,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12136,9 +12136,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 39,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12197,9 +12197,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 120.0,
         "practice": 0.0,
         "weekly": 8.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 26,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12254,9 +12254,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 28,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12312,9 +12312,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 30,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12393,9 +12393,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 17,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12437,7 +12437,7 @@ window.REMS_INITIAL_DATA = {
         "12": 0
       },
       "extraHours": {},
-      "note": "Пов’язано з робочим планом 2026/2027 та затвердженим розкладом. Для «Шоуранерства» виправлено помилку плану: 44 години практичних, лекцій немає.",
+      "note": "Пов’язано з перевіреним робочим планом .xlsx та затвердженим розкладом. За уточненням користувача виправлено помилку плану: 0 лекцій, 44 практичні години.",
       "status": "active",
       "sourceCurriculumId": 2,
       "sourceComponentId": 20,
@@ -12449,9 +12449,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 46.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 49,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "manualCorrection": "Лекцій немає; 44 години — практичні."
       },
       "sourceRowId": 1
@@ -12573,9 +12573,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 40,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12630,9 +12630,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 24,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -12687,9 +12687,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 23,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14233,9 +14233,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 40.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 22,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14351,9 +14351,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 33,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14430,9 +14430,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 40.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 26,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П.3 кредити, 6 сем.,лек.8 год.,прак./з. 26год.,л/б20 год.,екзамен"
       },
       "sourceRowId": 1
@@ -14510,9 +14510,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 40.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 35,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14567,9 +14567,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 34,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14650,9 +14650,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 17,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14733,9 +14733,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 6.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 23,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П.прак./з. 22 год.,л/б20 год.,інд.з.6 год."
       },
       "sourceRowId": 1
@@ -14852,9 +14852,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 25,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -14930,9 +14930,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 37,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15031,9 +15031,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 4.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 32,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15133,9 +15133,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 40.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 22,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15251,9 +15251,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 33,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15330,9 +15330,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 40.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 26,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П.3 кредити, 6 сем.,лек.8 год.,прак./з. 26год.,л/б20 год.,екзамен"
       },
       "sourceRowId": 1
@@ -15410,9 +15410,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 40.0,
         "practice": 0.0,
         "weekly": 2.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 35,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15493,9 +15493,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 17,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15576,9 +15576,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 6.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 23,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П.прак./з. 22 год.,л/б20 год.,інд.з.6 год."
       },
       "sourceRowId": 1
@@ -15695,9 +15695,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 25,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15773,9 +15773,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 37,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -15874,9 +15874,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 4.0,
-        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 32,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -16991,9 +16991,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 35,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "Основи операторської майстерності"
       },
       "sourceRowId": 1
@@ -17048,9 +17048,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 33,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -17104,9 +17104,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 41,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -17160,9 +17160,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 60.0,
         "practice": 0.0,
         "weekly": 0.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 43,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -17218,9 +17218,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 70.0,
         "practice": 0.0,
         "weekly": 5.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 25,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П. 3 кредита, лек.10год.,л/б10 год.,прак/з 14 год.,інд.з.6 год."
       },
       "sourceRowId": 1
@@ -17276,9 +17276,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 50.0,
         "practice": 0.0,
         "weekly": 4.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 27,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П. інша назва ОК, лек.20год.,прак/з 10год.,залік"
       },
       "sourceRowId": 1
@@ -17381,9 +17381,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 4.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 34,
-        "source": "working_plan_2026_2027"
+        "source": "working_plan_xlsx_verified_2026_2027"
       },
       "sourceRowId": 1
     },
@@ -17438,9 +17438,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 4.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 32,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "Продюсування шоу-проєктів / Звукорежисура"
       },
       "sourceRowId": 1
@@ -17521,9 +17521,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 80.0,
         "practice": 0.0,
         "weekly": 4.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 31,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "Fashion-фотографія"
       },
       "sourceRowId": 1
@@ -17578,9 +17578,9 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 30.0,
         "practice": 0.0,
         "weekly": 3.0,
-        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+        "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
         "sourceRow": 17,
-        "source": "working_plan_2026_2027",
+        "source": "working_plan_xlsx_verified_2026_2027",
         "sourceNote": "в Т.П. немає т.к."
       },
       "sourceRowId": 1
@@ -134030,9 +134030,10 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 902.0,
         "practice": 120.0
       },
-      "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xls",
+      "sourceFile": "РП_бак_РЕМС_1 к._ДФН_2026-2027 н.р.xlsx",
       "sourceCourse": 1,
-      "id": 1
+      "id": 1,
+      "verification": "Перевірено безпосередньо по комірках .xlsx 12.09.2026. Колонки L–P: лекції, семінарські, практичні, лабораторні, індивідуальні."
     },
     {
       "academicYear": "2026/2027",
@@ -134852,9 +134853,10 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 890.0,
         "practice": 180.0
       },
-      "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xls",
+      "sourceFile": "РП_бак_РЕМС_2 к._ДФН_2026-2027 н.р.xlsx",
       "sourceCourse": 2,
-      "id": 2
+      "id": 2,
+      "verification": "Перевірено безпосередньо по комірках .xlsx 12.09.2026. Колонки L–P: лекції, семінарські, практичні, лабораторні, індивідуальні."
     },
     {
       "academicYear": "2026/2027",
@@ -135500,9 +135502,10 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 826.0,
         "practice": 420.0
       },
-      "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xls",
+      "sourceFile": "РП_бак_РЕМС_3 к._ДФН_2026-2027 н.р.xlsx",
       "sourceCourse": 3,
-      "id": 3
+      "id": 3,
+      "verification": "Перевірено безпосередньо по комірках .xlsx 12.09.2026. Колонки L–P: лекції, семінарські, практичні, лабораторні, індивідуальні."
     },
     {
       "academicYear": "2026/2027",
@@ -136190,9 +136193,10 @@ window.REMS_INITIAL_DATA = {
         "selfStudy": 960.0,
         "practice": 360.0
       },
-      "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xls",
+      "sourceFile": "РП_бак_РЕМС_4 к._ДФН_2026-2027 н.р.xlsx",
       "sourceCourse": 4,
-      "id": 4
+      "id": 4,
+      "verification": "Перевірено безпосередньо по комірках .xlsx 12.09.2026. Колонки L–P: лекції, семінарські, практичні, лабораторні, індивідуальні."
     },
     {
       "academicYear": "2026/2027",
@@ -140614,5 +140618,5 @@ window.REMS_INITIAL_DATA = {
       "usesRooms": false
     }
   ],
-  "dataCleanupVersion": "2026-09-10-working-plans-pack-3"
+  "dataCleanupVersion": "2026-09-12-rems-plans-verified-xlsx-v1"
 };

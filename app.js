@@ -424,19 +424,32 @@ function migrate(old){
   if(targetCleanupVersion&&String(old.dataCleanupVersion||"")!==targetCleanupVersion){
     old=clone(old);
     old.dataCleanupVersion=targetCleanupVersion;
-    old.adHocRooms=clone(fresh.adHocRooms||[]);
-    old.curricula=clone(fresh.curricula||[]);
-    old.disciplines=clone(fresh.disciplines||[]);
-    old.schedule=clone(fresh.schedule||[]);
-    old.roomBookings=clone(fresh.roomBookings||[]);
-    const previousTeachers=clone(old.teachers||[]);
-    old.teachers=clone(fresh.teachers||[]).map(seedTeacher=>{
-      const prev=previousTeachers.find(t=>teacherSeedKey(t)===teacherSeedKey(seedTeacher));
-      if(!prev)return seedTeacher;
-      return {...seedTeacher,...prev,id:seedTeacher.id,scope:seedTeacher.scope,
-        homeDepartmentId:seedTeacher.homeDepartmentId,
-        programIds:uniqueStrings([...(seedTeacher.programIds||[]),...(prev.programIds||[])])};
-    });
+    const remsOnlyUpdate=targetCleanupVersion==="2026-09-12-rems-plans-verified-xlsx-v1";
+    if(remsOnlyUpdate){
+      // Verified REMS-only release: refresh only REMS working plans and REMS workload cards.
+      // Do not overwrite TA/TR/master plans, faculty schedule, room bookings or teacher cards.
+      const keepCurricula=(old.curricula||[]).filter(c=>c?.programId!=="rems");
+      const seedRemsCurricula=(fresh.curricula||[]).filter(c=>c?.programId==="rems");
+      old.curricula=[...keepCurricula,...clone(seedRemsCurricula)];
+      const isRemsDiscipline=d=>d?.programId==="rems"||String(d?.group||"").startsWith("РЕМС-");
+      const keepDisciplines=(old.disciplines||[]).filter(d=>!isRemsDiscipline(d));
+      const seedRemsDisciplines=(fresh.disciplines||[]).filter(isRemsDiscipline);
+      old.disciplines=[...keepDisciplines,...clone(seedRemsDisciplines)];
+    }else{
+      old.adHocRooms=clone(fresh.adHocRooms||[]);
+      old.curricula=clone(fresh.curricula||[]);
+      old.disciplines=clone(fresh.disciplines||[]);
+      old.schedule=clone(fresh.schedule||[]);
+      old.roomBookings=clone(fresh.roomBookings||[]);
+      const previousTeachers=clone(old.teachers||[]);
+      old.teachers=clone(fresh.teachers||[]).map(seedTeacher=>{
+        const prev=previousTeachers.find(t=>teacherSeedKey(t)===teacherSeedKey(seedTeacher));
+        if(!prev)return seedTeacher;
+        return {...seedTeacher,...prev,id:seedTeacher.id,scope:seedTeacher.scope,
+          homeDepartmentId:seedTeacher.homeDepartmentId,
+          programIds:uniqueStrings([...(seedTeacher.programIds||[]),...(prev.programIds||[])])};
+      });
+    }
   }
   const previousSchemaVersion=Number(old.schemaVersion||0);
   fresh.faculty=old.faculty||fresh.faculty||{};

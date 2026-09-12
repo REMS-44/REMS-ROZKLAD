@@ -370,10 +370,33 @@ async function applyWorkingDataCleanupOnce(state){
   const target=String(window.REMS_INITIAL_DATA?.dataCleanupVersion||"");
   if(!target||!state||profile?.role!=="admin"||String(state.dataCleanupVersion||"")===target)return state;
 
-  setSidebar("syncing","Завантаження затвердженого розкладу…",user?.email||"");
   const cleaned=clean(state);
   const seed=clean(window.REMS_INITIAL_DATA||{});
   cleaned.dataCleanupVersion=target;
+  const remsOnlyUpdate=target==="2026-09-12-rems-plans-verified-xlsx-v1";
+
+  if(remsOnlyUpdate){
+    setSidebar("syncing","Оновлення перевірених планів РЕМС…",user?.email||"");
+    // Refresh ONLY REMS curricula/workload cards. Do not overwrite TA/TR/master data,
+    // the approved faculty schedule, room bookings, rooms, or teacher cards.
+    const keepCurricula=(cleaned.curricula||[]).filter(c=>c?.programId!=="rems");
+    const seedRemsCurricula=(seed.curricula||[]).filter(c=>c?.programId==="rems");
+    cleaned.curricula=clean([...keepCurricula,...seedRemsCurricula]);
+    const isRemsDiscipline=d=>d?.programId==="rems"||String(d?.group||"").startsWith("РЕМС-");
+    const keepDisciplines=(cleaned.disciplines||[]).filter(d=>!isRemsDiscipline(d));
+    const seedRemsDisciplines=(seed.disciplines||[]).filter(isRemsDiscipline);
+    cleaned.disciplines=clean([...keepDisciplines,...seedRemsDisciplines]);
+
+    await replaceCollection("curricula",cleaned.curricula);
+    await replaceCollection("disciplines",cleaned.disciplines);
+    await setDoc(settingsRef(),settingsPart(cleaned));
+    try{await publishCatalogSignal(["curricula","disciplines"]);}catch(e){console.warn("Catalog signal after REMS plan verification failed",e);}
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
+    toast("Перевірені робочі плани РЕМС 1–4 курсів оновлено. Інші програми та розклад не змінено.","ok",8000);
+    return cleaned;
+  }
+
+  setSidebar("syncing","Завантаження затвердженого розкладу…",user?.email||"");
   cleaned.adHocRooms=clean(seed.adHocRooms||[]);
   cleaned.curricula=clean(seed.curricula||[]);
   cleaned.disciplines=clean(seed.disciplines||[]);
