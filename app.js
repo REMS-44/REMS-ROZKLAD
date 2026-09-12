@@ -138,13 +138,17 @@ function isReadyExternalScheduleItem(item){
 
 function resolvedScheduleDiscipline(item,state=db){
   if(isReadyExternalScheduleItem(item))return null;
+  const name=normIdentity(item?.discipline),group=normIdentity(item?.group);
   if(item?.disciplineId!==null&&item?.disciplineId!==undefined&&String(item.disciplineId)!==""){
     const exact=(state?.disciplines||[]).find(d=>Number(d.id)===Number(item.disciplineId));
-    if(exact)return exact;
+    // A full plan refresh may reuse an old numeric ID for a different card.
+    // Trust the ID only when its semantic identity still matches the lesson.
+    if(exact&&(!name||normIdentity(exact.name)===name)&&(!group||normIdentity(exact.group)===group))return exact;
   }
-  const name=normIdentity(item?.discipline),group=normIdentity(item?.group);
   if(!name)return null;
-  const matches=(state?.disciplines||[]).filter(d=>normIdentity(d.name)===name&&(!group||normIdentity(d.group)===group));
+  let matches=(state?.disciplines||[]).filter(d=>normIdentity(d.name)===name&&(!group||normIdentity(d.group)===group));
+  const sem=Number(item?.sourceSemester||0);
+  if(sem){const bySem=matches.filter(d=>Number(d.semester)===sem);if(bySem.length)matches=bySem;}
   return matches.length===1?matches[0]:null;
 }
 function resolvedScheduleGroup(item,state=db){
@@ -424,7 +428,7 @@ function migrate(old){
   if(targetCleanupVersion&&String(old.dataCleanupVersion||"")!==targetCleanupVersion){
     old=clone(old);
     old.dataCleanupVersion=targetCleanupVersion;
-    const remsOnlyUpdate=targetCleanupVersion==="2026-09-12-rems-plans-full-refresh-xlsx-v2";
+    const remsOnlyUpdate=["2026-09-12-rems-plans-full-refresh-xlsx-v2","2026-09-12-rems-plans-full-refresh-xlsx-v3-links-teachers"].includes(targetCleanupVersion);
     if(remsOnlyUpdate){
       // Verified REMS-only release: refresh only REMS working plans and REMS workload cards.
       // Do not overwrite TA/TR/master plans, faculty schedule, room bookings or teacher cards.
@@ -1211,7 +1215,23 @@ function setProgramScope(id){
   renderCurrent();
 }
 function teacherHomeDepartmentId(t){return t?.homeDepartmentId||(t?.scope==="external"?"":"rems-dept");}
-function departmentTeachers(){return db.teachers.filter(t=>teacherVisibleInProgram(t)&&t.scope!=="external"&&(programIsFacultyWide()||teacherHomeDepartmentId(t)===activeDepartment()?.id));}
+function disciplineSourceComponent(d){
+  if(!d?.sourceCurriculumId||!d?.sourceComponentId)return null;
+  const c=(db.curricula||[]).find(x=>Number(x.id)===Number(d.sourceCurriculumId));
+  return c?.components?.find(x=>Number(x.id)===Number(d.sourceComponentId))||null;
+}
+function disciplineIsDepartmentWorkload(d){
+  if(!d||d.status==="archived")return false;
+  const comp=disciplineSourceComponent(d);
+  // Plan-backed cards are departmental only when the verified plan explicitly says so.
+  if(comp)return comp.scope==="department";
+  return false;
+}
+function departmentTeacherIsUsed(t){
+  if(programIsFacultyWide())return true;
+  return (db.disciplines||[]).some(d=>disciplineVisibleInProgram(d)&&disciplineIsDepartmentWorkload(d)&&(d.teacherIds||[]).map(Number).includes(Number(t.id)));
+}
+function departmentTeachers(){return db.teachers.filter(t=>teacherVisibleInProgram(t)&&t.scope!=="external"&&(programIsFacultyWide()||teacherHomeDepartmentId(t)===activeDepartment()?.id)&&departmentTeacherIsUsed(t));}
 function externalTeachers(){return db.teachers.filter(t=>teacherVisibleInProgram(t)&&(t.scope==="external"||(!programIsFacultyWide()&&teacherHomeDepartmentId(t)!==activeDepartment()?.id)));}
 function visibleTeachers(){return db.teachers.filter(teacherVisibleInProgram);}
 function totalDisciplineHours(d){return Object.values(d.hours||{}).reduce((a,b)=>a+num(b),0);}
@@ -2828,7 +2848,7 @@ function disciplineLoadState(d){
 }
 function loadPageRows(){
   return db.disciplines
-    .filter(d=>disciplineVisibleInProgram(d))
+    .filter(d=>disciplineVisibleInProgram(d)&&disciplineIsDepartmentWorkload(d))
     .slice()
     .sort((a,b)=>(a.course||groupCourse(a.group)||99)-(b.course||groupCourse(b.group)||99)
       ||String(a.group||"").localeCompare(String(b.group||""),"uk")
@@ -2933,9 +2953,17 @@ function loadDisciplineStatusHtml(d){
   </div>`;
 }
 function readyExternalRowsForGroup(group){
+  const plans=readyPlanRecords(group).filter(rec=>rec.scope==="external");
   return db.schedule
-    .filter(x=>isReadyExternalScheduleItem(x)&&dateInBounds(x.date))
-    .filter(x=>scheduleIncludesGroup(x,group));
+    .filter(x=>dateInBounds(x.date)&&scheduleIncludesGroup(x,group))
+    .filter(x=>{
+      if(isReadyExternalScheduleItem(x))return true;
+      const sourceKey=readyItemPlanIdentity(x);
+      if(sourceKey&&plans.some(p=>readyPlanIdentity(p)===sourceKey))return true;
+      const candidates=plans.filter(p=>normIdentity(p.name)===normIdentity(x.discipline));
+      if(x.sourceSemester)return candidates.some(p=>Number(p.semester)===Number(x.sourceSemester));
+      return candidates.length===1;
+    });
 }
 function readyExternalDisciplineSummaries(group){
   const rows=readyExternalRowsForGroup(group);
@@ -3196,7 +3224,7 @@ function bulkTypeOtherHours(d,typeId,excludeTeacherId){
   return bulkTypeAllocatedTeachers(d,typeId).filter(x=>Number(x.tid)!==Number(excludeTeacherId)).reduce((a,x)=>a+x.hours,0);
 }
 function bulkTeacherSelectOptions(selected=""){
-  return `<option value="">— оберіть викладача —</option>`+visibleTeachers().slice().sort((a,b)=>teacherDisplay(a).localeCompare(teacherDisplay(b),"uk")).map(t=>`<option value="${t.id}" ${Number(t.id)===Number(selected)?"selected":""}>${esc(teacherDisplay(t))}</option>`).join("");
+  return `<option value="">— оберіть викладача кафедри —</option>`+departmentTeachers().slice().sort((a,b)=>teacherDisplay(a).localeCompare(teacherDisplay(b),"uk")).map(t=>`<option value="${t.id}" ${Number(t.id)===Number(selected)?"selected":""}>${esc(teacherDisplay(t))}</option>`).join("");
 }
 function bulkTeacherChipsForType(d,typeId){
   const rows=bulkTypeAllocatedTeachers(d,typeId);if(!rows.length)return `<span class="bulk-current-empty">ще не розподілено</span>`;

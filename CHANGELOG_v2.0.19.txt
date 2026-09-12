@@ -1,0 +1,10 @@
+v2.0.19 · 12.09.2026
+
+- REMS plans/workload refreshed from the verified XLSX plans without preserving old REMS workload cards.
+- Non-department/general-education REMS plan components no longer create department workload cards.
+- Existing approved timetable lessons are semantically relinked after a full plan refresh (group + discipline + semester), so "Складання розкладу" counts already placed lessons again.
+- Stale numeric discipline IDs are no longer trusted after plan replacement if group/name do not match.
+- Department teacher list is restricted to teachers of the active department who are actually used by department workload disciplines.
+- Bulk department workload allocation offers department teachers only.
+- Laboratory hours remain academic-pair hours and are never multiplied by student contingent; only per-student lesson types are multiplied.
+- Audit: 47 active REMS department workload cards, 0 mismatches between planned non-individual auditorium hours and approved timetable hours for the supplied odd-semester schedules.

@@ -1,0 +1,13 @@
+REMS full refresh audit · 12.09.2026
+
+Rules:
+- Lectures, seminars, practicals, laboratories: fixed plan hours; NOT multiplied by contingent.
+- Individual: per-student hours; multiplied by the actual audience/student contingent.
+- Individual timetable is intentionally not included yet.
+
+Result after removing non-department REMS workload cards:
+- Department workload cards: 47
+- Non-department / service REMS cards removed from department workload: 15
+- Non-individual auditorium plan-vs-approved-schedule mismatches: 0
+- REMS department teacher cards currently used by department workload: 8
+  Деркач С.М.; Козак З.О.; Крикуненко С.В.; Кучер Д.Ю.; Кучер Р.С.; Працков Р.Є.; Фішер В.М.; Харченко М.В.
