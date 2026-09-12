@@ -7638,3 +7638,28 @@ td .small{font-size:12px}
 .teacher-photo-editor{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;padding:14px;border:1px solid var(--line,#e2e8f0);border-radius:14px;background:rgba(248,250,252,.8)}
 .teacher-photo-editor input[type=file]{margin-top:10px;max-width:100%}.teacher-photo-editor .actions{margin-top:8px}.teacher-photo-url{margin-top:8px}.teacher-photo-url summary{cursor:pointer;font-size:12px;color:#64748b}.teacher-photo-url input{margin-top:6px}
 @media(max-width:640px){.teacher-photo-editor{grid-template-columns:1fr}.teacher-photo-editor>#teacherPhotoPreview{justify-self:start}.teacher-avatar-xl{width:82px;height:82px}}
+
+/* v2.0.26 — teacher portraits: proper photo area instead of circular avatar */
+.teacher-avatar{
+  border-radius:12px;
+  background:linear-gradient(145deg,#f4f1fb,#e9edf5);
+  border:1px solid rgba(100,116,139,.18);
+  box-shadow:0 2px 8px rgba(48,31,69,.06);
+}
+.teacher-avatar-sm{width:34px;height:44px;font-size:10px}
+.teacher-avatar-md{width:46px;height:60px;font-size:12px}
+.teacher-avatar-lg{width:72px;height:92px;font-size:15px}
+.teacher-avatar-xl{width:150px;height:190px;font-size:25px;border-radius:16px}
+.teacher-avatar img{object-fit:cover;object-position:center 18%}
+.teacher-card-identity{align-items:center;gap:14px}
+.teacher-card-compact{min-height:126px}
+.teacher-card-compact .teacher-card-identity>div{align-self:center}
+.teacher-photo-editor{align-items:start;grid-template-columns:150px minmax(0,1fr)}
+#teacherPhotoPreview{width:150px}
+#teacherPhotoPreview .teacher-avatar-xl{display:flex}
+@media(max-width:640px){
+  .teacher-avatar-lg{width:60px;height:78px}
+  .teacher-avatar-xl{width:120px;height:154px;font-size:22px}
+  .teacher-photo-editor{grid-template-columns:120px minmax(0,1fr);gap:12px}
+  #teacherPhotoPreview{width:120px}
+}

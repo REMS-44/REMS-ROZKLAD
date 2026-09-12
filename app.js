@@ -456,6 +456,9 @@ function mergeSeedTeachers(existing=[],seed=[]){
     if(!current.name&&seedTeacher.name)current.name=seedTeacher.name;
     if(!current.shortName&&seedTeacher.shortName)current.shortName=seedTeacher.shortName;
     if(!current.note&&seedTeacher.note)current.note=seedTeacher.note;
+    // v2.0.27: bundled verified portraits fill only empty profiles.
+    // A user-uploaded/linked photo always wins; explicit removal suppresses the seed portrait.
+    if(!current.photoRemoved&&!String(current.photo||"").trim()&&String(seedTeacher.photo||"").trim())current.photo=seedTeacher.photo;
   });
   return result;
 }
@@ -635,6 +638,7 @@ function migrate(old){
     maxConsecutive:t.maxConsecutive||"",
     note:t.note||"",
     photo:t.photo||"",
+    photoRemoved:t.photoRemoved===true,
     homeDepartmentId:t.homeDepartmentId||(t.scope==="external"?"":"rems-dept"),
     programIds:uniqueStrings((Array.isArray(t.programIds)&&t.programIds.length?t.programIds:["rems"])),
     status:t.status||"active"
@@ -2158,7 +2162,7 @@ function teacherInitials(t){
 }
 function teacherAvatarHtml(t,size="md",extraClass=""){
   const cls=`teacher-avatar teacher-avatar-${size}${extraClass?` ${extraClass}`:""}`;
-  const photo=String(t?.photo||"").trim();
+  const photo=t?.photoRemoved?"":String(t?.photo||"").trim();
   if(photo)return `<span class="${cls}"><img src="${esc(photo)}" alt="Фото ${esc(t?.name||"викладача")}" onerror="this.closest('.teacher-avatar').classList.add('teacher-avatar-broken');this.remove()"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
   return `<span class="${cls}"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
 }
@@ -2306,9 +2310,9 @@ function teacherCard(t){
 function openExternalTeacherModal(id=null){
   const t=id?teacherById(id):{scope:"external",name:"",shortName:"",note:"",programIds:[activeProgramId()],status:"active"};
   openModal(`<h2>${id?"Редагувати":"Новий"} зовнішній викладач</h2><div class="notice">Цей викладач буде доступний у розкладі, але його кафедральне навантаження не рахується.</div><form id="etf" class="form-grid"><label class="wide">ПІБ<input id="etn" value="${esc(t.name)}" required></label><label>Коротке ім’я<input id="ets" value="${esc(t.shortName||"")}"></label><div class="wide teacher-photo-editor"><div id="teacherPhotoPreview">${teacherAvatarHtml(t,"xl")}</div><div><b>Фото викладача</b><div class="small">Можна завантажити JPG/PNG/WebP. Зображення автоматично зменшиться й збережеться в профілі.</div><input id="etphotoFile" type="file" accept="image/*"><div class="actions"><button type="button" class="secondary" id="etphotoRemove">Прибрати фото</button></div></div></div><label class="wide">Спеціальності<select id="etprograms" multiple size="3">${programMultiOptionsHtml(teacherProgramIds(t))}</select></label><label class="wide">Примітка<textarea id="etnote" rows="3">${esc(t.note||"")}</textarea></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteTeacher(${id})">Видалити викладача</button>`:""}</div></form>`);
-  $("#etf").onsubmit=e=>{e.preventDefault();const programIds=[...$("#etprograms").selectedOptions].map(o=>o.value);if(!programIds.length)return alert("Оберіть хоча б одну спеціальність.");const obj={scope:"external",homeDepartmentId:"",name:$("#etn").value.trim(),shortName:$("#ets").value.trim(),programIds,note:$("#etnote").value.trim(),photo:t.photo||"",status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save();};
-  $("#etphotoFile").onchange=async e=>{try{t.photo=await readTeacherPhotoFile(e.target.files?.[0]);updateTeacherPhotoPreview(t.photo,$("#etn").value.trim()||t.name);}catch(err){alert(err.message||err);e.target.value="";}};
-  $("#etphotoRemove").onclick=()=>{t.photo="";$("#etphotoFile").value="";updateTeacherPhotoPreview("",$("#etn").value.trim()||t.name);};
+  $("#etf").onsubmit=e=>{e.preventDefault();const programIds=[...$("#etprograms").selectedOptions].map(o=>o.value);if(!programIds.length)return alert("Оберіть хоча б одну спеціальність.");const obj={scope:"external",homeDepartmentId:"",name:$("#etn").value.trim(),shortName:$("#ets").value.trim(),programIds,note:$("#etnote").value.trim(),photo:t.photo||"",photoRemoved:t.photoRemoved===true&&!t.photo,status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save();};
+  $("#etphotoFile").onchange=async e=>{try{t.photo=await readTeacherPhotoFile(e.target.files?.[0]);t.photoRemoved=false;updateTeacherPhotoPreview(t.photo,$("#etn").value.trim()||t.name);}catch(err){alert(err.message||err);e.target.value="";}};
+  $("#etphotoRemove").onclick=()=>{t.photo="";t.photoRemoved=true;$("#etphotoFile").value="";updateTeacherPhotoPreview("",$("#etn").value.trim()||t.name);};
   $("#etn").oninput=()=>{if(!t.photo)updateTeacherPhotoPreview("",$("#etn").value.trim());};
 }
 function openTeacherAvailabilityModal(id){
@@ -2420,9 +2424,9 @@ function openTeacherModal(id=null){
   </form>`,true);
   [["tp","tpOther"],["ta","taOther"],["td","tdOther"],["th","thOther"]].forEach(([s,i])=>{$("#"+s).onchange=()=>{$("#"+i).style.display=$("#"+s).value==="__other__"?"":"none"};});
   bindRuleRows();
-  $("#tphotoFile").onchange=async e=>{try{t.photo=await readTeacherPhotoFile(e.target.files?.[0]);$("#tphoto").value="";updateTeacherPhotoPreview(t.photo,$("#tn").value.trim()||t.name);}catch(err){alert(err.message||err);e.target.value="";}};
-  $("#tphotoRemove").onclick=()=>{t.photo="";$("#tphotoFile").value="";$("#tphoto").value="";updateTeacherPhotoPreview("",$("#tn").value.trim()||t.name);};
-  $("#tphoto").oninput=()=>updateTeacherPhotoPreview($("#tphoto").value.trim(),$("#tn").value.trim()||t.name);
+  $("#tphotoFile").onchange=async e=>{try{t.photo=await readTeacherPhotoFile(e.target.files?.[0]);t.photoRemoved=false;$("#tphoto").value="";updateTeacherPhotoPreview(t.photo,$("#tn").value.trim()||t.name);}catch(err){alert(err.message||err);e.target.value="";}};
+  $("#tphotoRemove").onclick=()=>{t.photo="";t.photoRemoved=true;$("#tphotoFile").value="";$("#tphoto").value="";updateTeacherPhotoPreview("",$("#tn").value.trim()||t.name);};
+  $("#tphoto").oninput=()=>{if($("#tphoto").value.trim())t.photoRemoved=false;updateTeacherPhotoPreview($("#tphoto").value.trim(),$("#tn").value.trim()||t.name);};
   $("#tn").oninput=()=>{const p=$("#tphoto").value.trim()||t.photo||"";if(!p)updateTeacherPhotoPreview("",$("#tn").value.trim());};
   $("#tf").onsubmit=e=>{
     e.preventDefault();
@@ -2432,6 +2436,7 @@ function openTeacherModal(id=null){
       position:pick("tp","tpOther"),academicTitle:pick("ta","taOther"),degree:pick("td","tdOther"),honoraryTitle:pick("th","thOther"),
       employmentType:$("#te").value,rate:$("#tr").value,teachingNormPerRate:$("#tnorm").value,
       employmentStart:$("#tstart").value,employmentEnd:$("#tend").value,phone:$("#tph").value.trim(),email:$("#tem").value.trim(),photo:$("#tphoto").value.trim()||t.photo||"",
+      photoRemoved:t.photoRemoved===true&&!($("#tphoto").value.trim()||t.photo),
       homeDepartmentId:$("#thomeDepartment").value,
       programIds:[...$("#tprograms").selectedOptions].map(o=>o.value),
       unavailableRules:readRules("unavailableRules"),preferredRules:readRules("preferredRules"),
