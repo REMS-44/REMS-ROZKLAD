@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=28;
+const APP_SCHEMA_VERSION=33;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -645,17 +645,18 @@ function migrate(old){
   }));
   // v2.0.31: portraits explicitly selected by the administrator.
   // Replace older automatic web portraits, but never overwrite a photo manually uploaded into the app.
-  if(previousSchemaVersion<28){
+  if(targetCleanupVersion.includes("seven-admin-portraits") || previousSchemaVersion<28){
     const adminPortraits={
       "Деркач Світлана Миколаївна":"https://www.ludinaroku.com.ua/wp-content/uploads/2016/02/Svetlana.jpg",
       "Майкут Кирило Валерійович":"https://lookaside.fbsbx.com/lookaside/crawler/instagram/kirill_maikut/profile_pic.jpg",
       "Кучер Ростислав Станіславович":"https://lookaside.fbsbx.com/lookaside/crawler/instagram/rostislav.kucher/profile_pic.jpg",
       "Абазопуло Володимир Володимирович":"https://ft.org.ua/storage/person/11/56caac57240cfe6152f51fd36e836da6ac79e12d.jpg",
-      "Осаула В.О.":"https://kzgizh.knukim.edu.ua/images/team/2021-kafedra/osaula.jpg",
+      "Осаула Вадим Олександрович":"https://kzgizh.knukim.edu.ua/images/team/2021-kafedra/osaula.jpg",
       "Сорока Іван Іванович":"https://nakkkim.edu.ua/images/Instytuty/such_mystetstva/kafedra/Soroka.jpg",
       "Чорнойван Анжеліка Тарасівна":"https://api.buki.com.ua/tutor_avatar/XI/tT/XItTHHpbaCWuXHKjhGhojAGPytw8YTsIeWdWySId.jpg"
     };
     fresh.teachers.forEach(t=>{
+      if((t.shortName||"")==="Осаула В.О.")t.name="Осаула Вадим Олександрович";
       const url=adminPortraits[t.name];
       if(!url||t.photoRemoved===true)return;
       if(String(t.photo||"").startsWith("data:"))return;

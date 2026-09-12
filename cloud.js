@@ -389,6 +389,15 @@ async function applyWorkingDataCleanupOnce(state){
     // Pull corrected names and starter portraits from the bundle, while never
     // overwriting a photo uploaded manually from the computer (data: URL) and
     // respecting an explicit "remove photo" choice.
+    const adminPortraitsByShort={
+      "Деркач С.М.":{name:"Деркач Світлана Миколаївна",photo:"https://www.ludinaroku.com.ua/wp-content/uploads/2016/02/Svetlana.jpg"},
+      "Майкут К.В.":{name:"Майкут Кирило Валерійович",photo:"https://lookaside.fbsbx.com/lookaside/crawler/instagram/kirill_maikut/profile_pic.jpg"},
+      "Кучер Р.С.":{name:"Кучер Ростислав Станіславович",photo:"https://lookaside.fbsbx.com/lookaside/crawler/instagram/rostislav.kucher/profile_pic.jpg"},
+      "Абазопуло В.В.":{name:"Абазопуло Володимир Володимирович",photo:"https://ft.org.ua/storage/person/11/56caac57240cfe6152f51fd36e836da6ac79e12d.jpg"},
+      "Осаула В.О.":{name:"Осаула Вадим Олександрович",photo:"https://kzgizh.knukim.edu.ua/images/team/2021-kafedra/osaula.jpg"},
+      "Сорока І.І.":{name:"Сорока Іван Іванович",photo:"https://nakkkim.edu.ua/images/Instytuty/such_mystetstva/kafedra/Soroka.jpg"},
+      "Чорнойван А.Т.":{name:"Чорнойван Анжеліка Тарасівна",photo:"https://api.buki.com.ua/tutor_avatar/XI/tT/XItTHHpbaCWuXHKjhGhojAGPytw8YTsIeWdWySId.jpg"}
+    };
     const seedById=new Map((seed.teachers||[]).map(t=>[String(t.id),t]));
     const seedByShort=new Map((seed.teachers||[]).filter(t=>t.shortName).map(t=>[String(t.shortName).trim().toLocaleLowerCase("uk"),t]));
     const currentIds=new Set((cleaned.teachers||[]).map(t=>String(t.id)));
@@ -397,7 +406,12 @@ async function applyWorkingDataCleanupOnce(state){
       if(!st)return t;
       const manualPhoto=String(t.photo||"").startsWith("data:");
       const merged={...t};
-      if(st.name)merged.name=st.name;
+      const picked=adminPortraitsByShort[String(st.shortName||t.shortName||"").trim()];
+      if(picked){
+        merged.name=picked.name;
+        if(!manualPhoto){merged.photo=picked.photo;merged.photoRemoved=false;}
+      }
+      if(st.name&&!picked)merged.name=st.name;
       if(st.shortName)merged.shortName=st.shortName;
       if(st.homeDepartmentId)merged.homeDepartmentId=st.homeDepartmentId;
       if(st.scope)merged.scope=st.scope;
@@ -424,6 +438,7 @@ async function applyWorkingDataCleanupOnce(state){
     })();
 
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
+    setSidebar("online","Онлайн",user?.email||"");
     toast("Плани ТА/ТР та фото викладачів оновлено. Затверджений розклад не перезаписується.","ok",7000);
     return cleaned;
   }
