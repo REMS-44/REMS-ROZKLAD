@@ -15,3 +15,5 @@
 - Шаран Іван Миронович — https://tykyiv.com/media/IMG_9707.jpg
 - Довженко В'ячеслав Валерійович — https://tykyiv.com/media/77aa7f5df27df33ad76976b24ced0684_1.jpg
 - Абазопуло Володимир Володимирович — https://vechirniy.kyiv.ua/uploads/2021/09/02/demiurg_113.jpg
+- Кравченко Елеонора Геннадіївна — https://www.acmodasi.com.ua/rate/m/y/m/397387-prhfecbklr-1701296224.m.webp (публічне професійне акторське портфоліо ACMODASI)
+- Харченко Михайло Володимирович — https://muzvar.com.ua/wp-content/uploads/2026/04/Screenshot-2026-04-14-at-14.40.44-1024x680.png (інтерв’ю MUZVAR)
