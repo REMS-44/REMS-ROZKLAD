@@ -7596,3 +7596,35 @@ td .small{font-size:12px}
 .sp-legend{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 8px;border:1px solid #e8e1ea;border-radius:10px;background:#fff;font-size:7px;color:#706477}.sp-legend span{display:flex;align-items:center;gap:4px}.sp-legend i{width:10px;height:10px;border-radius:3px;border:1px solid #d7cfdc}.sp-legend i.free{background:#e4f6ee;border-color:#83c3aa}.sp-legend i.student-busy{background:#fff2c9;border-color:#e2c270}.sp-legend i.busy{background:#e9e0ee;border-color:#c5b1d0}.sp-legend i.blocked{background:#f6e5e6;border-color:#d9afb3}.sp-legend button{margin-left:auto;padding:5px 8px;font-size:8px}
 @media(max-width:1050px){.sp-body{grid-template-columns:minmax(0,1fr) 255px}.sp-controls{grid-template-columns:1fr}.sp-semester-note{display:none}.sp-kpis>div{min-width:88px}.sp-grid{grid-template-columns:64px repeat(var(--sp-days),minmax(125px,1fr))}}
 @media(max-width:760px){.modal-card.special-planner-modal-card{width:99vw!important;height:97vh;max-height:97vh!important;padding:8px!important}.sp-hero{align-items:flex-start}.sp-kpis{display:none}.sp-body{grid-template-columns:1fr;overflow:auto}.sp-calendar{min-height:420px}.sp-sidebar{overflow:visible;min-height:420px}.sp-students{min-height:220px}.sp-view-tabs{overflow:auto}.sp-view-tabs button{min-width:96px}.sp-month-grid{grid-template-columns:repeat(7,minmax(70px,1fr));min-width:560px}.sp-month{overflow:auto}.sp-single-pair{grid-template-columns:62px 1fr 1fr}}
+
+/* v2.0.23 — occupancy grid fits the page without horizontal scrolling */
+.room-grid-wrap{
+  overflow-x:hidden;
+  overflow-y:visible;
+  width:100%;
+}
+.room-grid{
+  width:100%;
+  min-width:0;
+  grid-template-columns:64px repeat(var(--room-count),minmax(0,1fr));
+}
+.rg-corner{padding:8px 5px;font-size:9px}
+.rg-room{padding:7px 5px;min-width:0;min-height:44px;text-align:center;overflow:hidden}
+.rg-room b{font-size:clamp(10px,1vw,14px);line-height:1.05;overflow-wrap:anywhere}
+.rg-room span{font-size:7px;line-height:1.05;white-space:normal;overflow-wrap:anywhere}
+.rg-pair{padding:6px 3px;min-height:72px}
+.rg-pair b{font-size:14px}.rg-pair span,.rg-pair small{font-size:7px;line-height:1.1}
+.rg-cell{min-width:0;min-height:72px;padding:3px;overflow:hidden}
+.room-free{min-height:64px;padding:3px;font-size:9px;border-radius:7px}
+.room-event{padding:4px 5px;margin-bottom:3px;border-radius:7px;min-width:0;overflow:hidden}
+.room-event b{font-size:9px;line-height:1.08;overflow-wrap:anywhere}
+.room-event span,.room-event small{font-size:7px;line-height:1.08;overflow-wrap:anywhere}
+.room-event-badge{font-size:6px!important;line-height:1!important}
+.room-grid-legend{margin-top:8px;gap:12px;font-size:9px}
+
+@media(max-width:1200px){
+  .room-grid{grid-template-columns:52px repeat(var(--room-count),minmax(0,1fr))}
+  .rg-room{padding:5px 3px}.rg-room b{font-size:10px}.rg-room span{display:none}
+  .rg-pair{padding:4px 2px}.rg-cell{padding:2px}
+  .room-event{padding:3px 4px}.room-event b{font-size:8px}.room-event span,.room-event small{font-size:6.5px}
+}
