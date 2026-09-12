@@ -1,0 +1,7 @@
+v2.0.21 — approved schedule reconciliation
+
+- Canonical approved faculty schedule is merged locally with Firebase rows on every remote apply.
+- Cloud/user version of an existing lesson wins; missing approved lessons are restored for display without bulk Firestore upload.
+- The same reconciled db.schedule feeds Scheduling, Group Timetable and Room Occupancy Grid.
+- Ready/external plan hours now equal lecture + seminar + practical + laboratory, excluding individual hours.
+- This fixes 15 vs 16 hours for Foreign Language and similar weekly-rounding artifacts.

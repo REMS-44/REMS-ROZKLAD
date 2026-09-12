@@ -396,7 +396,7 @@ async function applyWorkingDataCleanupOnce(state){
     await setDoc(settingsRef(),settingsPart(cleaned));
     try{await publishCatalogSignal(["curricula","disciplines"]);}catch(e){console.warn("Catalog signal after REMS plan verification failed",e);}
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
-    toast("Плани РЕМС 1–4 курсів повністю замінено з XLSX. Старі картки РЕМС очищено; правила аудиторних/індивідуальних годин оновлено. Розклад збережено.","ok",9000);
+    toast("Плани РЕМС оновлено. Затверджений факультетський розклад звіряється з вбудованим еталоном без масового перезапису Firebase; розклад груп і сітка аудиторій використовують ті самі заняття.","ok",9000);
     return cleaned;
   }
 

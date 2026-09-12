@@ -139075,5 +139075,5 @@ window.REMS_INITIAL_DATA = {
       "usesRooms": false
     }
   ],
-  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v4-links-streams"
+  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v5-approved-schedule-grid"
 };

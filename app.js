@@ -132,6 +132,45 @@ function scheduleDisciplineIds(item){
 function scheduleCoversDiscipline(item,disciplineId){
   return scheduleDisciplineIds(item).includes(Number(disciplineId));
 }
+function approvedScheduleSemanticKey(item){
+  if(!item)return "";
+  const groups=scheduleAudienceGroups(item).map(normIdentity).sort().join("+");
+  const slot=item.pairId!==null&&item.pairId!==undefined&&String(item.pairId)!==""
+    ?`p:${item.pairId}`:`t:${item.start||""}-${item.end||""}`;
+  return [item.date||"",slot,groups,normIdentity(item.discipline),normIdentity(item.type)].join("|");
+}
+function mergeApprovedSchedule(remoteRows=[],seedRows=[]){
+  const out=clone(remoteRows||[]);
+  const byId=new Map(out.map(x=>[String(x.id),x]));
+  const byKey=new Map(out.map(x=>[approvedScheduleSemanticKey(x),x]).filter(([k])=>k));
+  (seedRows||[]).forEach(seed=>{
+    const idKey=String(seed?.id??"");
+    const semantic=approvedScheduleSemanticKey(seed);
+    const current=(idKey&&byId.get(idKey))||(semantic&&byKey.get(semantic));
+    if(current){
+      // Cloud/user values win, but the approved source repairs fields lost by an
+      // interrupted migration (teacher, room, stream links, source metadata).
+      const keepId=current.id;
+      const merged={...clone(seed),...current,id:keepId};
+      const idx=out.indexOf(current);
+      if(idx>=0)out[idx]=merged;
+      byId.set(String(keepId),merged);
+      if(semantic)byKey.set(semantic,merged);
+      return;
+    }
+    const copy=clone(seed);
+    out.push(copy);
+    byId.set(String(copy.id),copy);
+    if(semantic)byKey.set(semantic,copy);
+  });
+  return out.slice().sort((a,b)=>{
+    const ad=String(a.date||""),bd=String(b.date||"");
+    if(ad!==bd)return ad.localeCompare(bd);
+    const ap=Number(a.pairId||99),bp=Number(b.pairId||99);
+    if(ap!==bp)return ap-bp;
+    return Number(a.id||0)-Number(b.id||0);
+  });
+}
 function isReadyExternalScheduleItem(item){
   return !!item&&!item.specialSchedule&&(item.scheduleSource==="ready_external"||item.workloadHours===0||item.workloadHours==="0");
 }
@@ -1044,7 +1083,16 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     .map(t=>normIdentity(t.name||t.shortName))
     .filter(Boolean));
 
-  db=migrate(remote);
+  // v2.0.21: Firebase may contain only part of the approved faculty schedule
+  // after the interrupted v3 migration. Show one canonical schedule everywhere
+  // by overlaying cloud/user changes on top of the bundled approved source.
+  // This is local/read-time reconciliation: it does NOT bulk-upload 2600+ rows.
+  const reconciledRemote=clone(remote||{});
+  reconciledRemote.schedule=mergeApprovedSchedule(
+    reconciledRemote.schedule||[],
+    window.REMS_INITIAL_DATA?.schedule||[]
+  );
+  db=migrate(reconciledRemote);
 
   const addedSeedCurriculum=(db.curricula||[]).some(c=>!remoteCurriculumKeys.has(curriculumSeedKey(c)));
   const addedSeedGroup=(db.groups||[]).some(g=>!remoteGroupKeys.has(groupSeedKey(g)));
@@ -1727,6 +1775,25 @@ function initAdHocRoomSelect(select,onResolved=null){
 }
 function roomOrderValue(r){const n=Number(r.gridOrder);return Number.isFinite(n)?n:999999;}
 function gridRooms(){return activeRooms().filter(r=>r.showInGrid!==false).slice().sort((a,b)=>roomOrderValue(a)-roomOrderValue(b)||a.name.localeCompare(b.name,"uk",{numeric:true}));}
+function occupancyGridRooms(){
+  const base=gridRooms();
+  const known=new Set(base.map(r=>normIdentity(r.name)));
+  const fromApproved=uniqueStrings((db.schedule||[])
+    .filter(x=>!x.specialSchedule&&scheduleVisibleInProgram(x)&&dateInBounds(x.date)&&x.room)
+    .map(x=>x.room))
+    .filter(name=>!known.has(normIdentity(name)))
+    .sort((a,b)=>a.localeCompare(b,"uk",{numeric:true}))
+    .map((name,i)=>({
+      id:`schedule-room-${i+1}`,
+      name,
+      status:"active",
+      note:"з затвердженого розкладу",
+      showInGrid:true,
+      gridOrder:10000+i,
+      virtualFromSchedule:true
+    }));
+  return [...base,...fromApproved];
+}
 function roomGridPosition(id){
   const idx=gridRooms().findIndex(r=>Number(r.id)===Number(id));
   return idx>=0?idx+1:null;
@@ -1875,11 +1942,11 @@ function renderRoomGrid(){
     return;
   }
   roomGridState.date=clampDate(roomGridState.date||currentAcademicDate());roomGridState.month=clampAcademicMonth((roomGridState.month||roomGridState.date.slice(0,7)));if(roomGridState.date.slice(0,7)!==roomGridState.month)roomGridState.date=clampDate(`${roomGridState.month}-01`);
-  const rooms=gridRooms(),pairs=bellPairs();
-  $("#page-roomGrid").innerHTML=`${roomAreaTabs("grid")}<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Показані аудиторії обраної спеціальності. У спільних аудиторіях зайнятість інших спеціальностей видно лише як блок конфлікту — без зайвих чужих даних. Репетиції, зустрічі та інші бронювання додаються прямо тут.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
+  const rooms=occupancyGridRooms(),pairs=bellPairs();
+  $("#page-roomGrid").innerHTML=`${roomAreaTabs("grid")}<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Показані кафедральні аудиторії та всі додаткові аудиторії/локації, які реально використовуються у затвердженому розкладі обраної спеціальності. Додаткові колонки не стають кафедральними аудиторіями автоматично. У спільних аудиторіях заняття інших спеціальностей видно як блок зайнятості.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
     <div class="room-grid-toolbar"><label>Місяць<input id="roomGridMonth" type="month" min="${academicYearBounds().minMonth}" max="${academicYearBounds().maxMonth}" value="${esc(roomGridState.month)}"></label><label>Дата<input id="roomGridDate" type="date" ${dateAttrs()} value="${esc(roomGridState.date)}"></label><div class="room-date-title">${esc(roomGridDateLabel(roomGridState.date))}</div><button class="secondary" onclick="go('rooms')">Довідник аудиторій</button></div>
     ${roomMonthStrip()}
-    ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id);return `<div class="rg-cell ${events.length?"occupied":"free"}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${events.length?events.map(roomEventCard).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}
+    ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room ${r.virtualFromSchedule?"from-approved-schedule":""}"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id);return `<div class="rg-cell ${events.length?"occupied":"free"}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${events.length?events.map(roomEventCard).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}
     <div class="room-grid-legend"><span><i class="legend-dot lesson"></i> заняття з розкладу</span><span><i class="legend-dot booking"></i> окреме бронювання</span><span><i class="legend-dot free"></i> вільна аудиторія</span></div>
   </div>`;
   $("#roomGridMonth").onchange=e=>{const m=clampAcademicMonth(e.target.value);roomGridState.month=m;const day=roomGridState.date.slice(8);const max=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();roomGridState.date=clampDate(`${m}-${String(Math.min(Number(day),max)).padStart(2,"0")}`);renderRoomGrid();};
@@ -5488,7 +5555,10 @@ function readyItemPlanIdentity(item){
 }
 function readyPlanHours(rec){
   if(!rec?.row)return 0;
-  return num(rec.row.auditoriumPlanHours??rec.row.auditoriumHours);
+  // For the ready-made schedule we compare only classroom hours that must
+  // actually appear as pairs. Individual hours are scheduled separately later.
+  const r=rec.row;
+  return num(r.lecture)+num(r.seminar)+num(r.practical)+num(r.laboratory);
 }
 function readyPlanTypeText(rec){
   const r=rec?.row||{};
