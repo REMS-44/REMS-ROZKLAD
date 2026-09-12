@@ -368,7 +368,47 @@ async function replaceRoomBookings(items){
 
 async function applyWorkingDataCleanupOnce(state){
   const target=String(window.REMS_INITIAL_DATA?.dataCleanupVersion||"");
-  if(!target||!state||profile?.role!=="admin"||String(state.dataCleanupVersion||"")===target)return state;
+  if(!target||!state||profile?.role!=="admin")return state;
+
+  // v20: portraits explicitly selected by the administrator must be visible even
+  // when the catalogue version was already marked as migrated in Firestore.
+  // This fixes the case where the settings document was updated but individual
+  // teacher records were not written because the connection dropped mid-refresh.
+  const pinnedPortraits={
+    "Деркач С.М.":{name:"Деркач Світлана Миколаївна",photo:"https://www.ludinaroku.com.ua/wp-content/uploads/2016/02/Svetlana.jpg"},
+    "Майкут К.В.":{name:"Майкут Кирило Валерійович",photo:"https://lookaside.fbsbx.com/lookaside/crawler/instagram/kirill_maikut/profile_pic.jpg"},
+    "Кучер Р.С.":{name:"Кучер Ростислав Станіславович",photo:"https://lookaside.fbsbx.com/lookaside/crawler/instagram/rostislav.kucher/profile_pic.jpg"},
+    "Абазопуло В.В.":{name:"Абазопуло Володимир Володимирович",photo:"https://ft.org.ua/storage/person/11/56caac57240cfe6152f51fd36e836da6ac79e12d.jpg"},
+    "Осаула В.О.":{name:"Осаула Вадим Олександрович",photo:"https://kzgizh.knukim.edu.ua/images/team/2021-kafedra/osaula.jpg"},
+    "Сорока І.І.":{name:"Сорока Іван Іванович",photo:"https://nakkkim.edu.ua/images/Instytuty/such_mystetstva/kafedra/Soroka.jpg"},
+    "Чорнойван А.Т.":{name:"Чорнойван Анжеліка Тарасівна",photo:"https://api.buki.com.ua/tutor_avatar/XI/tT/XItTHHpbaCWuXHKjhGhojAGPytw8YTsIeWdWySId.jpg"}
+  };
+  const applyPinnedPortraits=(src)=>{
+    const out=clean(src);
+    let changed=false;
+    out.teachers=(out.teachers||[]).map(t=>{
+      const pin=pinnedPortraits[String(t.shortName||"").trim()];
+      if(!pin)return t;
+      const manual=String(t.photo||"").startsWith("data:");
+      if(manual||t.photoRemoved===true)return t;
+      if(t.name!==pin.name||t.photo!==pin.photo){changed=true;return {...t,name:pin.name,photo:pin.photo,photoRemoved:false};}
+      return t;
+    });
+    return {out,changed};
+  };
+
+  if(String(state.dataCleanupVersion||"")===target){
+    const {out,changed}=applyPinnedPortraits(state);
+    if(changed){
+      // Update only the affected teacher cards; never touch the approved timetable.
+      (async()=>{try{
+        const ops=(out.teachers||[]).filter(t=>pinnedPortraits[String(t.shortName||"").trim()]).map(t=>({type:"set",ref:itemRef("teachers",t.id),data:clean(t)}));
+        if(ops.length)await commitOps(ops);
+        try{await publishCatalogSignal(["teachers"]);}catch(_){}
+      }catch(e){console.warn("Pinned portrait repair will retry later",e);}})();
+    }
+    return out;
+  }
 
   const cleaned=clean(state);
   const seed=clean(window.REMS_INITIAL_DATA||{});

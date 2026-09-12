@@ -2181,10 +2181,27 @@ function teacherInitials(t){
   if(parts.length===1)return parts[0].slice(0,2).toUpperCase();
   return `${parts[0][0]||""}${parts[1][0]||""}`.toUpperCase();
 }
+const STARTER_TEACHER_PORTRAITS={
+  "Деркач С.М.":"https://www.ludinaroku.com.ua/wp-content/uploads/2016/02/Svetlana.jpg",
+  "Майкут К.В.":"https://lookaside.fbsbx.com/lookaside/crawler/instagram/kirill_maikut/profile_pic.jpg",
+  "Кучер Р.С.":"https://lookaside.fbsbx.com/lookaside/crawler/instagram/rostislav.kucher/profile_pic.jpg",
+  "Абазопуло В.В.":"https://ft.org.ua/storage/person/11/56caac57240cfe6152f51fd36e836da6ac79e12d.jpg",
+  "Осаула В.О.":"https://kzgizh.knukim.edu.ua/images/team/2021-kafedra/osaula.jpg",
+  "Сорока І.І.":"https://nakkkim.edu.ua/images/Instytuty/such_mystetstva/kafedra/Soroka.jpg",
+  "Чорнойван А.Т.":"https://api.buki.com.ua/tutor_avatar/XI/tT/XItTHHpbaCWuXHKjhGhojAGPytw8YTsIeWdWySId.jpg"
+};
+function starterTeacherPhoto(t){
+  if(!t||t.photoRemoved===true)return "";
+  return STARTER_TEACHER_PORTRAITS[String(t.shortName||"").trim()]||"";
+}
 function teacherAvatarHtml(t,size="md",extraClass=""){
   const cls=`teacher-avatar teacher-avatar-${size}${extraClass?` ${extraClass}`:""}`;
-  const photo=t?.photoRemoved?"":String(t?.photo||"").trim();
-  if(photo)return `<span class="${cls}"><img src="${esc(photo)}" alt="Фото ${esc(t?.name||"викладача")}" onerror="this.closest('.teacher-avatar').classList.add('teacher-avatar-broken');this.remove()"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
+  const starter=starterTeacherPhoto(t);
+  const photo=t?.photoRemoved?"":(String(t?.photo||"").trim()||starter);
+  if(photo){
+    const fallbackAttr=starter&&starter!==photo?` data-fallback-src="${esc(starter)}"`:"";
+    return `<span class="${cls}"><img src="${esc(photo)}"${fallbackAttr} referrerpolicy="no-referrer" alt="Фото ${esc(t?.name||"викладача")}" onerror="const f=this.dataset.fallbackSrc;if(f&&this.src!==f){this.removeAttribute('data-fallback-src');this.src=f;return;}this.closest('.teacher-avatar').classList.add('teacher-avatar-broken');this.remove()"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
+  }
   return `<span class="${cls}"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
 }
 function readTeacherPhotoFile(file){
