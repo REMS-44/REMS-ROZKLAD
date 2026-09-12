@@ -1,5 +1,5 @@
 window.REMS_INITIAL_DATA = {
-  "schemaVersion": 29,
+  "schemaVersion": 30,
   "academicYear": "2026/2027",
   "semester": 1,
   "adHocRooms": [
@@ -140618,5 +140618,5 @@ window.REMS_INITIAL_DATA = {
       "usesRooms": false
     }
   ],
-  "dataCleanupVersion": "2026-09-12-rems-plans-verified-xlsx-v1"
+  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v2"
 };

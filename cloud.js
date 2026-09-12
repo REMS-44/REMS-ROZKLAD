@@ -373,7 +373,7 @@ async function applyWorkingDataCleanupOnce(state){
   const cleaned=clean(state);
   const seed=clean(window.REMS_INITIAL_DATA||{});
   cleaned.dataCleanupVersion=target;
-  const remsOnlyUpdate=target==="2026-09-12-rems-plans-verified-xlsx-v1";
+  const remsOnlyUpdate=target==="2026-09-12-rems-plans-full-refresh-xlsx-v2";
 
   if(remsOnlyUpdate){
     setSidebar("syncing","Оновлення перевірених планів РЕМС…",user?.email||"");
@@ -382,6 +382,9 @@ async function applyWorkingDataCleanupOnce(state){
     const keepCurricula=(cleaned.curricula||[]).filter(c=>c?.programId!=="rems");
     const seedRemsCurricula=(seed.curricula||[]).filter(c=>c?.programId==="rems");
     cleaned.curricula=clean([...keepCurricula,...seedRemsCurricula]);
+    // Canonical lesson-type rules are part of the refresh. This clears any
+    // legacy cloud value that marked Laboratory as per-student.
+    cleaned.lessonTypes=clean(seed.lessonTypes||[]);
     const isRemsDiscipline=d=>d?.programId==="rems"||String(d?.group||"").startsWith("РЕМС-");
     const keepDisciplines=(cleaned.disciplines||[]).filter(d=>!isRemsDiscipline(d));
     const seedRemsDisciplines=(seed.disciplines||[]).filter(isRemsDiscipline);
@@ -389,10 +392,11 @@ async function applyWorkingDataCleanupOnce(state){
 
     await replaceCollection("curricula",cleaned.curricula);
     await replaceCollection("disciplines",cleaned.disciplines);
+    await replaceCollection("lessonTypes",cleaned.lessonTypes);
     await setDoc(settingsRef(),settingsPart(cleaned));
     try{await publishCatalogSignal(["curricula","disciplines"]);}catch(e){console.warn("Catalog signal after REMS plan verification failed",e);}
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
-    toast("Перевірені робочі плани РЕМС 1–4 курсів оновлено. Інші програми та розклад не змінено.","ok",8000);
+    toast("Плани РЕМС 1–4 курсів повністю замінено з XLSX. Старі картки РЕМС очищено; правила аудиторних/індивідуальних годин оновлено. Розклад збережено.","ok",9000);
     return cleaned;
   }
 

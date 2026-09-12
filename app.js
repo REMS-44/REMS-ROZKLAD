@@ -424,13 +424,16 @@ function migrate(old){
   if(targetCleanupVersion&&String(old.dataCleanupVersion||"")!==targetCleanupVersion){
     old=clone(old);
     old.dataCleanupVersion=targetCleanupVersion;
-    const remsOnlyUpdate=targetCleanupVersion==="2026-09-12-rems-plans-verified-xlsx-v1";
+    const remsOnlyUpdate=targetCleanupVersion==="2026-09-12-rems-plans-full-refresh-xlsx-v2";
     if(remsOnlyUpdate){
       // Verified REMS-only release: refresh only REMS working plans and REMS workload cards.
       // Do not overwrite TA/TR/master plans, faculty schedule, room bookings or teacher cards.
       const keepCurricula=(old.curricula||[]).filter(c=>c?.programId!=="rems");
       const seedRemsCurricula=(fresh.curricula||[]).filter(c=>c?.programId==="rems");
       old.curricula=[...keepCurricula,...clone(seedRemsCurricula)];
+      // Replace canonical lesson type rules too: stale browser/cloud rules once
+      // caused Laboratory hours to be multiplied by student contingent.
+      old.lessonTypes=clone(fresh.lessonTypes||[]);
       const isRemsDiscipline=d=>d?.programId==="rems"||String(d?.group||"").startsWith("РЕМС-");
       const keepDisciplines=(old.disciplines||[]).filter(d=>!isRemsDiscipline(d));
       const seedRemsDisciplines=(fresh.disciplines||[]).filter(isRemsDiscipline);
@@ -2603,6 +2606,11 @@ function lessonTypeById(typeId){
 function isPerStudentTypeId(typeId){
   const lt=lessonTypeById(typeId);
   if(!lt)return false;
+  // Core auditorium types are ALWAYS group/pair hours. Even if an old cloud
+  // database accidentally stored a wrong countMode, they must never be
+  // multiplied by student contingent.
+  const coreAuditoriumNames=new Set(["лекція","семінар","практичне","лабораторне"]);
+  if([1,2,3,4].includes(Number(typeId))||coreAuditoriumNames.has(normIdentity(lt.name||"")))return false;
   return lt.countMode==="per_student"
     ||normIdentity(lt.name||"").includes("консультац");
 }
