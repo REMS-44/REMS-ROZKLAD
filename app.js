@@ -2149,14 +2149,59 @@ function externalTeacherStats(t){
   const hours=rows.reduce((sum,x)=>sum+readyAcademicHours(x),0);
   return {rows,readyRows,disciplines,groups,pairs:rows.length,hours};
 }
+function teacherInitials(t){
+  const raw=String(t?.name||t?.shortName||"?").trim();
+  const parts=raw.split(/\s+/).filter(Boolean);
+  if(!parts.length)return "?";
+  if(parts.length===1)return parts[0].slice(0,2).toUpperCase();
+  return `${parts[0][0]||""}${parts[1][0]||""}`.toUpperCase();
+}
+function teacherAvatarHtml(t,size="md",extraClass=""){
+  const cls=`teacher-avatar teacher-avatar-${size}${extraClass?` ${extraClass}`:""}`;
+  const photo=String(t?.photo||"").trim();
+  if(photo)return `<span class="${cls}"><img src="${esc(photo)}" alt="Фото ${esc(t?.name||"викладача")}" onerror="this.closest('.teacher-avatar').classList.add('teacher-avatar-broken');this.remove()"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
+  return `<span class="${cls}"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
+}
+function readTeacherPhotoFile(file){
+  return new Promise((resolve,reject)=>{
+    if(!file)return resolve("");
+    if(!String(file.type||"").startsWith("image/"))return reject(new Error("Оберіть файл зображення."));
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error("Не вдалося прочитати файл."));
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error("Не вдалося відкрити зображення."));
+      img.onload=()=>{
+        const max=480;
+        let w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+        if(!w||!h)return reject(new Error("Некоректне зображення."));
+        const scale=Math.min(1,max/Math.max(w,h));w=Math.max(1,Math.round(w*scale));h=Math.max(1,Math.round(h*scale));
+        const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext("2d");ctx.drawImage(img,0,0,w,h);
+        let out=canvas.toDataURL("image/jpeg",0.82);
+        if(out.length>350000)out=canvas.toDataURL("image/jpeg",0.68);
+        resolve(out);
+      };
+      img.src=String(reader.result||"");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function updateTeacherPhotoPreview(photo,name=""){
+  const holder=$("#teacherPhotoPreview");if(!holder)return;
+  holder.innerHTML=teacherAvatarHtml({photo,name},"xl");
+}
 function externalTeacherCard(t){
   const s=externalTeacherStats(t);
   return `<article class="external-teacher-card">
     <div class="external-teacher-card-main">
-      <div>
+      <div class="teacher-card-identity">
+        ${teacherAvatarHtml(t,"lg")}
+        <div>
         <span class="external-teacher-kicker">ЗОВНІШНІЙ / ІНША КАФЕДРА</span>
         <h3>${esc(t.name)}</h3>
         ${t.shortName?`<small>${esc(t.shortName)}</small>`:""}
+        </div>
       </div>
       <div class="external-teacher-kpis">
         <div><b>${s.pairs}</b><span>пар</span></div>
@@ -2237,13 +2282,16 @@ function teacherCard(t){
   const home=departmentById(teacherHomeDepartmentId(t));
   return `<div class="teacher-card teacher-card-compact">
     <div class="teacher-compact-main">
-      <div>
+      <div class="teacher-card-identity">
+        ${teacherAvatarHtml(t,"lg")}
+        <div>
         <h3>${esc(t.name)}</h3>
         <div class="teacher-compact-tags">
           <span class="badge ok">${esc(t.employmentType||"—")}</span>
           <span class="rate-chip">${t.rate!==""?esc(t.rate):"—"} ставки</span>
         </div>
         <div class="teacher-availability-summary">${programIsFacultyWide()&&home?`${esc(home.name)} · `:""}${esc(teacherAvailabilitySummary(t))}</div>
+        </div>
       </div>
       <div class="actions teacher-actions">
         <button onclick="openTeacherSchedule(${t.id})">Розклад</button>
@@ -2257,8 +2305,11 @@ function teacherCard(t){
 }
 function openExternalTeacherModal(id=null){
   const t=id?teacherById(id):{scope:"external",name:"",shortName:"",note:"",programIds:[activeProgramId()],status:"active"};
-  openModal(`<h2>${id?"Редагувати":"Новий"} зовнішній викладач</h2><div class="notice">Цей викладач буде доступний у розкладі, але його кафедральне навантаження не рахується.</div><form id="etf" class="form-grid"><label class="wide">ПІБ<input id="etn" value="${esc(t.name)}" required></label><label>Коротке ім’я<input id="ets" value="${esc(t.shortName||"")}"></label><label class="wide">Спеціальності<select id="etprograms" multiple size="3">${programMultiOptionsHtml(teacherProgramIds(t))}</select></label><label class="wide">Примітка<textarea id="etnote" rows="3">${esc(t.note||"")}</textarea></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteTeacher(${id})">Видалити викладача</button>`:""}</div></form>`);
-  $("#etf").onsubmit=e=>{e.preventDefault();const programIds=[...$("#etprograms").selectedOptions].map(o=>o.value);if(!programIds.length)return alert("Оберіть хоча б одну спеціальність.");const obj={scope:"external",homeDepartmentId:"",name:$("#etn").value.trim(),shortName:$("#ets").value.trim(),programIds,note:$("#etnote").value.trim(),status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save();};
+  openModal(`<h2>${id?"Редагувати":"Новий"} зовнішній викладач</h2><div class="notice">Цей викладач буде доступний у розкладі, але його кафедральне навантаження не рахується.</div><form id="etf" class="form-grid"><label class="wide">ПІБ<input id="etn" value="${esc(t.name)}" required></label><label>Коротке ім’я<input id="ets" value="${esc(t.shortName||"")}"></label><div class="wide teacher-photo-editor"><div id="teacherPhotoPreview">${teacherAvatarHtml(t,"xl")}</div><div><b>Фото викладача</b><div class="small">Можна завантажити JPG/PNG/WebP. Зображення автоматично зменшиться й збережеться в профілі.</div><input id="etphotoFile" type="file" accept="image/*"><div class="actions"><button type="button" class="secondary" id="etphotoRemove">Прибрати фото</button></div></div></div><label class="wide">Спеціальності<select id="etprograms" multiple size="3">${programMultiOptionsHtml(teacherProgramIds(t))}</select></label><label class="wide">Примітка<textarea id="etnote" rows="3">${esc(t.note||"")}</textarea></label><div class="wide entity-form-actions"><button class="primary">Зберегти</button>${id?`<button type="button" class="danger entity-delete-btn" onclick="deleteTeacher(${id})">Видалити викладача</button>`:""}</div></form>`);
+  $("#etf").onsubmit=e=>{e.preventDefault();const programIds=[...$("#etprograms").selectedOptions].map(o=>o.value);if(!programIds.length)return alert("Оберіть хоча б одну спеціальність.");const obj={scope:"external",homeDepartmentId:"",name:$("#etn").value.trim(),shortName:$("#ets").value.trim(),programIds,note:$("#etnote").value.trim(),photo:t.photo||"",status:"active"};if(id)Object.assign(t,obj);else db.teachers.push({id:uid(db.teachers),...obj});closeModal();save();};
+  $("#etphotoFile").onchange=async e=>{try{t.photo=await readTeacherPhotoFile(e.target.files?.[0]);updateTeacherPhotoPreview(t.photo,$("#etn").value.trim()||t.name);}catch(err){alert(err.message||err);e.target.value="";}};
+  $("#etphotoRemove").onclick=()=>{t.photo="";$("#etphotoFile").value="";updateTeacherPhotoPreview("",$("#etn").value.trim()||t.name);};
+  $("#etn").oninput=()=>{if(!t.photo)updateTeacherPhotoPreview("",$("#etn").value.trim());};
 }
 function openTeacherAvailabilityModal(id){
   const t=teacherById(id);
@@ -2348,7 +2399,7 @@ function openTeacherModal(id=null){
     <label>Дата завершення роботи / контракту<input id="tend" type="date" value="${esc(t.employmentEnd)}"></label>
     <label>Телефон<input id="tph" value="${esc(t.phone||"")}"></label>
     <label>E-mail<input id="tem" type="email" value="${esc(t.email||"")}"></label>
-    <label class="wide">Фото — посилання (необов’язково)<input id="tphoto" value="${esc(t.photo||"")}"></label>
+    <div class="wide teacher-photo-editor"><div id="teacherPhotoPreview">${teacherAvatarHtml(t,"xl")}</div><div><b>Фото викладача</b><div class="small">Натисни «Обрати файл», щоб замінити фото. JPG/PNG/WebP автоматично зменшиться для швидкої роботи системи.</div><input id="tphotoFile" type="file" accept="image/*"><div class="actions"><button type="button" class="secondary" id="tphotoRemove">Прибрати фото</button></div><details class="teacher-photo-url"><summary>Або вказати посилання</summary><input id="tphoto" value="${esc(t.photo&&!String(t.photo).startsWith("data:")?t.photo:"")}" placeholder="https://…"></details></div></div>
     <label class="wide">Закріплений за кафедрою<select id="thomeDepartment">${departmentOptionsHtml(teacherHomeDepartmentId(t)||activeDepartment()?.id||"")}</select><span class="small">Основна кафедра викладача. На інших спеціальностях він з’явиться тільки якщо вони вибрані нижче.</span></label>
     <label class="wide">Викладає на спеціальностях<select id="tprograms" multiple size="3">${programMultiOptionsHtml(teacherProgramIds(t))}</select><span class="small">Можна обрати одну або кілька програм, включно з магістратурою. Це не дублює викладача — картка залишається одна.</span></label>
 
@@ -2369,6 +2420,10 @@ function openTeacherModal(id=null){
   </form>`,true);
   [["tp","tpOther"],["ta","taOther"],["td","tdOther"],["th","thOther"]].forEach(([s,i])=>{$("#"+s).onchange=()=>{$("#"+i).style.display=$("#"+s).value==="__other__"?"":"none"};});
   bindRuleRows();
+  $("#tphotoFile").onchange=async e=>{try{t.photo=await readTeacherPhotoFile(e.target.files?.[0]);$("#tphoto").value="";updateTeacherPhotoPreview(t.photo,$("#tn").value.trim()||t.name);}catch(err){alert(err.message||err);e.target.value="";}};
+  $("#tphotoRemove").onclick=()=>{t.photo="";$("#tphotoFile").value="";$("#tphoto").value="";updateTeacherPhotoPreview("",$("#tn").value.trim()||t.name);};
+  $("#tphoto").oninput=()=>updateTeacherPhotoPreview($("#tphoto").value.trim(),$("#tn").value.trim()||t.name);
+  $("#tn").oninput=()=>{const p=$("#tphoto").value.trim()||t.photo||"";if(!p)updateTeacherPhotoPreview("",$("#tn").value.trim());};
   $("#tf").onsubmit=e=>{
     e.preventDefault();
     const pick=(sid,oid)=>$("#"+sid).value==="__other__"?$("#"+oid).value.trim():$("#"+sid).value;
@@ -2376,7 +2431,7 @@ function openTeacherModal(id=null){
       scope:"department",name:$("#tn").value.trim(),shortName:$("#ts").value.trim(),
       position:pick("tp","tpOther"),academicTitle:pick("ta","taOther"),degree:pick("td","tdOther"),honoraryTitle:pick("th","thOther"),
       employmentType:$("#te").value,rate:$("#tr").value,teachingNormPerRate:$("#tnorm").value,
-      employmentStart:$("#tstart").value,employmentEnd:$("#tend").value,phone:$("#tph").value.trim(),email:$("#tem").value.trim(),photo:$("#tphoto").value.trim(),
+      employmentStart:$("#tstart").value,employmentEnd:$("#tend").value,phone:$("#tph").value.trim(),email:$("#tem").value.trim(),photo:$("#tphoto").value.trim()||t.photo||"",
       homeDepartmentId:$("#thomeDepartment").value,
       programIds:[...$("#tprograms").selectedOptions].map(o=>o.value),
       unavailableRules:readRules("unavailableRules"),preferredRules:readRules("preferredRules"),
@@ -2462,7 +2517,7 @@ function openTeacherWorkload(id){
 
   openModal(`<div class="workload-card">
     <div class="workload-title">
-      <div><h2>Навантаження викладача</h2><h3>${esc(t.name)}</h3></div>
+      <div class="teacher-card-identity">${teacherAvatarHtml(t,"lg")}<div><h2>Навантаження викладача</h2><h3>${esc(t.name)}</h3></div></div>
       <span class="badge ok">${esc(db.academicYear)}</span>
     </div>
     <div class="grid-kpi workload-kpi lean-workload-kpi">
