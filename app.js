@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=27;
+const APP_SCHEMA_VERSION=28;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -643,6 +643,26 @@ function migrate(old){
     programIds:uniqueStrings((Array.isArray(t.programIds)&&t.programIds.length?t.programIds:["rems"])),
     status:t.status||"active"
   }));
+  // v2.0.31: portraits explicitly selected by the administrator.
+  // Replace older automatic web portraits, but never overwrite a photo manually uploaded into the app.
+  if(previousSchemaVersion<28){
+    const adminPortraits={
+      "Деркач Світлана Миколаївна":"https://www.ludinaroku.com.ua/wp-content/uploads/2016/02/Svetlana.jpg",
+      "Майкут Кирило Валерійович":"https://lookaside.fbsbx.com/lookaside/crawler/instagram/kirill_maikut/profile_pic.jpg",
+      "Кучер Ростислав Станіславович":"https://lookaside.fbsbx.com/lookaside/crawler/instagram/rostislav.kucher/profile_pic.jpg",
+      "Абазопуло Володимир Володимирович":"https://ft.org.ua/storage/person/11/56caac57240cfe6152f51fd36e836da6ac79e12d.jpg",
+      "Осаула В.О.":"https://kzgizh.knukim.edu.ua/images/team/2021-kafedra/osaula.jpg",
+      "Сорока Іван Іванович":"https://nakkkim.edu.ua/images/Instytuty/such_mystetstva/kafedra/Soroka.jpg",
+      "Чорнойван Анжеліка Тарасівна":"https://api.buki.com.ua/tutor_avatar/XI/tT/XItTHHpbaCWuXHKjhGhojAGPytw8YTsIeWdWySId.jpg"
+    };
+    fresh.teachers.forEach(t=>{
+      const url=adminPortraits[t.name];
+      if(!url||t.photoRemoved===true)return;
+      if(String(t.photo||"").startsWith("data:"))return;
+      t.photo=url;
+      t.photoRemoved=false;
+    });
+  }
   fresh.disciplines=(old.disciplines||[]).map((d,i)=>({
     ...d,
     id:d.id||i+1,name:d.name||"",course:(previousSchemaVersion<24&&normIdentity(d.group)===normIdentity("МСМ-25"))?6:(d.course||""),group:d.group||"",
