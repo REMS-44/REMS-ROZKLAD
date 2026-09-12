@@ -4580,8 +4580,8 @@ window.REMS_INITIAL_DATA = {
     },
     {
       "id": 1039,
-      "scope": "external",
-      "homeDepartmentId": "",
+      "scope": "department",
+      "homeDepartmentId": "rems-dept",
       "programIds": [
         "actor",
         "rems"
@@ -4603,7 +4603,7 @@ window.REMS_INITIAL_DATA = {
       "preferredRules": [],
       "maxPerDay": "",
       "maxConsecutive": "",
-      "note": "Додано із затвердженого розкладу ФТКЕ на осінній семестр 2026/2027. Кафедральну належність у розкладі не зазначено.",
+      "note": "Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем.",
       "photo": "",
       "status": "active",
       "sourceScheduleImport": true
@@ -4931,8 +4931,8 @@ window.REMS_INITIAL_DATA = {
     },
     {
       "id": 1051,
-      "scope": "external",
-      "homeDepartmentId": "",
+      "scope": "department",
+      "homeDepartmentId": "rems-dept",
       "programIds": [
         "rems"
       ],
@@ -4953,7 +4953,7 @@ window.REMS_INITIAL_DATA = {
       "preferredRules": [],
       "maxPerDay": "",
       "maxConsecutive": "",
-      "note": "Додано із затвердженого розкладу ФТКЕ на осінній семестр 2026/2027. Кафедральну належність у розкладі не зазначено.",
+      "note": "Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем.",
       "photo": "",
       "status": "active",
       "sourceScheduleImport": true
@@ -5282,8 +5282,8 @@ window.REMS_INITIAL_DATA = {
     },
     {
       "id": 1063,
-      "scope": "external",
-      "homeDepartmentId": "",
+      "scope": "department",
+      "homeDepartmentId": "rems-dept",
       "programIds": [
         "actor",
         "rems"
@@ -5305,7 +5305,7 @@ window.REMS_INITIAL_DATA = {
       "preferredRules": [],
       "maxPerDay": "",
       "maxConsecutive": "",
-      "note": "Додано із затвердженого розкладу ФТКЕ на осінній семестр 2026/2027. Кафедральну належність у розкладі не зазначено.",
+      "note": "Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем.",
       "photo": "",
       "status": "active",
       "sourceScheduleImport": true
@@ -5371,8 +5371,8 @@ window.REMS_INITIAL_DATA = {
     },
     {
       "id": 1066,
-      "scope": "external",
-      "homeDepartmentId": "",
+      "scope": "department",
+      "homeDepartmentId": "rems-dept",
       "programIds": [
         "rems"
       ],
@@ -5393,7 +5393,7 @@ window.REMS_INITIAL_DATA = {
       "preferredRules": [],
       "maxPerDay": "",
       "maxConsecutive": "",
-      "note": "Додано із затвердженого розкладу ФТКЕ на осінній семестр 2026/2027. Кафедральну належність у розкладі не зазначено.",
+      "note": "Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем.",
       "photo": "",
       "status": "active",
       "sourceScheduleImport": true
@@ -5429,8 +5429,8 @@ window.REMS_INITIAL_DATA = {
     },
     {
       "id": 1068,
-      "scope": "external",
-      "homeDepartmentId": "",
+      "scope": "department",
+      "homeDepartmentId": "rems-dept",
       "programIds": [
         "rems"
       ],
@@ -5451,7 +5451,7 @@ window.REMS_INITIAL_DATA = {
       "preferredRules": [],
       "maxPerDay": "",
       "maxConsecutive": "",
-      "note": "Додано із затвердженого розкладу ФТКЕ на осінній семестр 2026/2027. Кафедральну належність у розкладі не зазначено.",
+      "note": "Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем.",
       "photo": "",
       "status": "active",
       "sourceScheduleImport": true
@@ -139075,5 +139075,5 @@ window.REMS_INITIAL_DATA = {
       "usesRooms": false
     }
   ],
-  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v5-approved-schedule-grid"
+  "dataCleanupVersion": "2026-09-12-rems-plans-full-refresh-xlsx-v6-approved-schedule-grid-dept-teachers"
 };

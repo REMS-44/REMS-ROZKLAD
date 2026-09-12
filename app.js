@@ -507,6 +507,12 @@ function migrate(old){
       const keepDisciplines=(old.disciplines||[]).filter(d=>!isRemsDiscipline(d));
       const seedRemsDisciplines=(fresh.disciplines||[]).filter(isRemsDiscipline);
       old.disciplines=[...keepDisciplines,...clone(seedRemsDisciplines)];
+      // Department membership corrections confirmed by the administrator.
+      const remsTeacherNames=new Set(["Бзенко В.А.","Клісенко Н.О.","Майкут К.В.","Мельник М.М.","Мясоєдов Н.С."].map(normIdentity));
+      old.teachers=(old.teachers||[]).map(t=>remsTeacherNames.has(normIdentity(t.shortName||t.name))
+        ?{...t,scope:"department",homeDepartmentId:"rems-dept",programIds:uniqueStrings([...(t.programIds||[]),"rems"]),
+          note:"Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем."}
+        :t);
     }else{
       old.adHocRooms=clone(fresh.adHocRooms||[]);
       old.curricula=clone(fresh.curricula||[]);
@@ -1776,23 +1782,12 @@ function initAdHocRoomSelect(select,onResolved=null){
 function roomOrderValue(r){const n=Number(r.gridOrder);return Number.isFinite(n)?n:999999;}
 function gridRooms(){return activeRooms().filter(r=>r.showInGrid!==false).slice().sort((a,b)=>roomOrderValue(a)-roomOrderValue(b)||a.name.localeCompare(b.name,"uk",{numeric:true}));}
 function occupancyGridRooms(){
-  const base=gridRooms();
-  const known=new Set(base.map(r=>normIdentity(r.name)));
-  const fromApproved=uniqueStrings((db.schedule||[])
-    .filter(x=>!x.specialSchedule&&scheduleVisibleInProgram(x)&&dateInBounds(x.date)&&x.room)
-    .map(x=>x.room))
-    .filter(name=>!known.has(normIdentity(name)))
-    .sort((a,b)=>a.localeCompare(b,"uk",{numeric:true}))
-    .map((name,i)=>({
-      id:`schedule-room-${i+1}`,
-      name,
-      status:"active",
-      note:"з затвердженого розкладу",
-      showInGrid:true,
-      gridOrder:10000+i,
-      virtualFromSchedule:true
-    }));
-  return [...base,...fromApproved];
+  // The occupancy grid is a departmental working grid: only rooms explicitly
+  // marked "show in grid" for the active programme are columns.
+  // Schedule events from other programmes are still rendered inside these
+  // shared rooms by roomEvents(), so conflicts remain visible without
+  // flooding the grid with every room used anywhere in the approved timetable.
+  return gridRooms();
 }
 function roomGridPosition(id){
   const idx=gridRooms().findIndex(r=>Number(r.id)===Number(id));
@@ -1943,7 +1938,7 @@ function renderRoomGrid(){
   }
   roomGridState.date=clampDate(roomGridState.date||currentAcademicDate());roomGridState.month=clampAcademicMonth((roomGridState.month||roomGridState.date.slice(0,7)));if(roomGridState.date.slice(0,7)!==roomGridState.month)roomGridState.date=clampDate(`${roomGridState.month}-01`);
   const rooms=occupancyGridRooms(),pairs=bellPairs();
-  $("#page-roomGrid").innerHTML=`${roomAreaTabs("grid")}<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Показані кафедральні аудиторії та всі додаткові аудиторії/локації, які реально використовуються у затвердженому розкладі обраної спеціальності. Додаткові колонки не стають кафедральними аудиторіями автоматично. У спільних аудиторіях заняття інших спеціальностей видно як блок зайнятості.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
+  $("#page-roomGrid").innerHTML=`${roomAreaTabs("grid")}<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Показані тільки аудиторії, позначені для кафедральної сітки обраної спеціальності. Якщо така аудиторія зайнята заняттям іншої спеціальності, це також видно в сітці як блок зайнятості.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
     <div class="room-grid-toolbar"><label>Місяць<input id="roomGridMonth" type="month" min="${academicYearBounds().minMonth}" max="${academicYearBounds().maxMonth}" value="${esc(roomGridState.month)}"></label><label>Дата<input id="roomGridDate" type="date" ${dateAttrs()} value="${esc(roomGridState.date)}"></label><div class="room-date-title">${esc(roomGridDateLabel(roomGridState.date))}</div><button class="secondary" onclick="go('rooms')">Довідник аудиторій</button></div>
     ${roomMonthStrip()}
     ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room ${r.virtualFromSchedule?"from-approved-schedule":""}"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id);return `<div class="rg-cell ${events.length?"occupied":"free"}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${events.length?events.map(roomEventCard).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}

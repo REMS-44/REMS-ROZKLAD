@@ -390,11 +390,22 @@ async function applyWorkingDataCleanupOnce(state){
     const seedRemsDisciplines=(seed.disciplines||[]).filter(isRemsDiscipline);
     cleaned.disciplines=clean([...keepDisciplines,...seedRemsDisciplines]);
 
+    // Department membership corrections confirmed by the administrator.
+    const remsTeacherNames=new Set(["Бзенко В.А.","Клісенко Н.О.","Майкут К.В.","Мельник М.М.","Мясоєдов Н.С."].map(x=>x.trim().toLocaleLowerCase("uk")));
+    cleaned.teachers=(cleaned.teachers||[]).map(t=>{
+      const key=String(t.shortName||t.name||"").trim().toLocaleLowerCase("uk");
+      return remsTeacherNames.has(key)
+        ?{...t,scope:"department",homeDepartmentId:"rems-dept",programIds:[...new Set([...(t.programIds||[]),"rems"])],
+          note:"Викладач кафедри режисури естради і шоу. Кафедральну належність уточнено користувачем."}
+        :t;
+    });
+
     await replaceCollection("curricula",cleaned.curricula);
     await replaceCollection("disciplines",cleaned.disciplines);
     await replaceCollection("lessonTypes",cleaned.lessonTypes);
+    await replaceCollection("teachers",cleaned.teachers);
     await setDoc(settingsRef(),settingsPart(cleaned));
-    try{await publishCatalogSignal(["curricula","disciplines"]);}catch(e){console.warn("Catalog signal after REMS plan verification failed",e);}
+    try{await publishCatalogSignal(["curricula","disciplines","teachers"]);}catch(e){console.warn("Catalog signal after REMS plan verification failed",e);}
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
     toast("Плани РЕМС оновлено. Затверджений факультетський розклад звіряється з вбудованим еталоном без масового перезапису Firebase; розклад груп і сітка аудиторій використовують ті самі заняття.","ok",9000);
     return cleaned;
