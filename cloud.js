@@ -301,6 +301,9 @@ async function loadRemoteState({includeDynamic=true}={}){
   // Keep the cleanup marker strictly cloud-authoritative. If an older cloud
   // database has no marker, the clean release can reset only working data once.
   base.dataCleanupVersion=String(settings.dataCleanupVersion||"");
+  // Roster repairs are also cloud-authoritative. Do not inherit this marker
+  // from bundled data before the corrected roster has actually been written.
+  base.rosterRepairVersion=String(settings.rosterRepairVersion||"");
 
   // Static reference data is read ONCE on connection.
   // It is no longer kept alive by seven separate snapshot listeners.
@@ -708,7 +711,7 @@ async function refreshCatalogCollections(names=ARRAY_COLLECTIONS){
   }
 }
 
-function settingsPart(st){return clean({schemaVersion:Number(st.schemaVersion)||27,academicYear:st.academicYear,semester:st.semester,adHocRooms:st.adHocRooms||[],bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{},dataCleanupVersion:st.dataCleanupVersion||""});}
+function settingsPart(st){return clean({schemaVersion:Number(st.schemaVersion)||27,academicYear:st.academicYear,semester:st.semester,adHocRooms:st.adHocRooms||[],bellSchedule:st.bellSchedule||[],studyPeriods:st.studyPeriods||{},dataCleanupVersion:st.dataCleanupVersion||"",rosterRepairVersion:st.rosterRepairVersion||""});}
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;

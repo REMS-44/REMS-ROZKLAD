@@ -489,6 +489,8 @@ function migrate(old){
   if(!old||typeof old!=="object") return fresh;
   const bundledStudents=clone(fresh.students||[]);
   const bundledDisciplines=clone(fresh.disciplines||[]);
+  const targetRosterRepairVersion=String(fresh.rosterRepairVersion||"");
+  const needsRems43RosterRepair=!!targetRosterRepairVersion&&String(old.rosterRepairVersion||"")!==targetRosterRepairVersion;
 
   // One-time approved schedule pack release. Replace only working schedule/workload
   // collections with the bundled faculty schedule. Keep locally maintained faculty
@@ -585,18 +587,29 @@ function migrate(old){
   }
   // v2.0.42: confirmed roster correction for REMS-43. Keep the same ID so
   // existing personal schedule links remain attached to the correct record.
-  if(previousSchemaVersion<37){
-    const oldStudent=fresh.students.find(s=>
+  if(needsRems43RosterRepair){
+    let oldStudent=fresh.students.find(s=>
       normIdentity(s.group)===normIdentity("РЕМС-43")
-      &&normIdentity(s.name)===normIdentity("Григорчук Олександра Олександрівна")
+      &&[
+        normIdentity("Григорчук Олександра Олександрівна"),
+        normIdentity("Григорсук Олександра Олександрівна")
+      ].includes(normIdentity(s.name))
       &&s.status!=="archived"
     );
-    const newStudent=fresh.students.find(s=>
+    let newStudent=fresh.students.find(s=>
       normIdentity(s.group)===normIdentity("РЕМС-43")
       &&normIdentity(s.name)===normIdentity("Юневич Ангеліна Миколаївна")
       &&s.status!=="archived"
     );
-    if(oldStudent&&!newStudent)oldStudent.name="Юневич Ангеліна Миколаївна";
+    if(oldStudent&&!newStudent){oldStudent.name="Юневич Ангеліна Миколаївна";newStudent=oldStudent;}
+    else if(oldStudent&&newStudent)oldStudent.status="archived";
+    else if(!newStudent){
+      const seed=bundledStudents.find(s=>
+        normIdentity(s.group)===normIdentity("РЕМС-43")
+        &&normIdentity(s.name)===normIdentity("Юневич Ангеліна Миколаївна")
+      );
+      if(seed){newStudent={...clone(seed),id:uid(fresh.students),status:"active"};fresh.students.push(newStudent);}
+    }
   }
   fresh.adHocRooms=uniqueStrings(old.adHocRooms||fresh.adHocRooms||[]);
   fresh.rooms=mergeSeedRooms(old.rooms||[],fresh.rooms||[]).map((r,i)=>{
@@ -732,7 +745,7 @@ function migrate(old){
   }
   // v2.0.42: add the confirmed replacement student to every documented
   // current-semester elective in which she appears.
-  if(previousSchemaVersion<37){
+  if(needsRems43RosterRepair){
     const yunevych=fresh.students.find(s=>
       normIdentity(s.group)===normIdentity("РЕМС-43")
       &&normIdentity(s.name)===normIdentity("Юневич Ангеліна Миколаївна")
