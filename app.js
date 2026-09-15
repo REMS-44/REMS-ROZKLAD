@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=33;
+const APP_SCHEMA_VERSION=34;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -3009,6 +3009,33 @@ function auditoriumLessonTypes(){return db.lessonTypes.filter(isAuditoriumPairTy
 function disciplinePlannedTypes(d){return db.lessonTypes.filter(lt=>disciplineTotalHoursById(d,lt.id)>0);}
 function disciplineAuditoriumPlan(d){return db.lessonTypes.filter(isAuditoriumPairType).reduce((a,lt)=>a+disciplineTotalHoursById(d,lt.id),0);}
 function disciplineAllocatedForType(d,typeId){
+  const lt=lessonTypeById(typeId);
+  // Індивідуальні години розподіляються по конкретних студентах.
+  // Тому джерелом істини тут є teacherStudentHours / teacherStudentLoads,
+  // а не лише числове поле teacherLoads. Інакше імпортований індивідуальний
+  // розклад уже є, але сторінка «Навантаження» помилково показує години як нерозподілені.
+  if(isSplitIndividualType(lt)){
+    const tids=new Set([
+      ...(d?.teacherIds||[]).map(Number),
+      ...Object.keys(d?.teacherStudentHours||{}).map(Number),
+      ...Object.keys(d?.teacherStudentLoads||{}).map(Number)
+    ]);
+    return [...tids].reduce((sum,tid)=>{
+      if(studentHourKeyExists(d,tid,typeId))return sum+totalTeacherStudentHours(d,tid,typeId);
+      if(studentAssignmentKeyExists(d,tid,typeId))return sum+assignedStudentIds(d,tid,typeId).length*perStudentUnitHours(d,typeId);
+      return sum+num((d?.teacherLoads?.[String(tid)]||d?.teacherLoads?.[tid]||{})[typeId]);
+    },0);
+  }
+  if(isPerStudentTypeId(typeId)){
+    const tids=new Set([
+      ...(d?.teacherIds||[]).map(Number),
+      ...Object.keys(d?.teacherStudentLoads||{}).map(Number)
+    ]);
+    return [...tids].reduce((sum,tid)=>{
+      if(studentAssignmentKeyExists(d,tid,typeId))return sum+assignedStudentIds(d,tid,typeId).length*perStudentUnitHours(d,typeId);
+      return sum+num((d?.teacherLoads?.[String(tid)]||d?.teacherLoads?.[tid]||{})[typeId]);
+    },0);
+  }
   return Object.values(d?.teacherLoads||{}).reduce((a,load)=>a+num(load?.[typeId]),0);
 }
 function disciplineWorkloadPlan(d){return disciplinePlannedTypes(d).reduce((a,lt)=>a+disciplineTotalHoursById(d,lt.id),0);}
