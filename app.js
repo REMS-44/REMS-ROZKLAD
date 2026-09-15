@@ -8732,8 +8732,13 @@ function teacherExcelPairLabel(x,source){
   const bell=(source.bellSchedule||db.bellSchedule||[]).find(p=>Number(p.id)===pairId);
   const fullStart=bell?.start||"",fullEnd=bell?.end||"";
   const actualStart=x.start||fullStart,actualEnd=x.end||fullEnd;
-  const isHalf=actualStart&&actualEnd&&fullStart&&fullEnd&&(actualStart!==fullStart||actualEnd!==fullEnd);
-  const time=isHalf?`${actualStart}-${actualEnd}`:(fullStart&&fullEnd?`${fullStart}-${fullEnd}`:(actualStart&&actualEnd?`${actualStart}-${actualEnd}`:""));
+  // In the faculty template individual academic hours are shown inside the full pair,
+  // not as separate 40-minute halves.
+  const isIndividual=x.specialSchedule===true&&(x.specialKind||"individual")==="individual";
+  const isHalf=!isIndividual&&actualStart&&actualEnd&&fullStart&&fullEnd&&(actualStart!==fullStart||actualEnd!==fullEnd);
+  const time=isIndividual&&fullStart&&fullEnd
+    ?`${fullStart}-${fullEnd}`
+    :(isHalf?`${actualStart}-${actualEnd}`:(fullStart&&fullEnd?`${fullStart}-${fullEnd}`:(actualStart&&actualEnd?`${actualStart}-${actualEnd}`:"")));
   return `${pairId?pairId+" пара":"Час не визначено"}${time?"\n"+time:""}`;
 }
 function teacherExcelGroupLabel(raw){
@@ -8756,18 +8761,27 @@ function teacherScheduleExcelGrid(source){
   const concrete=new Map();
   (source.schedule||[]).forEach(x=>{
     const special=x.specialSchedule===true;
+    const isIndividual=special&&(x.specialKind||"individual")==="individual";
+    // The Excel template groups individual work by weekday/pair/group/discipline.
+    // Student names and half-pair markers are intentionally ignored here.
     const key=[
-      x.date||"",x.pairId??"",x.start||"",x.end||"",x.discipline||"",x.type||"",x.room||"",
-      special?`special:${x.studentId||x.students||x.coverage||""}`:"regular",
-      special?x.specialHalf||"":""
+      x.date||"",x.pairId??"",
+      isIndividual?"":(x.start||""),isIndividual?"":(x.end||""),
+      x.discipline||"",x.type||"",x.room||"",
+      isIndividual?`individual:${x.group||x.coverage||""}`:(special?`special:${x.studentId||x.students||x.coverage||""}`:"regular"),
+      isIndividual?"":(special?x.specialHalf||"":"")
     ].join("|");
     if(!concrete.has(key))concrete.set(key,{...x,_audiences:new Set(),_notes:new Set()});
     const row=concrete.get(key);
-    const audience=special
-      ?[x.group||"",specialStudentName(x)||x.students||x.coverage||""].filter(Boolean).join(" — ")
-      :(scheduleAudienceLabel(x)||x.group||x.coverage||"");
+    const audience=isIndividual
+      ?(x.group||x.coverage||"")
+      :(special?[x.group||"",specialStudentName(x)||x.students||x.coverage||""].filter(Boolean).join(" — "):(scheduleAudienceLabel(x)||x.group||x.coverage||""));
     if(audience)row._audiences.add(audience);
-    if(x.note)row._notes.add(String(x.note).trim());
+    if(x.note){
+      const note=String(x.note).trim();
+      // Do not export technical import/source notes into the teacher timetable.
+      if(!/імпортовано|затвердженого розкладу|джерел[оа]:?/i.test(note))row._notes.add(note);
+    }
   });
   (source.roomBookings||[]).forEach(x=>{
     const key=[x.date||"",x.pairId??"",x.start||"",x.end||"",x.title||"",x.kind||"Подія",x.room||"","booking"].join("|");
@@ -8781,7 +8795,8 @@ function teacherScheduleExcelGrid(source){
     const audience=audiences.join(" + ");
     const weekday=teacherExcelWeekday(x.date);
     const pairId=Number(x.pairId||0);
-    const key=[weekday,pairId,x.start||"",x.end||"",audience,x._booking?(x.title||roomBookingLabel(x)):(x.discipline||""),x._booking?(x.kind||"Подія"):(x.type||""),x.room||"",[...(x._notes||[])].sort().join("; ")].join("|");
+    const isIndividual=x.specialSchedule===true&&(x.specialKind||"individual")==="individual";
+    const key=[weekday,pairId,isIndividual?"":(x.start||""),isIndividual?"":(x.end||""),audience,x._booking?(x.title||roomBookingLabel(x)):(x.discipline||""),x._booking?(x.kind||"Подія"):(x.type||""),x.room||"",[...(x._notes||[])].sort().join("; ")].join("|");
     if(!recurring.has(key))recurring.set(key,{...x,_weekday:weekday,_audience:audience,_dates:[],_allNotes:new Set(x._notes||[])});
     const row=recurring.get(key);
     row._dates.push(x.date);
@@ -8790,7 +8805,8 @@ function teacherScheduleExcelGrid(source){
 
   const bySlot=new Map();
   [...recurring.values()].forEach(x=>{
-    const slot=[x._weekday,Number(x.pairId||0),x.start||"",x.end||""].join("|");
+    const isIndividual=x.specialSchedule===true&&(x.specialKind||"individual")==="individual";
+    const slot=[x._weekday,Number(x.pairId||0),isIndividual?"":(x.start||""),isIndividual?"":(x.end||"")].join("|");
     if(!bySlot.has(slot))bySlot.set(slot,[]);
     bySlot.get(slot).push(x);
   });
