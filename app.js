@@ -2191,16 +2191,22 @@ const STARTER_TEACHER_PORTRAITS={
   "Чорнойван А.Т.":"https://api.buki.com.ua/tutor_avatar/XI/tT/XItTHHpbaCWuXHKjhGhojAGPytw8YTsIeWdWySId.jpg"
 };
 function starterTeacherPhoto(t){
-  if(!t||t.photoRemoved===true)return "";
-  return STARTER_TEACHER_PORTRAITS[String(t.shortName||"").trim()]||"";
+  if(!t)return "";
+  // v2.0.35: these seven portraits were explicitly selected by the administrator.
+  // Show them even if an old cloud record accidentally kept photoRemoved=true.
+  const forced=STARTER_TEACHER_PORTRAITS[String(t.shortName||"").trim()]||"";
+  if(forced)return forced;
+  if(t.photoRemoved===true)return "";
+  return "";
 }
 function teacherAvatarHtml(t,size="md",extraClass=""){
   const cls=`teacher-avatar teacher-avatar-${size}${extraClass?` ${extraClass}`:""}`;
   const starter=starterTeacherPhoto(t);
-  const photo=t?.photoRemoved?"":(String(t?.photo||"").trim()||starter);
+  const manual=String(t?.photo||"").startsWith("data:")?String(t.photo).trim():"";
+  const photo=manual||(starter||(!t?.photoRemoved?String(t?.photo||"").trim():""));
   if(photo){
     const fallbackAttr=starter&&starter!==photo?` data-fallback-src="${esc(starter)}"`:"";
-    return `<span class="${cls}"><img src="${esc(photo)}"${fallbackAttr} referrerpolicy="no-referrer" alt="Фото ${esc(t?.name||"викладача")}" onerror="const f=this.dataset.fallbackSrc;if(f&&this.src!==f){this.removeAttribute('data-fallback-src');this.src=f;return;}this.closest('.teacher-avatar').classList.add('teacher-avatar-broken');this.remove()"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
+    return `<span class="${cls}"><img src="${esc(photo)}"${fallbackAttr} alt="Фото ${esc(t?.name||"викладача")}" onerror="const f=this.dataset.fallbackSrc;if(f&&this.src!==f){this.removeAttribute('data-fallback-src');this.src=f;return;}this.closest('.teacher-avatar').classList.add('teacher-avatar-broken');this.remove()"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
   }
   return `<span class="${cls}"><span class="teacher-avatar-fallback">${esc(teacherInitials(t))}</span></span>`;
 }
@@ -8696,6 +8702,81 @@ window.REMS_SET_TEACHER_FEED=(feed)=>{
   if(currentPage==="mySchedule")renderMySchedule();
 };
 
+
+function teacherExcelDayName(date){
+  const names=["Неділя","Понеділок","Вівторок","Середа","Четвер","П’ятниця","Субота"];
+  const d=new Date(`${date}T12:00:00`);
+  return Number.isNaN(d.getTime())?"":names[d.getDay()];
+}
+function teacherExcelDate(date){
+  const m=String(date||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m?`${m[3]}.${m[2]}.${m[1]}`:String(date||"");
+}
+function teacherScheduleExcelRows(source){
+  const grouped=new Map();
+  (source.schedule||[]).forEach(x=>{
+    const special=x.specialSchedule===true;
+    const key=[
+      "lesson",x.date||"",x.pairId??"",x.start||"",x.end||"",
+      x.discipline||"",x.type||"",x.room||"",
+      special?`student:${x.studentId||x.students||x.coverage||""}`:"regular",
+      special?x.specialHalf||"":""
+    ].join("|");
+    if(!grouped.has(key))grouped.set(key,{...x,_audiences:new Set()});
+    const row=grouped.get(key);
+    const audience=special
+      ?(specialStudentName(x)||x.students||x.coverage||"")
+      :(scheduleAudienceLabel(x)||x.group||x.coverage||"");
+    if(audience)row._audiences.add(audience);
+  });
+  (source.roomBookings||[]).forEach(x=>{
+    const key=["booking",x.date||"",x.pairId??"",x.start||"",x.end||"",x.room||"",x.title||"",x.group||""].join("|");
+    grouped.set(key,{...x,_booking:true,_audiences:new Set([x.group||x.kind||"Подія"])});
+  });
+  return [...grouped.values()].sort((a,b)=>{
+    const d=String(a.date||"").localeCompare(String(b.date||""));if(d)return d;
+    const ap=Number(a.pairId||99),bp=Number(b.pairId||99);if(ap!==bp)return ap-bp;
+    return String(a.start||"99:99").localeCompare(String(b.start||"99:99"));
+  }).map(x=>{
+    const audiences=[...(x._audiences||[])];
+    return {
+      "Дата":teacherExcelDate(x.date),
+      "День":teacherExcelDayName(x.date),
+      "Пара":x.pairId?String(x.pairId):"",
+      "Час":x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"",
+      "Група / студент":audiences.join(" + "),
+      "Дисципліна":x._booking?(x.title||roomBookingLabel(x)):(x.discipline||""),
+      "Вид заняття":x._booking?(x.kind||"Подія"):(x.type||""),
+      "Аудиторія":x.room||""
+    };
+  });
+}
+function downloadTeacherScheduleExcel(){
+  if(!window.XLSX)return alert("Модуль Excel ще не завантажився. Перевірте інтернет і оновіть сторінку.");
+  const source=teacherScheduleSource(),teacherId=source.teacherId;
+  if(!teacherId)return alert("Не вибрано викладача.");
+  const name=teacherScheduleTeacherName(teacherId);
+  const rows=teacherScheduleExcelRows(source);
+  if(!rows.length&&!confirm("У цього викладача поки немає занять. Завантажити порожній файл?"))return;
+
+  const wb=XLSX.utils.book_new();
+  const title=[
+    ["ІНДИВІДУАЛЬНИЙ РОЗКЛАД ВИКЛАДАЧА"],
+    [name],
+    [`Навчальний рік: ${source.academicYear||db.academicYear}`],
+    []
+  ];
+  const ws=XLSX.utils.aoa_to_sheet(title);
+  XLSX.utils.sheet_add_json(ws,rows,{origin:"A5",skipHeader:false});
+  ws["!cols"]=[
+    {wch:12},{wch:13},{wch:7},{wch:14},{wch:30},{wch:42},{wch:20},{wch:14}
+  ];
+  ws["!autofilter"]={ref:`A5:H${Math.max(5,5+rows.length)}`};
+  XLSX.utils.book_append_sheet(wb,ws,"Розклад");
+  const safe=String(name||"викладач").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
+  XLSX.writeFile(wb,`Розклад_${safe}_${String(source.academicYear||db.academicYear).replace("/","-")}.xlsx`);
+}
+
 function renderMySchedule(){
   const role=window.REMS_CLOUD?.role?.();
   if(role==="teacher")teacherScheduleState.teacherId=teacherPortalTeacherId();
@@ -8746,6 +8827,7 @@ function renderMySchedule(){
           </div>
         </div>
         <div class="actions">
+          <button class="secondary" onclick="downloadTeacherScheduleExcel()">↓ Excel</button>
           ${role!=="teacher"?`<button class="secondary" onclick="go('teachers')">← До викладачів</button>`:""}
           ${role==="teacher"?`<button class="secondary" onclick="window.REMS_CLOUD?.signOut?.()">Вийти</button>`:""}
         </div>

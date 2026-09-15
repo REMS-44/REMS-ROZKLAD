@@ -107,6 +107,20 @@ function setSidebar(status,text,sub){
   if(t)t.textContent=text;
   if(u)u.textContent=sub||"";
 }
+
+// v2.0.35: UI watchdog. A slow Firestore read must never leave the sidebar
+// permanently on "Завантаження…" while the local/canonical database is usable.
+let remsSidebarWatchdog=null;
+function armSidebarWatchdog(){
+  clearTimeout(remsSidebarWatchdog);
+  remsSidebarWatchdog=setTimeout(()=>{
+    const el=document.querySelector("#cloudSidebar");
+    if(el && /Завантаження|Синхронізація|Підключення/.test(el.textContent||"")){
+      setSidebar("online","Онлайн",`${user?.email||""} · синхронізація у фоні`);
+    }
+  },7000);
+}
+
 function toast(message,type="ok",timeout=4200){
   let wrap=document.querySelector("#cloudToasts");
   if(!wrap){wrap=document.createElement("div");wrap.id="cloudToasts";wrap.className="cloud-toasts";document.body.appendChild(wrap);}
@@ -316,7 +330,7 @@ function sortById(a,b){const an=Number(a.id),bn=Number(b.id);if(Number.isFinite(
 async function uploadWholeState(state,sourceLabel="поточний браузер") {
   if(!state||!profile||profile.role!=="admin")return alert("Початкові дані може завантажити лише адміністратор.");
   unsubs.forEach(f=>f());unsubs=[];
-  setSidebar("syncing","Завантаження…",user.email||"");
+  setSidebar("syncing","Завантаження…",user.email||"");armSidebarWatchdog();
   const st=clean(window.REMS_MIGRATE_STATE?.(state)||state);st.schemaVersion=Number(st.schemaVersion)||27;
   try{
     let step=0;const total=ARRAY_COLLECTIONS.length+3;
@@ -390,8 +404,8 @@ async function applyWorkingDataCleanupOnce(state){
       const pin=pinnedPortraits[String(t.shortName||"").trim()];
       if(!pin)return t;
       const manual=String(t.photo||"").startsWith("data:");
-      if(manual||t.photoRemoved===true)return t;
-      if(t.name!==pin.name||t.photo!==pin.photo){changed=true;return {...t,name:pin.name,photo:pin.photo,photoRemoved:false};}
+      if(manual)return t;
+      if(t.name!==pin.name||t.photo!==pin.photo||t.photoRemoved===true){changed=true;return {...t,name:pin.name,photo:pin.photo,photoRemoved:false};}
       return t;
     });
     return {out,changed};
@@ -413,6 +427,78 @@ async function applyWorkingDataCleanupOnce(state){
   const cleaned=clean(state);
   const seed=clean(window.REMS_INITIAL_DATA||{});
   cleaned.dataCleanupVersion=target;
+
+  // v22: import the approved individual timetable for REMS-34 / REMS-44
+  // without replacing the general faculty timetable. Only four student cards,
+  // four workload cards and the imported individual events are touched.
+  if(target.includes("v22-rems-individual-schedule-excel-export")){
+    setSidebar("syncing","Оновлення індивідуальних занять…",user?.email||"");
+
+    const sourceBatch="REMS34-44-IND-S5-2026-v1";
+    const imported=(seed.schedule||[]).filter(x=>x?.sourceBatch===sourceBatch);
+    const importedIds=new Set(imported.map(x=>String(x.id)));
+
+    // Keep every existing general lesson and every unrelated individual lesson.
+    cleaned.schedule=[
+      ...(cleaned.schedule||[]).filter(x=>x?.sourceBatch!==sourceBatch&&!importedIds.has(String(x.id))),
+      ...clean(imported)
+    ];
+
+    // The approved individual timetable also clarifies two group transfers and
+    // two name spellings in the third-course roster.
+    const studentPatchIds=new Set(["90","94","96","98"]);
+    const seedStudentsById=new Map((seed.students||[]).map(s=>[String(s.id),s]));
+    cleaned.students=(cleaned.students||[]).map(s=>{
+      const fresh=seedStudentsById.get(String(s.id));
+      return studentPatchIds.has(String(s.id))&&fresh?{...s,name:fresh.name,group:fresh.group}:s;
+    });
+
+    // Copy only the per-student allocation fields inferred from the approved
+    // timetable; regular lecture/practical/lab allocations remain untouched.
+    const disciplinePatchIds=new Set(["105","108","115","117"]);
+    const seedDiscById=new Map((seed.disciplines||[]).map(d=>[String(d.id),d]));
+    cleaned.disciplines=(cleaned.disciplines||[]).map(d=>{
+      if(!disciplinePatchIds.has(String(d.id)))return d;
+      const fresh=seedDiscById.get(String(d.id));if(!fresh)return d;
+      return {...d,
+        teacherIds:clean(fresh.teacherIds||d.teacherIds||[]),
+        teacherStudentLoads:clean(fresh.teacherStudentLoads||{}),
+        teacherStudentHours:clean(fresh.teacherStudentHours||{}),
+        audienceMode:fresh.audienceMode||d.audienceMode,
+        selectedStudentIds:clean(fresh.selectedStudentIds||d.selectedStudentIds||[])
+      };
+    });
+
+    const writeSnapshot=clean(cleaned);
+    // Do not block the UI on 202 schedule writes. The local state is usable
+    // immediately; Firebase catches up in the background.
+    (async()=>{
+      try{
+        const ops=[];
+        writeSnapshot.students.filter(s=>studentPatchIds.has(String(s.id)))
+          .forEach(s=>ops.push({type:"set",ref:itemRef("students",s.id),data:clean(s)}));
+        writeSnapshot.disciplines.filter(d=>disciplinePatchIds.has(String(d.id)))
+          .forEach(d=>ops.push({type:"set",ref:itemRef("disciplines",d.id),data:clean(d)}));
+        if(ops.length)await commitOps(ops);
+
+        // Write imported individual lessons with normal lock handling. One bad
+        // row must not stop the rest of the approved timetable from syncing.
+        for(const lesson of imported){
+          try{await writeScheduleLesson(clean(lesson));}
+          catch(e){console.warn("Individual timetable row sync failed",lesson?.id,e);}
+        }
+        await setDoc(settingsRef(),settingsPart(writeSnapshot));
+        try{await publishCatalogSignal(["students","disciplines","schedule"]);}catch(_){}
+      }catch(e){
+        console.warn("Individual timetable refresh will retry on the next connection",e);
+      }
+    })();
+
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast("Індивідуальний розклад РЕМС-34/44 імпортовано та звірено з навантаженням.","ok",7000);
+    return cleaned;
+  }
 
   // v18+: safe catalogue refresh. It never rewrites the approved timetable or
   // room bookings. The visible state is updated immediately; Firestore writes
@@ -1477,7 +1563,7 @@ async function initialize(){
     app=initializeApp(config);
     auth=getAuth(app);
     fire=getFirestore(app);
-    setSidebar("syncing","Підключення…","Firebase");
+    setSidebar("syncing","Підключення…","Firebase");armSidebarWatchdog();
 
     const sidebar=document.querySelector("#cloudSidebar");
     if(sidebar){
