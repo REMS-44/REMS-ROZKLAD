@@ -8842,30 +8842,132 @@ function teacherScheduleExcelGrid(source){
   });
   return {rows,merges};
 }
-function downloadTeacherScheduleExcel(){
-  if(!window.XLSX)return alert("Модуль Excel ще не завантажився. Перевірте інтернет і оновіть сторінку.");
+async function downloadTeacherScheduleExcel(){
   const source=teacherScheduleSource(),teacherId=source.teacherId;
   if(!teacherId)return alert("Не вибрано викладача.");
   const name=teacherScheduleTeacherName(teacherId);
   const hasLessons=(source.schedule||[]).length||(source.roomBookings||[]).length;
   if(!hasLessons&&!confirm("У цього викладача поки немає занять. Завантажити порожній файл?"))return;
 
-  const wb=XLSX.utils.book_new();
+  // Exact teacher timetable layout based on the faculty's working Excel template.
+  // Prefer ExcelJS because it preserves the visual formatting (fonts, borders, merges, row heights).
+  if(!window.ExcelJS){
+    return alert("Модуль Excel ще не завантажився. Перевірте інтернет і оновіть сторінку.");
+  }
+
   const {rows,merges}=teacherScheduleExcelGrid(source);
-  const aoa=[
-    [name,"","","","", ""],
-    ["","","","","", ""],
-    ["День тижня","Пара","Група","Назва ОК","Дати","Примітки"],
-    ...rows
+  const workbook=new ExcelJS.Workbook();
+  workbook.creator="REMS-РОЗКЛАД";
+  workbook.created=new Date();
+  const ws=workbook.addWorksheet("Розклад",{
+    views:[{state:"frozen",ySplit:3}],
+    properties:{defaultRowHeight:21}
+  });
+
+  ws.columns=[
+    {key:"day",width:16},
+    {key:"pair",width:22},
+    {key:"group",width:28},
+    {key:"discipline",width:34},
+    {key:"dates",width:42},
+    {key:"notes",width:24}
   ];
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws["!merges"]=[{s:{r:0,c:0},e:{r:0,c:5}},...merges];
-  ws["!cols"]=[{wch:15},{wch:20},{wch:34},{wch:46},{wch:58},{wch:24}];
-  ws["!rows"]=[{hpt:26},{hpt:8},{hpt:24},...rows.map(()=>({hpt:34}))];
-  ws["!freeze"]={xSplit:0,ySplit:3,topLeftCell:"A4",activePane:"bottomLeft",state:"frozen"};
-  XLSX.utils.book_append_sheet(wb,ws,"Розклад");
-  const safe=String(name||"викладач").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
-  XLSX.writeFile(wb,`Розклад_${safe}_${String(source.academicYear||db.academicYear).replace("/","-")}.xlsx`);
+
+  ws.addRow([name,"","","","",""]);
+  ws.addRow(["","","","","",""]);
+  ws.addRow(["День тижня","Пара","Група","Назва ОК","Дати","Примітки"]);
+  rows.forEach(r=>ws.addRow(r));
+  ws.mergeCells(1,1,1,6);
+  (merges||[]).forEach(m=>{
+    try{ws.mergeCells(m.s.r+1,m.s.c+1,m.e.r+1,m.e.c+1);}catch(e){}
+  });
+
+  const black="FF000000", white="FFFFFFFF", magenta="FFFF00FF";
+  const thin={style:"thin",color:{argb:black}};
+  const medium={style:"medium",color:{argb:black}};
+  const baseBorder={top:thin,left:thin,bottom:thin,right:thin};
+
+  // Title
+  const title=ws.getCell("A1");
+  title.font={name:"Times New Roman",size:14,bold:true,italic:true,color:{argb:black}};
+  title.alignment={vertical:"middle",horizontal:"left"};
+  ws.getRow(1).height=24;
+  ws.getRow(2).height=10;
+
+  // Header row
+  ws.getRow(3).height=28;
+  for(let c=1;c<=6;c++){
+    const cell=ws.getCell(3,c);
+    cell.font={name:"Times New Roman",size:12,bold:true,color:{argb:black}};
+    cell.alignment={vertical:"middle",horizontal:"center",wrapText:true};
+    cell.border={top:medium,left:c===1?medium:thin,bottom:medium,right:c===6?medium:thin};
+  }
+
+  // Body
+  for(let r=4;r<=ws.rowCount;r++){
+    const row=ws.getRow(r);
+    row.height=Math.max(22,row.height||22);
+    for(let c=1;c<=6;c++){
+      const cell=ws.getCell(r,c);
+      cell.font={name:"Times New Roman",size:12,color:{argb:black}};
+      cell.alignment={vertical:"middle",horizontal:(c===1||c===2||c===3||c===6)?"center":"left",wrapText:true};
+      cell.border=baseBorder;
+      cell.fill={type:"pattern",pattern:"solid",fgColor:{argb:white}};
+    }
+    // Individual lessons use the same pink italic accent as the supplied template.
+    const dateText=String(ws.getCell(r,5).value||"");
+    if(/(^|\s)Інд\./i.test(dateText)){
+      for(let c=3;c<=6;c++){
+        ws.getCell(r,c).font={name:"Times New Roman",size:12,italic:true,color:{argb:magenta}};
+      }
+    }
+  }
+
+  // The first and last row of every weekday block have stronger horizontal rules,
+  // matching the user's example. Merged weekday cells are centered vertically.
+  const dayMerges=(merges||[]).filter(m=>m.s.c===0&&m.e.c===0);
+  dayMerges.forEach(m=>{
+    const r1=m.s.r+1,r2=m.e.r+1;
+    ws.getCell(r1,1).alignment={vertical:"middle",horizontal:"center",wrapText:true};
+    for(let c=1;c<=6;c++){
+      const topCell=ws.getCell(r1,c), bottomCell=ws.getCell(r2,c);
+      topCell.border={...(topCell.border||baseBorder),top:medium,left:c===1?medium:(topCell.border?.left||thin),right:c===6?medium:(topCell.border?.right||thin)};
+      bottomCell.border={...(bottomCell.border||baseBorder),bottom:medium,left:c===1?medium:(bottomCell.border?.left||thin),right:c===6?medium:(bottomCell.border?.right||thin)};
+    }
+  });
+  // Outer left/right borders.
+  for(let r=4;r<=ws.rowCount;r++){
+    ws.getCell(r,1).border={...(ws.getCell(r,1).border||baseBorder),left:medium};
+    ws.getCell(r,6).border={...(ws.getCell(r,6).border||baseBorder),right:medium};
+  }
+
+  // Pair cells are always centered; merged pair cells remain vertically centered.
+  (merges||[]).filter(m=>m.s.c===1&&m.e.c===1).forEach(m=>{
+    ws.getCell(m.s.r+1,2).alignment={vertical:"middle",horizontal:"center",wrapText:true};
+  });
+
+  // Increase row heights only where actual content needs more room.
+  for(let r=4;r<=ws.rowCount;r++){
+    const maxLen=Math.max(...[3,4,5,6].map(c=>String(ws.getCell(r,c).value||"").length));
+    if(maxLen>85)ws.getRow(r).height=54;
+    else if(maxLen>45)ws.getRow(r).height=42;
+    else if(maxLen>20)ws.getRow(r).height=34;
+  }
+
+  ws.pageSetup={orientation:"portrait",fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9,
+    margins:{left:0.25,right:0.25,top:0.35,bottom:0.35,header:0.15,footer:0.15}};
+  ws.pageSetup.printArea=`A1:F${ws.rowCount}`;
+
+  const buffer=await workbook.xlsx.writeBuffer();
+  const blob=new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  const teacher=teacherById(teacherId)||{};
+  const short=String(teacher.shortName||name||"Викладач").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
+  a.href=url;
+  a.download=`${short} Інд. розклад.xlsx`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 
 function renderMySchedule(){
