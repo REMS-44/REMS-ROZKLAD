@@ -2942,8 +2942,8 @@ function disciplineTotalHoursById(d,typeId){
   if(lt&&!thesisTypeApplicable(d,lt))return 0;
   const unit=disciplineUnitHoursById(d,typeId);
   // For per-student plan rows, the plan value is a norm for ONE student.
-  // Total teaching load = plan hours per student × actual group contingent.
-  return isPerStudentTypeId(typeId)?unit*groupStudentCount(d?.group):unit;
+  // Total teaching load = plan hours per student × actual discipline audience.
+  return isPerStudentTypeId(typeId)?unit*studentsForDiscipline(d).length:unit;
 }
 function perStudentUnitHours(d,typeId){
   return isPerStudentTypeId(typeId)?disciplineUnitHoursById(d,typeId):0;
@@ -3020,7 +3020,7 @@ function assignedStudentIds(d,teacherId,typeId){
 }
 function assignedStudents(d,teacherId,typeId){
   const ids=new Set(assignedStudentIds(d,teacherId,typeId));
-  return studentsForGroup(d.group).filter(s=>ids.has(Number(s.id)));
+  return studentsForDiscipline(d).filter(s=>ids.has(Number(s.id)));
 }
 function assignedStudentTeacherId(d,typeId,studentId,excludeTeacherId=null){
   const source=studentAllocationSource(d);
@@ -3080,7 +3080,7 @@ function scheduledStudentLoad(disciplineId,teacherId,typeName,studentId,ignoreId
 function disciplineExtraHoursRowsHtml(d){
   const extra=disciplineExtraDraft||{},ids=Object.keys(extra).filter(id=>num(extra[id])>0&&db.lessonTypes.some(lt=>String(lt.id)===String(id)));
   if(!ids.length)return `<div class="extra-hours-empty">Додаткових видів занять ще немає.</div>`;
-  return ids.map(id=>{const lt=db.lessonTypes.find(x=>String(x.id)===String(id)),base=disciplineBaseHoursById(d,id);return `<div class="extra-hour-row" data-extra-type="${esc(id)}"><div class="extra-hour-name"><b>${esc(lt?.name||"Вид занять")}</b><span>${isPerStudentTypeId(id)?`${fmtHours(disciplineUnitHoursById(d,id))} год на одного студента · повний контингент ${groupStudentCount(d.group)} = ${fmtHours(disciplineTotalHoursById(d,id))} год навантаження`:(base?`у плані вже ${fmtHours(base)} год · додаємо окремо`:"додатково до робочого плану")}</span></div><label>Додатково, год<input data-extra-hours type="number" min="0" step="0.01" value="${esc(extra[id])}"></label><button type="button" class="extra-hour-remove" onclick="removeDisciplineExtraType('${String(id).replaceAll("'","\\'")}')">×</button></div>`;}).join("");
+  return ids.map(id=>{const lt=db.lessonTypes.find(x=>String(x.id)===String(id)),base=disciplineBaseHoursById(d,id),studentCount=studentsForDiscipline(d).length;return `<div class="extra-hour-row" data-extra-type="${esc(id)}"><div class="extra-hour-name"><b>${esc(lt?.name||"Вид занять")}</b><span>${isPerStudentTypeId(id)?`${fmtHours(disciplineUnitHoursById(d,id))} год на одного студента · слухачів дисципліни ${studentCount} = ${fmtHours(disciplineTotalHoursById(d,id))} год навантаження`:(base?`у плані вже ${fmtHours(base)} год · додаємо окремо`:"додатково до робочого плану")}</span></div><label>Додатково, год<input data-extra-hours type="number" min="0" step="0.01" value="${esc(extra[id])}"></label><button type="button" class="extra-hour-remove" onclick="removeDisciplineExtraType('${String(id).replaceAll("'","\\'")}')">×</button></div>`;}).join("");
 }
 function renderDisciplineExtraHours(d){const box=$("#disciplineExtraHours");if(box)box.innerHTML=disciplineExtraHoursRowsHtml(d);$$('#disciplineExtraHours [data-extra-hours]').forEach(inp=>{inp.oninput=()=>{const row=inp.closest("[data-extra-type]");if(row)disciplineExtraDraft[row.dataset.extraType]=num(inp.value);renderAllocationEditor(d);};});}
 function addDisciplineExtraType(){const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;if(!d)return;const typeId=$("#disciplineExtraTypePicker")?.value,hours=num($("#disciplineExtraTypeHours")?.value);if(!typeId)return alert("Оберіть вид занять.");if(hours<=0)return alert("Вкажіть кількість годин.");disciplineExtraDraft=disciplineExtraDraft||{};disciplineExtraDraft[typeId]=num(disciplineExtraDraft[typeId])+hours;renderDisciplineExtraHours(d);renderAllocationEditor(d);if($("#disciplineExtraTypeHours"))$("#disciplineExtraTypeHours").value="";}
@@ -3851,7 +3851,7 @@ function allocationSummaryHtml(d){
   return `<div class="allocation-summary-grid">${types.map(lt=>{
     const plan=disciplineTotalHoursById(d,lt.id),allocated=allocationDraftTotal(lt.id),remaining=plan-allocated;
     const cls=remaining<-.001?"bad":Math.abs(remaining)<=.001?"ok":"warn";
-    const formula=isPerStudentTypeId(lt.id)?`${fmtHours(perStudentUnitHours(d,lt.id))} год × ${groupStudentCount(d.group)} студентів`:"";
+    const formula=isPerStudentTypeId(lt.id)?`${fmtHours(perStudentUnitHours(d,lt.id))} год × ${studentsForDiscipline(d).length} слухачів дисципліни`:"";
     return `<div class="allocation-summary-item"><span>${esc(lt.name)}</span><b>${fmtHours(allocated)} / ${fmtHours(plan)}</b>${formula?`<em>${esc(formula)}</em>`:""}<small class="${cls}">${remaining<-.001?`перевищено ${fmtHours(-remaining)}`:`залишилось ${fmtHours(Math.max(0,remaining))}`} год</small></div>`;
   }).join("")}</div>`;
 }
@@ -3875,7 +3875,7 @@ function perStudentAllocationStatus(d,tid,lt){
   const total=split?totalTeacherStudentHours(d,tid,lt.id):ids.length*unit;
   return {
     ids,count:ids.length,unit,total,split,
-    groupCount:groupStudentCount(d.group),
+    groupCount:studentsForDiscipline(d).length,
     unresolved:!explicit&&legacyHours>0,
     legacyHours,
     targetCount:legacyTarget.count,
@@ -3891,7 +3891,7 @@ function splitIndividualSelectedSet(tid,typeId){
 }
 function splitIndividualAllocationPickerHtml(d,tid,lt){
   const unit=perStudentUnitHours(d,lt.id),current=studentHoursMapForTeacher(d,tid,lt.id),selected=splitIndividualSelectedSet(tid,lt.id);
-  return `<div class="student-hour-picker">${studentsForGroup(d.group).map(s=>{
+  return `<div class="student-hour-picker">${studentsForDiscipline(d).map(s=>{
     const own=num(current[String(s.id)]),other=totalAssignedStudentHours(d,lt.id,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);
     const max=Math.max(used,Math.max(0,unit-other));
     const total=other+own,remaining=Math.max(0,unit-total),checked=selected.has(Number(s.id));
@@ -3922,7 +3922,7 @@ function toggleSplitIndividualBulkStudent(tid,typeId,studentId,checked){
 function selectSplitIndividualBulkStudents(tid,typeId,on=true){
   const d=disciplineById(disciplineAllocationId)||window.__disciplineDraft;if(!d)return;
   const selected=splitIndividualSelectedSet(tid,typeId);selected.clear();
-  if(on)studentsForGroup(d.group).forEach(s=>selected.add(Number(s.id)));
+  if(on)studentsForDiscipline(d).forEach(s=>selected.add(Number(s.id)));
   $$('#studentLoadPicker [data-split-student]').forEach(row=>{
     const sid=Number(row.dataset.splitStudent),checked=selected.has(sid);
     row.classList.toggle("bulk-selected",checked);
@@ -3955,7 +3955,7 @@ function applySplitIndividualBulkHours(tid,typeId){
 function perStudentAllocationPickerHtml(d,tid,lt){
   if(isSplitIndividualType(lt))return splitIndividualAllocationPickerHtml(d,tid,lt);
   const current=new Set(assignedStudentIds(d,tid,lt.id));
-  return `<div class="student-load-picker">${studentsForGroup(d.group).map(s=>{
+  return `<div class="student-load-picker">${studentsForDiscipline(d).map(s=>{
     const supervision=thesisSupervisorAssignment(d,lt,s.id,tid);
     const otherTid=supervision?.teacherId||assignedStudentTeacherId(d,lt.id,s.id,tid);
     const other=otherTid?teacherById(otherTid):null;
@@ -4114,11 +4114,11 @@ function selectAllAvailablePerStudent(tid,typeId){
   if(isSplitIndividualType(lt)){
     disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};disciplineStudentHoursDraft[key][typeKey]=disciplineStudentHoursDraft[key][typeKey]||{};
     const map=disciplineStudentHoursDraft[key][typeKey],unit=perStudentUnitHours(d,typeId);
-    studentsForGroup(d.group).forEach(s=>{const other=totalAssignedStudentHours(d,typeId,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id),max=Math.max(used,Math.max(0,unit-other));if(max>0)map[String(s.id)]=max;else delete map[String(s.id)];});
+    studentsForDiscipline(d).forEach(s=>{const other=totalAssignedStudentHours(d,typeId,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id),max=Math.max(used,Math.max(0,unit-other));if(max>0)map[String(s.id)]=max;else delete map[String(s.id)];});
     syncStudentIdsFromHourDraft(tid,typeId);syncPerStudentAllocationLoads(d);refreshPerStudentPopup(tid,typeId);return;
   }
   const arr=new Set(disciplineStudentAllocationDraft[key][typeKey]||[]);
-  studentsForGroup(d.group).forEach(s=>{
+  studentsForDiscipline(d).forEach(s=>{
     if(!assignedStudentTeacherId(d,typeId,s.id,tid)&&!thesisSupervisorAssignment(d,lt,s.id,tid))arr.add(Number(s.id));
   });
   disciplineStudentAllocationDraft[key][typeKey]=[...arr];
@@ -4130,7 +4130,7 @@ function clearPerStudentAllocation(tid,typeId){
   if(!d||!lt)return;
   if(isSplitIndividualType(lt)){
     const key=String(tid),typeKey=String(typeId),map={};let locked=0;
-    studentsForGroup(d.group).forEach(s=>{const used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);if(used>0){map[String(s.id)]=used;locked++;}});
+    studentsForDiscipline(d).forEach(s=>{const used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id);if(used>0){map[String(s.id)]=used;locked++;}});
     disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};disciplineStudentHoursDraft[key][typeKey]=map;
     syncStudentIdsFromHourDraft(tid,typeId);syncPerStudentAllocationLoads(d);refreshPerStudentPopup(tid,typeId);
     if(locked)alert(`${locked} студент(ів) залишено з мінімальними годинами, бо для них уже є заняття в розкладі.`);return;
@@ -4346,11 +4346,11 @@ function fillTeacherWithRemaining(tid){
       if(isSplitIndividualType(lt)){
         disciplineStudentHoursDraft=disciplineStudentHoursDraft||{};disciplineStudentHoursDraft[key]=disciplineStudentHoursDraft[key]||{};disciplineStudentHoursDraft[key][String(lt.id)]=disciplineStudentHoursDraft[key][String(lt.id)]||{};
         const map=disciplineStudentHoursDraft[key][String(lt.id)],unit=perStudentUnitHours(d,lt.id);
-        studentsForGroup(d.group).forEach(s=>{const other=totalAssignedStudentHours(d,lt.id,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id),max=Math.max(used,Math.max(0,unit-other));if(max>0)map[String(s.id)]=max;});
+        studentsForDiscipline(d).forEach(s=>{const other=totalAssignedStudentHours(d,lt.id,s.id,tid),used=scheduledStudentLoad(d.id,Number(tid),lt.name,s.id),max=Math.max(used,Math.max(0,unit-other));if(max>0)map[String(s.id)]=max;});
         syncStudentIdsFromHourDraft(tid,lt.id);
       }else{
         const selected=new Set(disciplineStudentAllocationDraft[key][String(lt.id)]||[]);
-        studentsForGroup(d.group).forEach(s=>{if(!assignedStudentTeacherId(d,lt.id,s.id,tid))selected.add(Number(s.id));});
+        studentsForDiscipline(d).forEach(s=>{if(!assignedStudentTeacherId(d,lt.id,s.id,tid))selected.add(Number(s.id));});
         disciplineStudentAllocationDraft[key][String(lt.id)]=[...selected];
       }
       return;
@@ -4371,7 +4371,7 @@ function validateAllocationDraft(d){
         if(num(load?.[lt.id])>0&&!draftStudentHoursKeyExists(tid,lt.id))errors.push(`${teacherDisplay(teacherById(Number(tid)))} · ${lt.name}: години розподілені, але не вказано, скільки годин припадає на конкретних студентів.`);
       });
       const unit=perStudentUnitHours(d,lt.id);
-      studentsForGroup(d.group).forEach(student=>{
+      studentsForDiscipline(d).forEach(student=>{
         const total=totalAssignedStudentHours(d,lt.id,student.id);
         if(total>unit+.001)errors.push(`${lt.name}: студент ${student.name} має ${fmtHours(total)} год при плані ${fmtHours(unit)} год.`);
       });
@@ -4528,6 +4528,12 @@ function specialKindMeta(id){return SPECIAL_SCHEDULE_KINDS.find(x=>x.id===id)||S
 function availableSpecialKinds(){return activeProgramId()==="master"?SPECIAL_SCHEDULE_KINDS.filter(x=>x.id==="consult_master"):SPECIAL_SCHEDULE_KINDS.filter(x=>x.id==="individual"||x.id==="consult_bachelor");}
 function normalizeSpecialKindForProgram(){const allowed=availableSpecialKinds();if(!allowed.some(x=>x.id===specialScheduleState.kind))specialScheduleState.kind=allowed[0]?.id||"individual";}
 function studentsForGroup(group){return db.students.filter(s=>s.status!=="archived"&&normIdentity(s.group)===normIdentity(group)).slice().sort((a,b)=>a.name.localeCompare(b.name,"uk"));}
+function studentsForDiscipline(d){
+  const students=studentsForGroup(d?.group);
+  if(disciplineAudienceMode(d)!=="selected")return students;
+  const selected=new Set((d?.selectedStudentIds||[]).map(Number).filter(Boolean));
+  return students.filter(s=>selected.has(Number(s.id)));
+}
 function isConsultationType(lt){return normIdentity(lt?.name||"").includes("консультац");}
 function isBachelorThesisType(lt){return normIdentity(lt?.name||"")===normIdentity("Керівництво бакалаврською роботою");}
 function isMasterThesisType(lt){return normIdentity(lt?.name||"")===normIdentity("Керівництво магістерською роботою");}
@@ -4812,10 +4818,10 @@ function renderSpecialSchedule(){
   </div>`;
 }
 function specialStudentsForLoad(d,t,lt){
-  if(!isPerStudentTypeId(lt.id))return studentsForGroup(d.group);
+  if(!isPerStudentTypeId(lt.id))return studentsForDiscipline(d);
   if(!persistedStudentAssignmentExists(d,t.id,lt.id))return [];
   const ids=new Set(persistedAssignedStudentIds(d,t.id,lt.id));
-  return studentsForGroup(d.group).filter(s=>ids.has(Number(s.id)));
+  return studentsForDiscipline(d).filter(s=>ids.has(Number(s.id)));
 }
 function personalMeetingLabel(lt){
   return isConsultationType(lt)?"консультацій":"зустрічей";
