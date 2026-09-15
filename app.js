@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=34;
+const APP_SCHEMA_VERSION=37;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -487,6 +487,8 @@ function deriveLegacyStudentHours(d,lessonTypes=[]){
 function migrate(old){
   const fresh=clone(window.REMS_INITIAL_DATA);
   if(!old||typeof old!=="object") return fresh;
+  const bundledStudents=clone(fresh.students||[]);
+  const bundledDisciplines=clone(fresh.disciplines||[]);
 
   // One-time approved schedule pack release. Replace only working schedule/workload
   // collections with the bundled faculty schedule. Keep locally maintained faculty
@@ -572,6 +574,30 @@ function migrate(old){
   // If a database already has a students array, keep it EXACTLY as the authority:
   // future schema upgrades must never restore deleted students, old names or old group membership.
   fresh.students=Array.isArray(old.students)?clone(old.students):clone(fresh.students||[]);
+  // v2.0.41: import the newly received first-year master's roster once.
+  // Later deletions remain authoritative because databases already on schema 36
+  // do not run this seed merge again.
+  if(previousSchemaVersion<36){
+    fresh.students=mergeSeedStudents(
+      fresh.students,
+      bundledStudents.filter(s=>normIdentity(s.group)===normIdentity("МСМ-26"))
+    );
+  }
+  // v2.0.42: confirmed roster correction for REMS-43. Keep the same ID so
+  // existing personal schedule links remain attached to the correct record.
+  if(previousSchemaVersion<37){
+    const oldStudent=fresh.students.find(s=>
+      normIdentity(s.group)===normIdentity("РЕМС-43")
+      &&normIdentity(s.name)===normIdentity("Григорчук Олександра Олександрівна")
+      &&s.status!=="archived"
+    );
+    const newStudent=fresh.students.find(s=>
+      normIdentity(s.group)===normIdentity("РЕМС-43")
+      &&normIdentity(s.name)===normIdentity("Юневич Ангеліна Миколаївна")
+      &&s.status!=="archived"
+    );
+    if(oldStudent&&!newStudent)oldStudent.name="Юневич Ангеліна Миколаївна";
+  }
   fresh.adHocRooms=uniqueStrings(old.adHocRooms||fresh.adHocRooms||[]);
   fresh.rooms=mergeSeedRooms(old.rooms||[],fresh.rooms||[]).map((r,i)=>{
     const seed=(fresh.rooms||[]).find(x=>roomSeedKey(x)===roomSeedKey(r));
@@ -679,6 +705,54 @@ function migrate(old){
     sourceCurriculumId:d.sourceCurriculumId||null,sourceComponentId:d.sourceComponentId||null,
     planMeta:d.planMeta||{}
   }));
+  // v2.0.41: fill the documented elective audiences once, but preserve any
+  // composition the administrator has already entered manually.
+  if(previousSchemaVersion<36){
+    const bundledStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+    fresh.disciplines.forEach(d=>{
+      if((d.selectedStudentIds||[]).length)return;
+      const seed=bundledDisciplines.find(x=>
+        normIdentity(x.group)===normIdentity(d.group)
+        &&normIdentity(x.name)===normIdentity(d.name)
+        &&Array.isArray(x.selectedStudentIds)
+        &&x.selectedStudentIds.length
+      );
+      if(!seed)return;
+      const ids=seed.selectedStudentIds.map(seedId=>{
+        const seedStudent=bundledStudentById.get(Number(seedId));
+        if(!seedStudent)return null;
+        return fresh.students.find(s=>
+          normIdentity(s.group)===normIdentity(seedStudent.group)
+          &&normIdentity(s.name)===normIdentity(seedStudent.name)
+          &&s.status!=="archived"
+        )?.id||null;
+      }).map(Number).filter(Boolean);
+      if(ids.length){d.audienceMode="selected";d.selectedStudentIds=[...new Set(ids)];}
+    });
+  }
+  // v2.0.42: add the confirmed replacement student to every documented
+  // current-semester elective in which she appears.
+  if(previousSchemaVersion<37){
+    const yunevych=fresh.students.find(s=>
+      normIdentity(s.group)===normIdentity("РЕМС-43")
+      &&normIdentity(s.name)===normIdentity("Юневич Ангеліна Миколаївна")
+      &&s.status!=="archived"
+    );
+    if(yunevych){
+      bundledDisciplines.filter(seed=>
+        normIdentity(seed.group)===normIdentity("РЕМС-43")
+        &&(seed.selectedStudentIds||[]).some(seedId=>
+          normIdentity(bundledStudents.find(s=>Number(s.id)===Number(seedId))?.name)===normIdentity("Юневич Ангеліна Миколаївна")
+        )
+      ).forEach(seed=>{
+        const d=fresh.disciplines.find(item=>
+          normIdentity(item.group)===normIdentity(seed.group)
+          &&normIdentity(item.name)===normIdentity(seed.name)
+        );
+        if(d){d.audienceMode="selected";d.selectedStudentIds=[...new Set([...(d.selectedStudentIds||[]),Number(yunevych.id)])];}
+      });
+    }
+  }
   fresh.curricula=mergeSeedCurricula(old.curricula||[],fresh.curricula||[]).map(c=>({
     ...c,
     course:(previousSchemaVersion<24&&(c.applicableGroups||[]).some(code=>normIdentity(code)===normIdentity("МСМ-25")))?6:c.course,
