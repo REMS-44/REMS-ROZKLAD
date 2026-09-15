@@ -8708,70 +8708,161 @@ function teacherExcelDayName(date){
   const d=new Date(`${date}T12:00:00`);
   return Number.isNaN(d.getTime())?"":names[d.getDay()];
 }
-function teacherExcelDate(date){
-  const m=String(date||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m?`${m[3]}.${m[2]}.${m[1]}`:String(date||"");
+function teacherExcelWeekday(date){
+  const d=new Date(`${date}T12:00:00`);
+  return Number.isNaN(d.getTime())?99:d.getDay();
 }
-function teacherScheduleExcelRows(source){
-  const grouped=new Map();
+function teacherExcelDateShort(date){
+  const m=String(date||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m?`${m[3]}.${m[2]}`:String(date||"");
+}
+function teacherExcelTypeShort(type){
+  const t=String(type||"").toLowerCase();
+  if(t.includes("лекц"))return "Лек.";
+  if(t.includes("семін")||t.includes("семинар"))return "Сем.";
+  if(t.includes("практ"))return "Пр.";
+  if(t.includes("лабор"))return "Лаб.";
+  if(t.includes("індив")||t.includes("индив"))return "Інд.";
+  if(t.includes("консульт"))return "Конс.";
+  if(t.includes("контрол"))return "Контр.";
+  return String(type||"").trim();
+}
+function teacherExcelPairLabel(x,source){
+  const pairId=Number(x.pairId||0);
+  const bell=(source.bellSchedule||db.bellSchedule||[]).find(p=>Number(p.id)===pairId);
+  const fullStart=bell?.start||"",fullEnd=bell?.end||"";
+  const actualStart=x.start||fullStart,actualEnd=x.end||fullEnd;
+  const isHalf=actualStart&&actualEnd&&fullStart&&fullEnd&&(actualStart!==fullStart||actualEnd!==fullEnd);
+  const time=isHalf?`${actualStart}-${actualEnd}`:(fullStart&&fullEnd?`${fullStart}-${fullEnd}`:(actualStart&&actualEnd?`${actualStart}-${actualEnd}`:""));
+  return `${pairId?pairId+" пара":"Час не визначено"}${time?"\n"+time:""}`;
+}
+function teacherExcelGroupLabel(raw){
+  const text=String(raw||"").trim();
+  if(!text)return "";
+  // Individual entries may contain a student's full name rather than a group code.
+  const groupCodes=(db.groups||[]).map(g=>String(g.code||"")).filter(Boolean);
+  const matched=groupCodes.filter(code=>new RegExp(`(^|[^А-ЯA-Z0-9])${code.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}(?=$|[^А-ЯA-Z0-9])`,`i`).test(text));
+  if(!matched.length)return text;
+  const unique=[...new Set(matched)];
+  const groups=unique.map(code=>(db.groups||[]).find(g=>String(g.code)===code)).filter(Boolean);
+  const courses=[...new Set(groups.map(g=>Number(g.course)).filter(Boolean))];
+  let prefix=courses.length===1?`${courses[0]} курс КНУКіМ `:"КНУКіМ ";
+  const rest=text;
+  return prefix+rest;
+}
+function teacherScheduleExcelGrid(source){
+  // Step 1: collapse duplicate records for the same concrete lesson (e.g. one shared lesson
+  // stored once per group) into one lesson with all audiences together.
+  const concrete=new Map();
   (source.schedule||[]).forEach(x=>{
     const special=x.specialSchedule===true;
     const key=[
-      "lesson",x.date||"",x.pairId??"",x.start||"",x.end||"",
-      x.discipline||"",x.type||"",x.room||"",
-      special?`student:${x.studentId||x.students||x.coverage||""}`:"regular",
+      x.date||"",x.pairId??"",x.start||"",x.end||"",x.discipline||"",x.type||"",x.room||"",
+      special?`special:${x.studentId||x.students||x.coverage||""}`:"regular",
       special?x.specialHalf||"":""
     ].join("|");
-    if(!grouped.has(key))grouped.set(key,{...x,_audiences:new Set()});
-    const row=grouped.get(key);
+    if(!concrete.has(key))concrete.set(key,{...x,_audiences:new Set(),_notes:new Set()});
+    const row=concrete.get(key);
     const audience=special
-      ?(specialStudentName(x)||x.students||x.coverage||"")
+      ?[x.group||"",specialStudentName(x)||x.students||x.coverage||""].filter(Boolean).join(" — ")
       :(scheduleAudienceLabel(x)||x.group||x.coverage||"");
     if(audience)row._audiences.add(audience);
+    if(x.note)row._notes.add(String(x.note).trim());
   });
   (source.roomBookings||[]).forEach(x=>{
-    const key=["booking",x.date||"",x.pairId??"",x.start||"",x.end||"",x.room||"",x.title||"",x.group||""].join("|");
-    grouped.set(key,{...x,_booking:true,_audiences:new Set([x.group||x.kind||"Подія"])});
+    const key=[x.date||"",x.pairId??"",x.start||"",x.end||"",x.title||"",x.kind||"Подія",x.room||"","booking"].join("|");
+    concrete.set(key,{...x,_booking:true,_audiences:new Set([x.group||x.kind||"Подія"]),_notes:new Set(x.note?[String(x.note).trim()]:[])});
   });
-  return [...grouped.values()].sort((a,b)=>{
-    const d=String(a.date||"").localeCompare(String(b.date||""));if(d)return d;
-    const ap=Number(a.pairId||99),bp=Number(b.pairId||99);if(ap!==bp)return ap-bp;
-    return String(a.start||"99:99").localeCompare(String(b.start||"99:99"));
-  }).map(x=>{
-    const audiences=[...(x._audiences||[])];
-    return {
-      "Дата":teacherExcelDate(x.date),
-      "День":teacherExcelDayName(x.date),
-      "Пара":x.pairId?String(x.pairId):"",
-      "Час":x.start||x.end?`${x.start||""}${x.start&&x.end?"–":""}${x.end||""}`:"",
-      "Група / студент":audiences.join(" + "),
-      "Дисципліна":x._booking?(x.title||roomBookingLabel(x)):(x.discipline||""),
-      "Вид заняття":x._booking?(x.kind||"Подія"):(x.type||""),
-      "Аудиторія":x.room||""
-    };
+
+  // Step 2: aggregate recurring dates into the same row, matching the user's original template.
+  const recurring=new Map();
+  [...concrete.values()].forEach(x=>{
+    const audiences=[...(x._audiences||[])].filter(Boolean).sort((a,b)=>a.localeCompare(b,"uk"));
+    const audience=audiences.join(" + ");
+    const weekday=teacherExcelWeekday(x.date);
+    const pairId=Number(x.pairId||0);
+    const key=[weekday,pairId,x.start||"",x.end||"",audience,x._booking?(x.title||roomBookingLabel(x)):(x.discipline||""),x._booking?(x.kind||"Подія"):(x.type||""),x.room||"",[...(x._notes||[])].sort().join("; ")].join("|");
+    if(!recurring.has(key))recurring.set(key,{...x,_weekday:weekday,_audience:audience,_dates:[],_allNotes:new Set(x._notes||[])});
+    const row=recurring.get(key);
+    row._dates.push(x.date);
+    (x._notes||[]).forEach(n=>row._allNotes.add(n));
   });
+
+  const bySlot=new Map();
+  [...recurring.values()].forEach(x=>{
+    const slot=[x._weekday,Number(x.pairId||0),x.start||"",x.end||""].join("|");
+    if(!bySlot.has(slot))bySlot.set(slot,[]);
+    bySlot.get(slot).push(x);
+  });
+  bySlot.forEach(list=>list.sort((a,b)=>String(a._audience||"").localeCompare(String(b._audience||""),"uk")||String(a.discipline||a.title||"").localeCompare(String(b.discipline||b.title||""),"uk")));
+
+  const weekdays=[1,2,3,4,5];
+  if([...recurring.values()].some(x=>x._weekday===6))weekdays.push(6);
+  const rows=[],merges=[];
+  let sheetRow=4; // Excel row number where the first data row begins.
+  weekdays.forEach(day=>{
+    const dayStart=sheetRow;
+    for(let pair=1;pair<=7;pair++){
+      const slots=[...bySlot.entries()].filter(([key])=>{
+        const [wd,p]=key.split("|").map(Number);
+        return wd===day&&p===pair;
+      }).sort(([ka],[kb])=>ka.localeCompare(kb));
+      const lessons=slots.flatMap(([,list])=>list);
+      const emit=lessons.length?lessons:[null];
+      const pairStart=sheetRow;
+      emit.forEach((x,i)=>{
+        if(!x){
+          const bell=(source.bellSchedule||db.bellSchedule||[]).find(p=>Number(p.id)===pair);
+          rows.push(["",`${pair} пара${bell?.start&&bell?.end?"\n"+bell.start+"-"+bell.end:""}`,"","","",""]);
+        }else{
+          const type=x._booking?(x.kind||"Подія"):(x.type||"");
+          const typeShort=teacherExcelTypeShort(type);
+          const dates=[...new Set(x._dates||[])].sort().map(teacherExcelDateShort).join("; ");
+          const dateText=[typeShort,dates].filter(Boolean).join(" ");
+          const room=x.room?`ауд. ${x.room}`:"";
+          const note=[room,...(x._allNotes||[])].filter(Boolean).join("; ");
+          rows.push([
+            "",
+            i===0?teacherExcelPairLabel(x,source):"",
+            teacherExcelGroupLabel(x._audience),
+            x._booking?(x.title||roomBookingLabel(x)):(x.discipline||""),
+            dateText,
+            note
+          ]);
+        }
+        sheetRow++;
+      });
+      if(sheetRow-pairStart>1)merges.push({s:{r:pairStart-1,c:1},e:{r:sheetRow-2,c:1}});
+    }
+    const dayName=["Неділя","Понеділок","Вівторок","Середа","Четвер","П’ятниця","Субота"][day];
+    if(dayStart<sheetRow){
+      rows[dayStart-4][0]=dayName;
+      if(sheetRow-dayStart>1)merges.push({s:{r:dayStart-1,c:0},e:{r:sheetRow-2,c:0}});
+    }
+  });
+  return {rows,merges};
 }
 function downloadTeacherScheduleExcel(){
   if(!window.XLSX)return alert("Модуль Excel ще не завантажився. Перевірте інтернет і оновіть сторінку.");
   const source=teacherScheduleSource(),teacherId=source.teacherId;
   if(!teacherId)return alert("Не вибрано викладача.");
   const name=teacherScheduleTeacherName(teacherId);
-  const rows=teacherScheduleExcelRows(source);
-  if(!rows.length&&!confirm("У цього викладача поки немає занять. Завантажити порожній файл?"))return;
+  const hasLessons=(source.schedule||[]).length||(source.roomBookings||[]).length;
+  if(!hasLessons&&!confirm("У цього викладача поки немає занять. Завантажити порожній файл?"))return;
 
   const wb=XLSX.utils.book_new();
-  const title=[
-    ["ІНДИВІДУАЛЬНИЙ РОЗКЛАД ВИКЛАДАЧА"],
-    [name],
-    [`Навчальний рік: ${source.academicYear||db.academicYear}`],
-    []
+  const {rows,merges}=teacherScheduleExcelGrid(source);
+  const aoa=[
+    [name,"","","","", ""],
+    ["","","","","", ""],
+    ["День тижня","Пара","Група","Назва ОК","Дати","Примітки"],
+    ...rows
   ];
-  const ws=XLSX.utils.aoa_to_sheet(title);
-  XLSX.utils.sheet_add_json(ws,rows,{origin:"A5",skipHeader:false});
-  ws["!cols"]=[
-    {wch:12},{wch:13},{wch:7},{wch:14},{wch:30},{wch:42},{wch:20},{wch:14}
-  ];
-  ws["!autofilter"]={ref:`A5:H${Math.max(5,5+rows.length)}`};
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!merges"]=[{s:{r:0,c:0},e:{r:0,c:5}},...merges];
+  ws["!cols"]=[{wch:15},{wch:20},{wch:34},{wch:46},{wch:58},{wch:24}];
+  ws["!rows"]=[{hpt:26},{hpt:8},{hpt:24},...rows.map(()=>({hpt:34}))];
+  ws["!freeze"]={xSplit:0,ySplit:3,topLeftCell:"A4",activePane:"bottomLeft",state:"frozen"};
   XLSX.utils.book_append_sheet(wb,ws,"Розклад");
   const safe=String(name||"викладач").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
   XLSX.writeFile(wb,`Розклад_${safe}_${String(source.academicYear||db.academicYear).replace("/","-")}.xlsx`);
