@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=37;
+const APP_SCHEMA_VERSION=38;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -489,6 +489,7 @@ function migrate(old){
   if(!old||typeof old!=="object") return fresh;
   const bundledStudents=clone(fresh.students||[]);
   const bundledDisciplines=clone(fresh.disciplines||[]);
+  const bundledSchedule=clone(fresh.schedule||[]);
   const targetRosterRepairVersion=String(fresh.rosterRepairVersion||"");
   const needsRems43RosterRepair=!!targetRosterRepairVersion&&String(old.rosterRepairVersion||"")!==targetRosterRepairVersion;
 
@@ -718,6 +719,16 @@ function migrate(old){
     sourceCurriculumId:d.sourceCurriculumId||null,sourceComponentId:d.sourceComponentId||null,
     planMeta:d.planMeta||{}
   }));
+  // v2.0.46: import the approved first-semester MSM-26 workload cards once.
+  // Existing cards win; only missing cards from the received schedule are added.
+  if(previousSchemaVersion<38){
+    bundledDisciplines.filter(seed=>normIdentity(seed.group)===normIdentity("МСМ-26")).forEach(seed=>{
+      if(fresh.disciplines.some(d=>normIdentity(d.group)===normIdentity(seed.group)&&normIdentity(d.name)===normIdentity(seed.name)))return;
+      const copy=clone(seed);
+      if(fresh.disciplines.some(d=>Number(d.id)===Number(copy.id)))copy.id=uid(fresh.disciplines);
+      fresh.disciplines.push(copy);
+    });
+  }
   // v2.0.41: fill the documented elective audiences once, but preserve any
   // composition the administrator has already entered manually.
   if(previousSchemaVersion<36){
@@ -817,6 +828,14 @@ function migrate(old){
     if(previousSchemaVersion<24&&scheduleAudienceGroups(out).some(isMasterGroupCode))out.room="";
     return out;
   });
+  // v2.0.46: local databases created before the received MSM-26 schedule also
+  // receive the approved rows. Cloud reconciliation applies the same merge.
+  if(previousSchemaVersion<38){
+    fresh.schedule=mergeApprovedSchedule(
+      fresh.schedule,
+      bundledSchedule.filter(x=>scheduleAudienceGroups(x).some(code=>normIdentity(code)===normIdentity("МСМ-26")))
+    );
+  }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.
   if(previousSchemaVersion<24){
