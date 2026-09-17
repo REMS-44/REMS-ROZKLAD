@@ -133,10 +133,10 @@
   state.disciplines=state.disciplines||[];
   let thesisDiscipline=state.disciplines.find(d=>norm(d.group)===norm("МСМ-25")&&norm(d.name)===norm("Керівництво магістерською роботою"));
   if(!thesisDiscipline){
-    thesisDiscipline={id:3101,name:"Керівництво магістерською роботою",course:6,group:"МСМ-25",programId:"master",semester:3,academicYear:"2026/2027",teacherIds:[teacherIds.fisher],teacherLoads:{[teacherIds.fisher]:{11:56}},teacherStudentLoads:{[teacherIds.fisher]:{11:[...thesisStudentIds]}},teacherStudentHours:{},teacherStreams:{},audienceMode:"selected",selectedStudentIds:[...thesisStudentIds],controlForm:"Немає",color:"#ff2f92",hours:{11:14},extraHours:{},note:"По 14 консультацій кожному магістру згідно з узгодженим графіком.",status:"active",sourceCurriculumId:null,sourceComponentId:null,sourceRowId:null,planMeta:{}};
+    thesisDiscipline={id:3101,name:"Керівництво магістерською роботою",course:6,group:"МСМ-25",programId:"master",semester:3,academicYear:"2026/2027",teacherIds:[teacherIds.fisher],teacherLoads:{[teacherIds.fisher]:{11:56}},teacherStudentLoads:{[teacherIds.fisher]:{11:[...thesisStudentIds]}},teacherStudentHours:{},teacherStreams:{},audienceMode:"selected",selectedStudentIds:[...thesisStudentIds],controlForm:"Немає",color:"#d94f8a",hours:{11:14},extraHours:{},note:"По 14 консультацій кожному магістру згідно з узгодженим графіком.",status:"active",sourceCurriculumId:null,sourceComponentId:null,sourceRowId:null,planMeta:{}};
     state.disciplines.push(thesisDiscipline);
   }
-  thesisDiscipline.color="#ff2f92";
+  thesisDiscipline.color="#d94f8a";
 
   const rows=[
     {name:"Стартапи в галузі культури і мистецтв",componentId:5,pair:2,type:"Лекція",dates:["2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-19","2026-10-26","2026-11-02","2026-11-09"],teacher:"Черемних І.В.",teacherId:teacherIds.cheremnykh},

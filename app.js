@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=42;
+const APP_SCHEMA_VERSION=43;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -925,6 +925,11 @@ function migrate(old){
       });
       fresh.msm25ConsultationVersion="2026-09-17-v2-fisher-3-6-2-2-1";
     }
+  }
+  // v2.0.51: soften the consultation pink while keeping it clearly distinct.
+  if(previousSchemaVersion<43){
+    const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(target)target.color="#d94f8a";
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.
@@ -8825,7 +8830,10 @@ function teacherPairSlotEventCard(ev,source){
   const x=ev.data;
   if(ev.source==="schedule"){
     if(x.specialSchedule){
-      return `<div class="teacher-slot-event teacher-slot-special ${x.specialKind==="consult_master"?"master-consultation":""} subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-slot-event-main"><b title="${esc(specialStudentFirstAndLastName(x))}">${esc(specialStudentFirstAndLastName(x))}</b><span>${esc(x.discipline||"Заняття")}</span></div><div class="teacher-slot-event-meta"><strong>${esc(x.start||"")}–${esc(x.end||"")}${x.room?` · ауд. ${esc(x.room)}`:""}</strong><small>½ пари · ${esc(x.type||specialKindMeta(x.specialKind).short)}</small></div></div>`;
+      if(x.specialKind==="consult_master"){
+        return `<div class="teacher-slot-event teacher-slot-special master-consultation subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-slot-event-main"><b title="${esc(specialStudentFirstAndLastName(x))}">${esc(specialStudentFirstAndLastName(x))}</b><span>Магістерська консультація</span></div><div class="teacher-slot-event-meta"><strong>${esc(x.start||"")}–${esc(x.end||"")}${x.room?` · ауд. ${esc(x.room)}`:""}</strong><small>½ пари</small></div></div>`;
+      }
+      return `<div class="teacher-slot-event teacher-slot-special subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-slot-event-main"><b>${esc(specialStudentFirstAndLastName(x))}</b><span>${esc(x.discipline||"Заняття")}</span></div><div class="teacher-slot-event-meta"><strong>${esc(x.start||"")}–${esc(x.end||"")}${x.room?` · ауд. ${esc(x.room)}`:""}</strong><small>½ пари · ${esc(x.type||specialKindMeta(x.specialKind).short)}</small></div></div>`;
     }
     return `<div class="teacher-slot-event subject-colored" style="${scheduleColorVars(x)}">
       <div class="teacher-slot-event-main"><b>${esc(scheduleAudienceLabel(x)||"—")}</b><span>${esc(x.discipline||"Заняття")}</span></div>
