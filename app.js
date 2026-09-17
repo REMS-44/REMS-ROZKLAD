@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=45;
+const APP_SCHEMA_VERSION=48;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -963,6 +963,42 @@ function migrate(old){
       fresh.schedule.push(item);
     });
     fresh.msm25ConsultationVersion="2026-09-17-v4-fisher-restored-no-first-pairs";
+  }
+  // v2.0.55: force-refresh Fisher MSM-25 consultations from the cross-checked plan.
+  // This also replaces already-saved v2.0.54 cloud rows, which could preserve stale overlaps.
+  // Only pairs 2–5 are allowed; every slot is checked against Fisher's bachelor timetable.
+  if(previousSchemaVersion<47){
+    const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(target)target.color="#c9789c";
+    fresh.schedule=fresh.schedule.filter(x=>!(x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084));
+    const seedStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+    bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084).forEach(seed=>{
+      const source=seedStudentById.get(Number(seed.studentId));
+      const student=fresh.students.find(s=>source&&normIdentity(s.group)===normIdentity(source.group)&&normIdentity(s.name)===normIdentity(source.name)&&s.status!=="archived");
+      if(!student)return;
+      const item={...clone(seed),studentId:Number(student.id),students:student.name,coverage:student.name,disciplineId:target?.id||seed.disciplineId,disciplineIds:target?[target.id]:seed.disciplineIds};
+      if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
+      fresh.schedule.push(item);
+    });
+    fresh.msm25ConsultationVersion="2026-09-17-v6-fisher-crosschecked-all-lessons";
+  }
+  // v2.0.56: replace MSM-25 consultations with a plan cross-checked against BOTH
+  // Fisher's complete timetable and each master's individual/elective timetable.
+  // Consultations use pairs 2–3 only; pairs 1, 4, 5, 6 and 7 are excluded.
+  if(previousSchemaVersion<48){
+    const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(target)target.color="#c9789c";
+    fresh.schedule=fresh.schedule.filter(x=>!(x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084));
+    const seedStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+    bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084).forEach(seed=>{
+      const source=seedStudentById.get(Number(seed.studentId));
+      const student=fresh.students.find(s=>source&&normIdentity(s.group)===normIdentity(source.group)&&normIdentity(s.name)===normIdentity(source.name)&&s.status!=="archived");
+      if(!student)return;
+      const item={...clone(seed),studentId:Number(student.id),students:student.name,coverage:student.name,disciplineId:target?.id||seed.disciplineId,disciplineIds:target?[target.id]:seed.disciplineIds};
+      if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
+      fresh.schedule.push(item);
+    });
+    fresh.msm25ConsultationVersion="2026-09-17-v7-fisher-and-student-crosschecked-pairs-2-3";
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.
