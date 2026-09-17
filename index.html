@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Факультет · Розклад</title>
   <meta name="theme-color" content="#1b0d2f">
-  <link rel="stylesheet" href="styles.css?v=2.0.60">
+  <link rel="stylesheet" href="styles.css?v=2.0.61">
 </head>
 <body class="rems-studio">
 <div class="app">
@@ -35,6 +35,7 @@
       <button class="nav-btn" data-page="dayPlanner"><i class="nav-icon">▦</i><span>По днях груп</span></button>
       <button class="nav-btn" data-page="specialSchedule"><i class="nav-icon">◫</i><span>Індивідуальні / бакалаврські</span></button>
       <button class="nav-btn" data-page="roomGrid"><i class="nav-icon">▥</i><span>Аудиторії</span></button>
+      <button class="nav-btn" data-page="conflicts"><i class="nav-icon">⚠</i><span>Накладки</span><b id="conflictNavCount" class="nav-count-badge" style="display:none"></b></button>
 
       <div class="nav-section-label">ЛЮДИ</div>
       <button class="nav-btn" data-page="groups"><i class="nav-icon">◉</i><span>Групи і студенти</span></button>
@@ -48,7 +49,7 @@
       <div id="cloudStatusDot" class="cloud-dot local"></div>
       <div><b id="cloudStatusText">Локальний режим</b><span id="cloudUserText">Firebase не підключено</span></div>
     </div>
-    <div class="sidebar-note">Версія 2.0.60 · повна інформація про зайнятість аудиторій</div>
+    <div class="sidebar-note">Версія 2.0.62 · загальний контроль накладок</div>
   </aside>
   <main class="main">
     <header class="topbar">
@@ -70,6 +71,7 @@
     <section id="page-students" class="page"></section>
     <section id="page-rooms" class="page"></section>
     <section id="page-roomGrid" class="page"></section>
+    <section id="page-conflicts" class="page"></section>
     <section id="page-teachers" class="page"></section>
     <section id="page-curricula" class="page"></section>
     <section id="page-disciplines" class="page"></section>
@@ -81,13 +83,13 @@
 </div>
 <div id="modal" class="modal hidden"><div class="modal-card"><button class="modal-close" id="modalClose">×</button><div id="modalBody"></div></div></div>
 <input id="importFile" type="file" accept=".json" hidden>
-<script src="data.js?v=2.0.60"></script>
-<script src="master-schedules.js?v=2.0.60"></script>
+<script src="data.js?v=2.0.61"></script>
+<script src="master-schedules.js?v=2.0.61"></script>
 <script src="firebase-config.js"></script>
-<script src="word-export.js?v=2.0.60"></script>
+<script src="word-export.js?v=2.0.61"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-<script src="app.js?v=2.0.60"></script>
-<script type="module" src="cloud.js?v=2.0.60"></script>
+<script src="app.js?v=2.0.61"></script>
+<script type="module" src="cloud.js?v=2.0.61"></script>
 </body>
 </html>
