@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=43;
+const APP_SCHEMA_VERSION=44;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -930,6 +930,22 @@ function migrate(old){
   if(previousSchemaVersion<43){
     const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
     if(target)target.color="#d94f8a";
+  }
+  // v2.0.52: remove Fisher master consultations from first pair, soften pink, and refresh existing saved data.
+  if(previousSchemaVersion<44){
+    const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(target)target.color="#c9789c";
+    fresh.schedule=fresh.schedule.filter(x=>!(x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084));
+    const seedStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+    bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084).forEach(seed=>{
+      const source=seedStudentById.get(Number(seed.studentId));
+      const student=fresh.students.find(s=>source&&normIdentity(s.group)===normIdentity(source.group)&&normIdentity(s.name)===normIdentity(source.name)&&s.status!=="archived");
+      if(!student)return;
+      const item={...clone(seed),studentId:Number(student.id),students:student.name,coverage:student.name,disciplineId:target?.id||seed.disciplineId,disciplineIds:target?[target.id]:seed.disciplineIds};
+      if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
+      fresh.schedule.push(item);
+    });
+    fresh.msm25ConsultationVersion="2026-09-17-v3-fisher-no-first-pairs";
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.

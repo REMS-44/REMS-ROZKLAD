@@ -133,10 +133,10 @@
   state.disciplines=state.disciplines||[];
   let thesisDiscipline=state.disciplines.find(d=>norm(d.group)===norm("МСМ-25")&&norm(d.name)===norm("Керівництво магістерською роботою"));
   if(!thesisDiscipline){
-    thesisDiscipline={id:3101,name:"Керівництво магістерською роботою",course:6,group:"МСМ-25",programId:"master",semester:3,academicYear:"2026/2027",teacherIds:[teacherIds.fisher],teacherLoads:{[teacherIds.fisher]:{11:56}},teacherStudentLoads:{[teacherIds.fisher]:{11:[...thesisStudentIds]}},teacherStudentHours:{},teacherStreams:{},audienceMode:"selected",selectedStudentIds:[...thesisStudentIds],controlForm:"Немає",color:"#d94f8a",hours:{11:14},extraHours:{},note:"По 14 консультацій кожному магістру згідно з узгодженим графіком.",status:"active",sourceCurriculumId:null,sourceComponentId:null,sourceRowId:null,planMeta:{}};
+    thesisDiscipline={id:3101,name:"Керівництво магістерською роботою",course:6,group:"МСМ-25",programId:"master",semester:3,academicYear:"2026/2027",teacherIds:[teacherIds.fisher],teacherLoads:{[teacherIds.fisher]:{11:56}},teacherStudentLoads:{[teacherIds.fisher]:{11:[...thesisStudentIds]}},teacherStudentHours:{},teacherStreams:{},audienceMode:"selected",selectedStudentIds:[...thesisStudentIds],controlForm:"Немає",color:"#c9789c",hours:{11:14},extraHours:{},note:"По 14 консультацій кожному магістру згідно з узгодженим графіком.",status:"active",sourceCurriculumId:null,sourceComponentId:null,sourceRowId:null,planMeta:{}};
     state.disciplines.push(thesisDiscipline);
   }
-  thesisDiscipline.color="#d94f8a";
+  thesisDiscipline.color="#c9789c";
 
   const rows=[
     {name:"Стартапи в галузі культури і мистецтв",componentId:5,pair:2,type:"Лекція",dates:["2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-19","2026-10-26","2026-11-02","2026-11-09"],teacher:"Черемних І.В.",teacherId:teacherIds.cheremnykh},
@@ -253,16 +253,16 @@
   const consultationPlan=[
     ["2026-09-21",2,["Бондарчук Анастасія Сергіївна"]],
     ["2026-09-22",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
-    ["2026-09-24",1,["Бондарчук Анастасія Сергіївна","Чирва Дарина Олегівна"]],
+    ["2026-09-24",4,["Бондарчук Анастасія Сергіївна","Чирва Дарина Олегівна"]],
     ["2026-09-24",5,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
     ["2026-09-28",2,["Бондарчук Анастасія Сергіївна"]],
     ["2026-09-29",2,["Чирва Дарина Олегівна","Будяк Станіслав Миколайович"]],
-    ["2026-10-01",1,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
+    ["2026-10-01",4,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
     ["2026-10-20",2,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
     ["2026-10-20",3,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
     ["2026-10-21",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
     ["2026-10-21",3,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
-    ["2026-10-22",1,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-10-22",4,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
     ["2026-10-27",2,["Бондарчук Анастасія Сергіївна"]],
     ["2026-10-27",3,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
     ["2026-10-28",2,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
@@ -283,9 +283,9 @@
     ["2026-12-15",3,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]]
   ];
   const consultationHalfTimes={
-    1:[["09:00","09:40"],["09:40","10:20"]],
     2:[["10:40","11:20"],["11:20","12:00"]],
     3:[["12:30","13:10"],["13:10","13:50"]],
+    4:[["14:10","14:50"],["14:50","15:30"]],
     5:[["15:40","16:20"],["16:20","17:00"]]
   };
   const studentIdsByName=msm25StudentIdByName();
@@ -300,6 +300,6 @@
   const consultationKey=item=>[item.date,item.pairId,item.specialHalf,norm(item.group),norm(item.students||item.coverage),norm(item.type)].join("|");
   const existingConsultations=new Set((state.schedule||[]).map(consultationKey));
   consultationRows.forEach(item=>{if(!existingConsultations.has(consultationKey(item))){state.schedule.push(item);existingConsultations.add(consultationKey(item));}});
-  state.msm25ConsultationVersion="2026-09-17-v2-fisher-3-6-2-2-1";
+  state.msm25ConsultationVersion="2026-09-17-v3-fisher-no-first-pairs";
   state.msm25ScheduleVersion="2026-09-17-v2-elective-audiences";
 })();
