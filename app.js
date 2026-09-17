@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=49;
+const APP_SCHEMA_VERSION=51;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -782,6 +782,39 @@ function migrate(old){
       if(ids.length){d.audienceMode="selected";d.selectedStudentIds=[...new Set(ids)];}
     });
   }
+  // v2.0.63: official 2026/2027 elective-choice documents are authoritative
+  // for current REMS bachelor elective audiences. Reapply them once so the
+  // conflict dashboard checks actual students instead of treating the whole group
+  // as busy. The bundled seed already reflects the current REMS-34/REMS-44 split.
+  if(previousSchemaVersion<50){
+    const officialGroups=new Set(["РЕМС-45","РЕМС-44","РЕМС-34","РЕМС-43"].map(normIdentity));
+    const bundledStudentById=new Map(bundledStudents.map(st=>[Number(st.id),st]));
+    bundledDisciplines.filter(seed=>
+      officialGroups.has(normIdentity(seed.group))
+      &&seed.audienceMode==="selected"
+      &&Array.isArray(seed.selectedStudentIds)
+      &&seed.selectedStudentIds.length
+    ).forEach(seed=>{
+      const target=fresh.disciplines.find(d=>
+        normIdentity(d.group)===normIdentity(seed.group)
+        &&normIdentity(d.name)===normIdentity(seed.name)
+        &&Number(d.semester||0)===Number(seed.semester||0)
+      );
+      if(!target)return;
+      const ids=seed.selectedStudentIds.map(seedId=>{
+        const source=bundledStudentById.get(Number(seedId));
+        if(!source)return null;
+        return fresh.students.find(st=>
+          normIdentity(st.group)===normIdentity(source.group)
+          &&normIdentity(st.name)===normIdentity(source.name)
+          &&st.status!=="archived"
+        )?.id||null;
+      }).map(Number).filter(Boolean);
+      target.audienceMode="selected";
+      target.selectedStudentIds=[...new Set(ids)];
+      target.audienceSource="Витяг з протоколу №19 від 07.07.2026 · вибір ОК на 2026/2027";
+    });
+  }
   // v2.0.42: add the confirmed replacement student to every documented
   // current-semester elective in which she appears.
   if(needsRems43RosterRepair){
@@ -889,6 +922,53 @@ function migrate(old){
       item.audienceMode="selected";
       item.coverage="Вибрані студенти";
       item.sourceAudienceFile=seed.sourceAudienceFile;
+    });
+  }
+  // v2.0.63: refresh MSM-25 documented elective audiences once more from the
+  // newly supplied official choice list. This does not replace dates or teachers.
+  if(previousSchemaVersion<50){
+    const msm25Seeds=bundledSchedule.filter(seed=>
+      scheduleAudienceGroups(seed).some(code=>normIdentity(code)===normIdentity("МСМ-25"))
+      &&seed.sourceAudienceFile
+      &&Array.isArray(seed.audiencePartitions)
+    );
+    msm25Seeds.forEach(seed=>{
+      const item=fresh.schedule.find(x=>approvedScheduleSemanticKey(x)===approvedScheduleSemanticKey(seed));
+      if(!item)return;
+      item.audiencePartitions=clone(seed.audiencePartitions||[]);
+      item.audiencePartitionsSource="documented_elective_choices_2026_07_07";
+      item.audienceStudentIds=clone(seed.audienceStudentIds||[]);
+      item.audienceMode="selected";
+      item.coverage="Вибрані студенти";
+      item.sourceAudienceFile="Назва ОК(1).docx";
+    });
+  }
+  // v2.0.64: apply the official actor/theatre-director elective audiences
+  // from protocol №14 to existing cloud schedule rows without changing dates,
+  // teachers, rooms or lesson times.
+  if(previousSchemaVersion<51){
+    const actorGroups=new Set(["ТА-15","ТА-25","ТА-14","ТА-24","ТА-13","ТА-23","ТА-53","ТР-33"].map(normIdentity));
+    const actorSeeds=bundledSchedule.filter(seed=>
+      scheduleAudienceGroups(seed).some(code=>actorGroups.has(normIdentity(code)))
+      &&seed.sourceAudienceFile
+      &&Array.isArray(seed.audiencePartitions)
+      &&seed.audiencePartitionsSource==="documented_actor_elective_choices_2026_07_07"
+    );
+    actorSeeds.forEach(seed=>{
+      const candidates=fresh.schedule.filter(x=>
+        scheduleAudienceGroups(x).some(code=>scheduleAudienceGroups(seed).some(sg=>normIdentity(sg)===normIdentity(code)))
+        &&normIdentity(String(x.discipline||"").replace(/\s*\(вибіркова\s+ок\)\s*/ig,""))===normIdentity(String(seed.discipline||"").replace(/\s*\(вибіркова\s+ок\)\s*/ig,""))
+      );
+      candidates.forEach(item=>{
+        item.audiencePartitions=clone(seed.audiencePartitions||[]);
+        item.audiencePartitionsSource=seed.audiencePartitionsSource;
+        item.audienceStudentIds=clone(seed.audienceStudentIds||[]);
+        item.audienceStudentNamesOfficial=clone(seed.audienceStudentNamesOfficial||[]);
+        item.audienceStudentNamesOfficialByGroup=clone(seed.audienceStudentNamesOfficialByGroup||{});
+        item.audienceMode="selected";
+        item.coverage="Вибрані студенти";
+        item.sourceAudienceFile=seed.sourceAudienceFile;
+      });
     });
   }
   // v2.0.49: import the approved half-pair MSM-25 consultations and remap
@@ -1541,10 +1621,28 @@ function scheduleAudiencePartitions(item,state=db){
   return scheduleAudienceGroups(item).map(group=>({group,mode:"group",studentIds:[]}));
 }
 function scheduleSelectedStudentIds(item,state=db){return [...new Set(scheduleAudiencePartitions(item,state).filter(p=>p.mode==="selected").flatMap(p=>p.studentIds||[]).map(Number).filter(Boolean))];}
+function scheduleOfficialAudienceNamesByGroup(item){
+  const raw=item?.audienceStudentNamesOfficialByGroup;
+  if(raw&&typeof raw==="object"){
+    const out={};for(const [group,names] of Object.entries(raw)){out[normIdentity(group)]=[...new Set((names||[]).map(x=>String(x||"").trim()).filter(Boolean))];}return out;
+  }
+  const names=[...new Set((item?.audienceStudentNamesOfficial||[]).map(x=>String(x||"").trim()).filter(Boolean))];
+  const groups=scheduleAudienceGroups(item);
+  return names.length&&groups.length===1?{[normIdentity(groups[0])]:names}:{};
+}
+function scheduleOfficialAudienceStudentNames(item){return Object.values(scheduleOfficialAudienceNamesByGroup(item)).flat();}
 function scheduleAudienceOverlap(a,b,state=db){
   const A=scheduleAudiencePartitions(a,state),B=scheduleAudiencePartitions(b,state);
-  for(const pa of A)for(const pb of B){if(normIdentity(pa.group)!==normIdentity(pb.group))continue;if(pa.mode==="group"||pb.mode==="group")return true;const ids=new Set((pa.studentIds||[]).map(Number));if((pb.studentIds||[]).some(id=>ids.has(Number(id))))return true;}
-  const aIds=new Set(scheduleSelectedStudentIds(a,state));return scheduleSelectedStudentIds(b,state).some(id=>aIds.has(Number(id)));
+  const aNamesByGroup=scheduleOfficialAudienceNamesByGroup(a),bNamesByGroup=scheduleOfficialAudienceNamesByGroup(b);
+  for(const pa of A)for(const pb of B){
+    const groupKey=normIdentity(pa.group);if(groupKey!==normIdentity(pb.group))continue;
+    if(pa.mode==="group"||pb.mode==="group")return true;
+    const ids=new Set((pa.studentIds||[]).map(Number));if((pb.studentIds||[]).some(id=>ids.has(Number(id))))return true;
+    const aNames=new Set((aNamesByGroup[groupKey]||[]).map(normIdentity));
+    if(aNames.size&&(bNamesByGroup[groupKey]||[]).some(name=>aNames.has(normIdentity(name))))return true;
+  }
+  const aIds=new Set(scheduleSelectedStudentIds(a,state));
+  return scheduleSelectedStudentIds(b,state).some(id=>aIds.has(Number(id)));
 }
 function scheduleAudienceConflictLabel(item,state=db){return scheduleAudiencePartitions(item,state).map(p=>p.mode==="group"?p.group:`${p.group} · ${p.studentIds.length} вибр.`).join(" + ")||scheduleAudienceLabel(item)||"";}
 function refreshScheduleAudienceMetadata(item,state=db){
@@ -2370,8 +2468,14 @@ function collectGlobalConflicts(){
     if(a.room&&b.room&&normIdentity(a.room)===normIdentity(b.room))kinds.push("room");
     const ta=globalConflictTeacherId(a),tb=globalConflictTeacherId(b);
     if(ta&&tb&&ta===tb)kinds.push("teacher");
-    if(a.sourceType!=="booking"&&b.sourceType!=="booking"&&scheduleAudienceOverlap(a,b,db))kinds.push("audience");
-    else if(a.group&&b.group&&normIdentity(a.group)===normIdentity(b.group))kinds.push("audience");
+    if(a.sourceType!=="booking"&&b.sourceType!=="booking"){
+      // Two electives of the same group are NOT a conflict when their documented
+      // student lists do not intersect. scheduleAudienceOverlap is authoritative.
+      if(scheduleAudienceOverlap(a,b,db))kinds.push("audience");
+    }else if(a.group&&b.group&&normIdentity(a.group)===normIdentity(b.group)){
+      // A manual room booking with a group still blocks that whole group.
+      kinds.push("audience");
+    }
     if(!kinds.length)continue;
     out.push({id:`${globalConflictEventKey(a)}|${globalConflictEventKey(b)}`,date:a.date,kinds:[...new Set(kinds)],a,b});
   }
@@ -2383,6 +2487,37 @@ function conflictKindLabel(kinds){
   if(kinds.includes("teacher"))labels.push("викладач");
   if(kinds.includes("audience"))labels.push("група / студент");
   return labels.join(" + ");
+}
+function globalConflictOverlapStudentIds(a,b){
+  if(!a||!b||a.sourceType==="booking"||b.sourceType==="booking")return[];
+  const out=new Set();
+  const A=scheduleAudiencePartitions(a,db),B=scheduleAudiencePartitions(b,db);
+  for(const pa of A)for(const pb of B){
+    if(normIdentity(pa.group)!==normIdentity(pb.group))continue;
+    if(pa.mode==="selected"&&pb.mode==="selected"){
+      const bs=new Set((pb.studentIds||[]).map(Number));
+      (pa.studentIds||[]).forEach(id=>{if(bs.has(Number(id)))out.add(Number(id));});
+    }else if(pa.mode==="selected"&&pb.mode==="group"){
+      (pa.studentIds||[]).forEach(id=>out.add(Number(id)));
+    }else if(pa.mode==="group"&&pb.mode==="selected"){
+      (pb.studentIds||[]).forEach(id=>out.add(Number(id)));
+    }
+  }
+  return [...out];
+}
+function globalConflictOverlapStudentsHtml(c){
+  if(!c?.kinds?.includes("audience"))return"";
+  const ids=globalConflictOverlapStudentIds(c.a,c.b);
+  const names=ids.map(id=>db.students.find(st=>Number(st.id)===Number(id))?.name).filter(Boolean);
+  const aBy=scheduleOfficialAudienceNamesByGroup(c.a),bBy=scheduleOfficialAudienceNamesByGroup(c.b);
+  Object.keys(aBy).forEach(groupKey=>{
+    if(!bBy[groupKey])return;const bSet=new Set(bBy[groupKey].map(normIdentity));
+    aBy[groupKey].forEach(name=>{if(bSet.has(normIdentity(name)))names.push(name);});
+  });
+  const unique=[...new Map(names.map(name=>[normIdentity(name),name])).values()];
+  if(!unique.length)return"";
+  const shown=unique.slice(0,6),more=unique.length-shown.length;
+  return `<div class="conflict-student-overlap"><b>Збігаються студенти:</b><span>${shown.map(esc).join(", ")}${more>0?` · ще ${more}`:""}</span></div>`;
 }
 function conflictPairLabel(a,b){
   const pa=pairDisplay(a),pb=pairDisplay(b);
@@ -2408,7 +2543,7 @@ function renderConflicts(){
     <div class="section-head"><div><h2>Усі накладки</h2><div class="small">Автоматично зібрані конфлікти викладачів, груп / студентів та аудиторій. Спільне заняття з однаковими викладачем, дисципліною, часом і аудиторією не рахується накладкою.</div></div><button class="secondary" onclick="renderConflicts()">↻ Оновити</button></div>
     <div class="conflict-summary-grid"><div><span>УСЬОГО</span><b>${all.length}</b></div><div><span>АУДИТОРІЇ</span><b>${byType.room}</b></div><div><span>ВИКЛАДАЧІ</span><b>${byType.teacher}</b></div><div><span>ГРУПИ / СТУДЕНТИ</span><b>${byType.audience}</b></div></div>
     <div class="conflict-filters"><label>Місяць<input id="conflictMonth" type="month" min="${academicYearBounds().minMonth}" max="${academicYearBounds().maxMonth}" value="${esc(month)}"></label><label>Тип<select id="conflictType"><option value="all">Усі типи</option><option value="room" ${type==="room"?"selected":""}>Аудиторія</option><option value="teacher" ${type==="teacher"?"selected":""}>Викладач</option><option value="audience" ${type==="audience"?"selected":""}>Група / студент</option></select></label>${month||type!=="all"?`<button class="secondary" onclick="window.conflictDashboardMonth='';window.conflictDashboardType='all';renderConflicts()">Скинути фільтр</button>`:""}</div>
-    ${filtered.length?`<div class="conflict-list">${filtered.map(c=>`<div class="conflict-list-row"><div class="conflict-list-date"><b>${esc(formatDate(c.date))}</b><span>${esc(conflictPairLabel(c.a,c.b)||"час не вказано")}</span></div><div class="conflict-type-pill">⚠ ${esc(conflictKindLabel(c.kinds))}</div><div class="conflict-two-events">${conflictEventSummary(c.a)}<div class="conflict-vs">×</div>${conflictEventSummary(c.b)}</div><div class="conflict-row-actions"><button class="primary" onclick="${globalConflictOpenAction(c.a)}">Виправити 1</button><button class="secondary" onclick="${globalConflictOpenAction(c.b)}">Виправити 2</button>${c.kinds.includes("room")&&c.a.room?`<button class="secondary" onclick="roomGridState.date='${esc(c.date)}';roomGridState.month='${esc(c.date.slice(0,7))}';go('roomGrid')">У сітці</button>`:""}</div></div>`).join("")}</div>`:`<div class="empty conflict-empty"><b>Накладок за вибраним фільтром немає.</b><span>Якщо з’явиться конфлікт, він автоматично потрапить сюди.</span></div>`}
+    ${filtered.length?`<div class="conflict-list">${filtered.map(c=>`<div class="conflict-list-row"><div class="conflict-list-date"><b>${esc(formatDate(c.date))}</b><span>${esc(conflictPairLabel(c.a,c.b)||"час не вказано")}</span></div><div class="conflict-type-pill">⚠ ${esc(conflictKindLabel(c.kinds))}</div><div class="conflict-two-events">${conflictEventSummary(c.a)}<div class="conflict-vs">×</div>${conflictEventSummary(c.b)}</div>${globalConflictOverlapStudentsHtml(c)}<div class="conflict-row-actions"><button class="primary" onclick="${globalConflictOpenAction(c.a)}">Виправити 1</button><button class="secondary" onclick="${globalConflictOpenAction(c.b)}">Виправити 2</button>${c.kinds.includes("room")&&c.a.room?`<button class="secondary" onclick="roomGridState.date='${esc(c.date)}';roomGridState.month='${esc(c.date.slice(0,7))}';go('roomGrid')">У сітці</button>`:""}</div></div>`).join("")}</div>`:`<div class="empty conflict-empty"><b>Накладок за вибраним фільтром немає.</b><span>Якщо з’явиться конфлікт, він автоматично потрапить сюди.</span></div>`}
   </div>`;
   $("#conflictMonth").onchange=e=>{window.conflictDashboardMonth=e.target.value||"";renderConflicts();};
   $("#conflictType").onchange=e=>{window.conflictDashboardType=e.target.value||"all";renderConflicts();};
