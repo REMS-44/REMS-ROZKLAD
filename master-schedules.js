@@ -266,7 +266,7 @@
     ["2026-10-27",2,["Бондарчук Анастасія Сергіївна"]],
     ["2026-10-27",3,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
     ["2026-10-28",2,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
-    ["2026-10-29",1,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-10-29",6,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
     ["2026-11-03",2,["Бондарчук Анастасія Сергіївна"]],
     ["2026-11-03",3,["Чирва Дарина Олегівна","Будяк Станіслав Миколайович"]],
     ["2026-11-10",2,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
@@ -286,7 +286,8 @@
     2:[["10:40","11:20"],["11:20","12:00"]],
     3:[["12:30","13:10"],["13:10","13:50"]],
     4:[["14:10","14:50"],["14:50","15:30"]],
-    5:[["15:40","16:20"],["16:20","17:00"]]
+    5:[["15:40","16:20"],["16:20","17:00"]],
+    6:[["17:10","17:50"],["17:50","18:30"]]
   };
   const studentIdsByName=msm25StudentIdByName();
   const consultationRows=[];
@@ -300,6 +301,6 @@
   const consultationKey=item=>[item.date,item.pairId,item.specialHalf,norm(item.group),norm(item.students||item.coverage),norm(item.type)].join("|");
   const existingConsultations=new Set((state.schedule||[]).map(consultationKey));
   consultationRows.forEach(item=>{if(!existingConsultations.has(consultationKey(item))){state.schedule.push(item);existingConsultations.add(consultationKey(item));}});
-  state.msm25ConsultationVersion="2026-09-17-v3-fisher-no-first-pairs";
+  state.msm25ConsultationVersion="2026-09-17-v4-fisher-restored-no-first-pairs";
   state.msm25ScheduleVersion="2026-09-17-v2-elective-audiences";
 })();

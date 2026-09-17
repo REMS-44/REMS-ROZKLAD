@@ -434,22 +434,29 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
 
 /* v1.0.12 · pair-slot month calendar + stable subject/group colors */
 
-/* Stable colors are intentionally pastel: the same discipline+group looks
-   identical in group, teacher and room calendars without becoming a "traffic light". */
+/* v2.0.53 · two-level timetable colours.
+   Card background identifies the GROUP; the left accent and discipline name identify the DISCIPLINE. */
 .subject-colored{
-  background:var(--subject-bg)!important;
+  background:var(--group-bg,var(--subject-bg))!important;
   border-left-color:var(--subject-border)!important;
-  color:var(--subject-text)!important;
+  color:var(--group-text,var(--subject-text))!important;
 }
 .subject-colored b,
 .subject-colored strong,
-.subject-colored .teacher-month-discipline,
 .subject-colored .teacher-month-group{
+  color:var(--group-text,var(--subject-text))!important;
+}
+.subject-colored .teacher-month-discipline{
   color:var(--subject-text)!important;
+  font-weight:750;
 }
 .subject-colored span,
 .subject-colored small{
-  color:var(--subject-muted)!important;
+  color:var(--group-muted,var(--subject-muted))!important;
+}
+.room-event-lesson.subject-colored > span:not(.room-event-badge){
+  color:var(--subject-text)!important;
+  font-weight:700;
 }
 .room-event-lesson.subject-colored{
   border-left:4px solid var(--subject-border);

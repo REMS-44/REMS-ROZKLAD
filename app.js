@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=44;
+const APP_SCHEMA_VERSION=45;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -946,6 +946,23 @@ function migrate(old){
       fresh.schedule.push(item);
     });
     fresh.msm25ConsultationVersion="2026-09-17-v3-fisher-no-first-pairs";
+  }
+  // v2.0.53: restore Fisher MSM-25 consultations after the no-first-pair refresh.
+  // A stale pair-1 seed could stop master-schedules.js before any consultations were bundled.
+  if(previousSchemaVersion<45){
+    const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(target)target.color="#c9789c";
+    fresh.schedule=fresh.schedule.filter(x=>!(x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084));
+    const seedStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+    bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084).forEach(seed=>{
+      const source=seedStudentById.get(Number(seed.studentId));
+      const student=fresh.students.find(s=>source&&normIdentity(s.group)===normIdentity(source.group)&&normIdentity(s.name)===normIdentity(source.name)&&s.status!=="archived");
+      if(!student)return;
+      const item={...clone(seed),studentId:Number(student.id),students:student.name,coverage:student.name,disciplineId:target?.id||seed.disciplineId,disciplineIds:target?[target.id]:seed.disciplineIds};
+      if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
+      fresh.schedule.push(item);
+    });
+    fresh.msm25ConsultationVersion="2026-09-17-v4-fisher-restored-no-first-pairs";
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.
@@ -8521,12 +8538,22 @@ function stableVisualHash(value){
   return h>>>0;
 }
 function scheduleColorVars(x){
-  const hash=stableVisualHash(scheduleVisualKey(x));
-  const hue=hash%360;
-  const sat=52+((hash>>>8)%13);
-  const bgLight=92+((hash>>>16)%3);
-  const borderLight=54+((hash>>>20)%7);
-  return `--subject-h:${hue};--subject-s:${sat}%;--subject-bg:hsl(${hue} ${sat}% ${bgLight}%);--subject-border:hsl(${hue} ${Math.min(78,sat+8)}% ${borderLight}%);--subject-text:hsl(${hue} 48% 23%);--subject-muted:hsl(${hue} 28% 42%)`;
+  const group=resolvedScheduleGroup(x,db)||x?.group||"";
+  const discipline=x?.discipline||x?.title||x?.kind||"Подія";
+  const groupKey=normIdentity(group);
+  const fixedGroupHues={
+    [normIdentity("РЕМС-34")]:214,
+    [normIdentity("РЕМС-44")]:348
+  };
+  const groupHash=stableVisualHash(groupKey||"group");
+  const subjectHash=stableVisualHash(normIdentity(discipline)||"subject");
+  const groupHue=fixedGroupHues[groupKey]??(groupHash%360);
+  let subjectHue=subjectHash%360;
+  // Keep the discipline accent visually separate from the group's background hue.
+  if(Math.abs(subjectHue-groupHue)<28||Math.abs(subjectHue-groupHue)>332)subjectHue=(subjectHue+72)%360;
+  const groupSat=56+((groupHash>>>8)%8);
+  const subjectSat=62+((subjectHash>>>8)%10);
+  return `--group-h:${groupHue};--group-bg:hsl(${groupHue} ${groupSat}% 94%);--group-text:hsl(${groupHue} 48% 24%);--group-muted:hsl(${groupHue} 28% 43%);--subject-h:${subjectHue};--subject-s:${subjectSat}%;--subject-bg:hsl(${groupHue} ${groupSat}% 94%);--subject-border:hsl(${subjectHue} ${subjectSat}% 49%);--subject-text:hsl(${subjectHue} 58% 27%);--subject-muted:hsl(${subjectHue} 34% 42%)`;
 }
 function scheduleLessonsForGroup(group){
   return db.schedule.filter(x=>!x.specialSchedule&&scheduleIncludesGroup(x,group)&&dateInBounds(x.date));
