@@ -2229,27 +2229,47 @@ function roomEvents(date,room,pairId){
   return [...schedule,...bookings];
 }
 function roomBookingLabel(b){return b.title||b.kind||"Бронювання";}
+function eventResolvedTimes(x){
+  let start=String(x?.start||"").trim(),end=String(x?.end||"").trim();
+  if((!start||!end)&&x?.pairId!==undefined&&x?.pairId!==null){
+    const p=(db.bellSchedule||[]).find(v=>String(v.id)===String(x.pairId));
+    if(p){start=start||String(p.start||"");end=end||String(p.end||"");}
+  }
+  return {start,end};
+}
+function roomEventConflictFlags(events=[]){
+  const flags=events.map(()=>false);
+  for(let i=0;i<events.length;i++)for(let j=i+1;j<events.length;j++){
+    const a=eventResolvedTimes(events[i]?.data),b=eventResolvedTimes(events[j]?.data);
+    const overlaps=a.start&&a.end&&b.start&&b.end?timeOverlap(a.start,a.end,b.start,b.end):true;
+    if(overlaps){flags[i]=true;flags[j]=true;}
+  }
+  return flags;
+}
 function specialRoomGridKindLabel(x){
   if(x?.specialKind==="consult_bachelor")return "БАКАЛАВРСЬКА РОБОТА";
   if(x?.specialKind==="consult_master")return "МАГІСТЕРСЬКА РОБОТА";
   return "ІНДИВІДУАЛЬНЕ ЗАНЯТТЯ";
 }
 
-function roomEventCard(ev){
-  const x=ev.data;
+function roomEventCard(ev,isConflict=false){
+  const x=ev.data,conflictClass=isConflict?" room-event-conflict":"",warning=isConflict?`<span class="room-event-conflict-badge">⚠ НАКЛАДКА</span>`:"";
   if(ev.external){
     const pid=ev.source==="booking"?roomBookingProgramId(x):(db.groups.find(g=>scheduleAudienceGroups(x).some(code=>normIdentity(code)===normIdentity(g.code)))?.programId||"rems");
     const p=programById(pid);
-    const audience=ev.source==="booking"?(x.group||roomBookingLabel(x)):(scheduleAudienceLabel(x)||x.group||"");
-    return `<div class="room-event room-event-external"><span class="room-event-badge">ЗАЙНЯТО · ІНША СПЕЦІАЛЬНІСТЬ</span><b>${esc(p?.shortName||p?.name||"Інша спеціальність")}</b>${audience?`<span>${esc(audience)}</span>`:""}<small>Спільний ресурс · редагування у відповідній спеціальності</small></div>`;
+    const audience=ev.source==="booking"?(x.group||""):(scheduleAudienceLabel(x)||x.group||"");
+    const discipline=ev.source==="booking"?roomBookingLabel(x):(x.discipline||x.title||"");
+    const teacher=String(x.teacher||"").trim();
+    const programLabel=p?.shortName||p?.name||"Інша спеціальність";
+    return `<div class="room-event room-event-external${conflictClass}">${warning}<span class="room-event-badge">ЗАЙНЯТО · ІНША СПЕЦІАЛЬНІСТЬ</span><span class="room-event-external-program">${esc(programLabel)}</span>${audience?`<b>${esc(audience)}</b>`:""}${discipline?`<span class="room-event-external-discipline">${esc(discipline)}</span>`:""}${teacher?`<small class="room-event-external-teacher">${esc(teacher)}</small>`:""}</div>`;
   }
   if(ev.source==="schedule"){
     if(x.specialSchedule){
-      return `<button class="room-event room-event-lesson room-event-special subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openSpecialEventFromRoom(${x.id})"><span class="room-event-badge room-event-special-kind">${esc(specialRoomGridKindLabel(x))}</span><b>${esc(specialStudentName(x))}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")} · ${esc(x.start||"")}–${esc(x.end||"")}</small></button>`;
+      return `<button class="room-event room-event-lesson room-event-special subject-colored${conflictClass}" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openSpecialEventFromRoom(${x.id})">${warning}<span class="room-event-badge room-event-special-kind">${esc(specialRoomGridKindLabel(x))}</span><b>${esc(specialStudentName(x))}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")} · ${esc(x.start||"")}–${esc(x.end||"")}</small></button>`;
     }
-    return `<button class="room-event room-event-lesson subject-colored" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openLessonModal(${x.id})"><span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(scheduleAudienceLabel(x)||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
+    return `<button class="room-event room-event-lesson subject-colored${conflictClass}" style="${scheduleColorVars(x)}" onclick="event.stopPropagation();openLessonModal(${x.id})">${warning}<span class="room-event-badge">ЗАНЯТТЯ</span><b>${esc(scheduleAudienceLabel(x)||"—")}</b><span>${esc(x.discipline||"—")}</span><small>${esc(x.teacher||"—")}</small></button>`;
   }
-  return `<button class="room-event room-event-booking" onclick="event.stopPropagation();openRoomBookingModal(${x.id})"><span class="room-event-badge">${esc((x.kind||"БРОНЮВАННЯ").toUpperCase())}</span><b>${esc(x.group||roomBookingLabel(x))}</b><span>${esc(x.group?roomBookingLabel(x):(x.teacher||""))}</span>${x.teacher&&x.group?`<small>${esc(x.teacher)}</small>`:""}</button>`;
+  return `<button class="room-event room-event-booking${conflictClass}" onclick="event.stopPropagation();openRoomBookingModal(${x.id})">${warning}<span class="room-event-badge">${esc((x.kind||"БРОНЮВАННЯ").toUpperCase())}</span><b>${esc(x.group||roomBookingLabel(x))}</b><span>${esc(x.group?roomBookingLabel(x):(x.teacher||""))}</span>${x.teacher&&x.group?`<small>${esc(x.teacher)}</small>`:""}</button>`;
 }
 function roomGridDateLabel(date){const d=new Date(date+"T12:00:00");return d.toLocaleDateString("uk-UA",{weekday:"long",day:"numeric",month:"long",year:"numeric"});}
 function monthDays(month){const [y,m]=month.split("-").map(Number),last=new Date(y,m,0).getDate();return Array.from({length:last},(_,i)=>`${y}-${String(m).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`);}
@@ -2266,8 +2286,8 @@ function renderRoomGrid(){
   $("#page-roomGrid").innerHTML=`${roomAreaTabs("grid")}<div class="card section room-grid-shell"><div class="section-head"><div><h2>Зайнятість аудиторій</h2><div class="small">Показані тільки аудиторії, позначені для кафедральної сітки обраної спеціальності. Якщо така аудиторія зайнята заняттям іншої спеціальності, це також видно в сітці як блок зайнятості.</div></div><div class="actions"><button class="secondary" onclick="shiftRoomGridDate(-1)">← День</button><button class="secondary" onclick="roomGridToday()">Поточний навчальний день</button><button class="secondary" onclick="shiftRoomGridDate(1)">День →</button><button class="primary" onclick="openRoomBookingModal()">+ Бронювання</button></div></div>
     <div class="room-grid-toolbar"><label>Місяць<input id="roomGridMonth" type="month" min="${academicYearBounds().minMonth}" max="${academicYearBounds().maxMonth}" value="${esc(roomGridState.month)}"></label><label>Дата<input id="roomGridDate" type="date" ${dateAttrs()} value="${esc(roomGridState.date)}"></label><div class="room-date-title">${esc(roomGridDateLabel(roomGridState.date))}</div><button class="secondary" onclick="go('rooms')">Довідник аудиторій</button></div>
     ${roomMonthStrip()}
-    ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room ${r.virtualFromSchedule?"from-approved-schedule":""}"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id);return `<div class="rg-cell ${events.length?"occupied":"free"}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${events.length?events.map(roomEventCard).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}
-    <div class="room-grid-legend"><span><i class="legend-dot lesson"></i> заняття з розкладу</span><span><i class="legend-dot booking"></i> окреме бронювання</span><span><i class="legend-dot free"></i> вільна аудиторія</span></div>
+    ${rooms.length?`<div class="room-grid-wrap"><div class="room-grid" style="--room-count:${rooms.length}"><div class="rg-corner">Пара</div>${rooms.map(r=>`<div class="rg-room ${r.virtualFromSchedule?"from-approved-schedule":""}"><b>${esc(r.name)}</b><span>${esc(r.note||"")}</span></div>`).join("")}${pairs.map(pair=>`<div class="rg-pair"><b>${pair.id}</b><span>пара</span><small>${esc(pair.start||"")}<br>${esc(pair.end||"")}</small></div>${rooms.map(r=>{const events=roomEvents(roomGridState.date,r.name,pair.id),conflictFlags=roomEventConflictFlags(events),hasConflict=conflictFlags.some(Boolean);return `<div class="rg-cell ${events.length?"occupied":"free"} ${hasConflict?"room-conflict":""}" onclick="if(event.target===this)openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">${hasConflict?`<div class="rg-conflict-alert">⚠ Накладка в аудиторії</div>`:""}${events.length?events.map((ev,i)=>roomEventCard(ev,conflictFlags[i])).join(""):`<button class="room-free" onclick="event.stopPropagation();openRoomBookingModal(null,{date:'${roomGridState.date}',pairId:${JSON.stringify(pair.id)},room:'${esc(r.name)}'})">Вільна</button>`}</div>`;}).join("")}`).join("")}</div></div>`:`<div class="empty">Немає аудиторій, позначених «Показувати у сітці кафедри». Відкрий «Аудиторії» та увімкни потрібні.</div>`}
+    <div class="room-grid-legend"><span><i class="legend-dot lesson"></i> заняття з розкладу</span><span><i class="legend-dot booking"></i> окреме бронювання</span><span><i class="legend-dot free"></i> вільна аудиторія</span><span><i class="legend-dot conflict-dot"></i> накладка в аудиторії</span></div>
   </div>`;
   $("#roomGridMonth").onchange=e=>{const m=clampAcademicMonth(e.target.value);roomGridState.month=m;const day=roomGridState.date.slice(8);const max=new Date(Number(m.slice(0,4)),Number(m.slice(5,7)),0).getDate();roomGridState.date=clampDate(`${m}-${String(Math.min(Number(day),max)).padStart(2,"0")}`);renderRoomGrid();};
   $("#roomGridDate").onchange=e=>{if(e.target.value)selectRoomGridDate(e.target.value);};
@@ -6775,7 +6795,7 @@ function renderScheduleTable(){
           <td><b>${formatDate(x.date)}</b></td>
           <td><b>${esc(pairDisplay(x))}</b>${pairTimeDisplay(x)?`<div class="small">${esc(pairTimeDisplay(x))}</div>`:""}</td>
           <td>${esc(scheduleAudienceLabel(x)||"—")}</td>
-          <td><b>${esc(x.discipline||"—")}</b></td>
+          <td><b>${esc(x.discipline||"—")}</b>${(()=>{const cs=conflictsFor(x,x.id);return cs.length?`<div class="journal-conflict-mark" title="${esc(conflictReasonLines(x,cs).join(" "))}">⚠ накладка</div>`:"";})()}</td>
           <td>${esc(x.type||"—")}</td>
           <td><b>${esc(x.room||"—")}</b></td>
           <td>${esc(x.teacher||"—")}</td>
@@ -8645,7 +8665,9 @@ function groupEventSlotId(ev){
 function groupMonthEventCard(ev){
   const x=ev.data;
   if(ev.source==="schedule"){
-    return `<button class="group-slot-event" style="${scheduleColorVars(x)}" onclick="${isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">
+    const cs=conflictsFor(x,x.id),hasConflict=cs.length>0,conflictText=hasConflict?conflictReasonLines(x,cs).join(" "):"";
+    return `<button class="group-slot-event ${hasConflict?"schedule-conflict-card":""}" ${conflictText?`title="${esc(conflictText)}"`:""} style="${scheduleColorVars(x)}" onclick="${isReadyExternalScheduleItem(x)?`openReadyScheduleModal(${x.id})`:`openLessonModal(${x.id})`}">
+      ${hasConflict?`<span class="schedule-conflict-badge">⚠ НАКЛАДКА</span>`:""}
       <div class="group-slot-event-main">
         <b>${esc(x.discipline||"Заняття")}</b>
         <span>${esc(x.teacher||"—")}</span>

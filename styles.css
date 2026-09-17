@@ -7702,3 +7702,42 @@ td .small{font-size:12px}
   .teacher-open-photo.teacher-avatar-xl,.teacher-schedule-photo.teacher-avatar-xl{width:96px;height:124px;border-radius:14px}
   .teacher-schedule-profile h2{font-size:22px}
 }
+
+/* v2.0.58 — visible overlap control in calendars and room grid */
+.rg-cell.room-conflict{background:#fff4f4!important;outline:2px solid #dc2626;outline-offset:-2px}
+.rg-conflict-alert{display:flex;align-items:center;gap:4px;margin:0 0 4px;padding:4px 6px;border-radius:6px;background:#dc2626;color:#fff;font-size:7.5px;font-weight:900;letter-spacing:.02em;text-transform:uppercase}
+.room-event.room-event-conflict{box-shadow:0 0 0 2px #dc2626 inset!important;background-color:#fff1f2!important}
+.room-event-conflict-badge{display:block!important;width:max-content;max-width:100%;margin:0 0 3px;padding:2px 5px;border-radius:999px;background:#dc2626!important;color:#fff!important;font-size:6px!important;font-weight:900!important;line-height:1.15!important;letter-spacing:.03em}
+.legend-dot.conflict-dot{background:#dc2626}
+.group-slot-event.schedule-conflict-card{position:relative;box-shadow:0 0 0 2px #dc2626 inset!important}
+.schedule-conflict-badge{display:inline-flex!important;width:max-content;margin:0 0 3px;padding:2px 5px;border-radius:999px;background:#dc2626;color:#fff!important;font-size:7px!important;font-weight:900!important;letter-spacing:.03em}
+.journal-conflict-mark{display:inline-block;margin-top:3px;padding:2px 5px;border-radius:999px;background:#fee2e2;color:#b91c1c;font-size:8px;font-weight:900}
+
+/* v2.0.59 — teacher surname/name is easier to read in schedule cards */
+.group-slot-event-main span{
+  font-size:9.5px!important;
+  line-height:1.18!important;
+  font-weight:850!important;
+  color:var(--group-text,var(--subject-text))!important;
+  letter-spacing:.01em;
+}
+.room-event-lesson small{
+  font-size:10px!important;
+  line-height:1.2!important;
+  font-weight:800!important;
+  color:var(--group-text,var(--subject-text))!important;
+}
+.room-event-special small{
+  font-size:10px!important;
+  font-weight:800!important;
+}
+.ready-schedule-card-line.teacher-line b,
+.ready-schedule-card-line.teacher-line span{
+  font-weight:850!important;
+}
+
+
+/* v2.0.60 — external specialty room cards show group, discipline and teacher */
+.room-event-external .room-event-external-program{font-size:6.5px;line-height:1.05;color:#6b7280;font-weight:700;margin-top:1px}
+.room-event-external .room-event-external-discipline{font-size:7.5px;line-height:1.12;color:#374151;font-weight:700;margin-top:2px}
+.room-event-external .room-event-external-teacher{font-size:7.5px;line-height:1.12;color:#111827;font-weight:900;margin-top:2px}
