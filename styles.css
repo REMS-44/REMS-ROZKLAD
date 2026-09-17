@@ -462,6 +462,41 @@ body.teacher-portal-mode #page-mySchedule{max-width:1600px}
   border-left:4px solid var(--subject-border);
 }
 
+/* v2.0.50 · master's consultations are immediately visible in Fisher's calendar. */
+.teacher-month-special.master-consultation,
+.teacher-slot-special.master-consultation{
+  background:#ff2f92!important;
+  border-left-color:#b50055!important;
+  color:#fff!important;
+  box-shadow:0 2px 8px rgba(181,0,85,.22);
+}
+.teacher-month-special.master-consultation b,
+.teacher-month-special.master-consultation strong,
+.teacher-month-special.master-consultation span,
+.teacher-month-special.master-consultation small,
+.teacher-slot-special.master-consultation b,
+.teacher-slot-special.master-consultation strong,
+.teacher-slot-special.master-consultation span,
+.teacher-slot-special.master-consultation small{
+  color:#fff!important;
+}
+.teacher-month-special.master-consultation .teacher-month-group{
+  display:block;
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  overflow-wrap:anywhere;
+  font-size:10px;
+  line-height:1.12;
+  font-weight:900;
+}
+.teacher-slot-special.master-consultation .teacher-slot-event-main b{
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  overflow-wrap:anywhere;
+}
+
 /* Group monthly calendar: every visible day has all bell-schedule pair slots. */
 .group-month-page .teacher-month-calendar{
   grid-template-columns:repeat(7,minmax(185px,1fr));

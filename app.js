@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=41;
+const APP_SCHEMA_VERSION=42;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -906,6 +906,25 @@ function migrate(old){
       if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
       fresh.schedule.push(item);existing.add(key);
     });
+  }
+  // v2.0.50: replace the earlier consultation distribution with the approved
+  // 3 + 6 + 2 + 2 + 1 periods, and keep the workload bright pink.
+  if(previousSchemaVersion<42){
+    const target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(target){
+      target.color="#ff2f92";
+      fresh.schedule=fresh.schedule.filter(x=>!(x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084));
+      const seedStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+      bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084).forEach(seed=>{
+        const source=seedStudentById.get(Number(seed.studentId));
+        const student=fresh.students.find(s=>source&&normIdentity(s.group)===normIdentity(source.group)&&normIdentity(s.name)===normIdentity(source.name)&&s.status!=="archived");
+        if(!student)return;
+        const item={...clone(seed),studentId:Number(student.id),students:student.name,coverage:student.name,disciplineId:target.id,disciplineIds:[target.id]};
+        if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
+        fresh.schedule.push(item);
+      });
+      fresh.msm25ConsultationVersion="2026-09-17-v2-fisher-3-6-2-2-1";
+    }
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.
@@ -4709,7 +4728,10 @@ function timeToMinutesValue(v){const [h,m]=String(v||"00:00").split(":").map(Num
 function minutesToTimeValue(v){const h=Math.floor(v/60),m=v%60;return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;}
 function specialHalfTimes(pairId,half){const p=pairById(pairId);if(!p||!p.start||!p.end)return {start:"",end:""};const start=timeToMinutesValue(p.start),end=timeToMinutesValue(p.end),mid=Math.round((start+end)/2);return Number(half)===2?{start:minutesToTimeValue(mid),end:minutesToTimeValue(end)}:{start:minutesToTimeValue(start),end:minutesToTimeValue(mid)};}
 function specialSlotLabel(x){const p=pairById(x.pairId),half=Number(x.specialHalf)===2?"ІІ половина":"І половина";return `${p?.id||x.pairId||"—"} пара · ${half}${x.start&&x.end?` · ${x.start}–${x.end}`:""}`;}
-function specialStudentName(x){const s=db.students.find(s=>Number(s.id)===Number(x.studentId));return s?.name||x.students||"Студент";}
+function specialStudentName(x){const s=db.students.find(s=>Number(s.id)===Number(x.studentId));return s?.name||x.students||x.coverage||"Студент";}
+function specialStudentFirstAndLastName(x){
+  return String(specialStudentName(x)||"Студент").trim().split(/\s+/).slice(0,2).join(" ");
+}
 function specialKindTabsHtml(){normalizeSpecialKindForProgram();return `<div class="special-kind-tabs">${availableSpecialKinds().map(k=>{const remaining=specialLoadRows(k.id).reduce((a,x)=>a+x.remaining,0);return `<button class="${specialScheduleState.kind===k.id?"active":""}" onclick="setSpecialKind('${k.id}')"><span>${esc(k.short)}</span><b>${fmtHours(remaining)} год</b></button>`;}).join("")}</div>`;}
 function beginDirectStudentAssignment(disciplineId,teacherId,typeId){
   const d=disciplineById(disciplineId);
@@ -8803,7 +8825,7 @@ function teacherPairSlotEventCard(ev,source){
   const x=ev.data;
   if(ev.source==="schedule"){
     if(x.specialSchedule){
-      return `<div class="teacher-slot-event teacher-slot-special subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-slot-event-main"><b>${esc(specialStudentName(x))}</b><span>${esc(x.discipline||"Заняття")}</span></div><div class="teacher-slot-event-meta"><strong>${esc(x.start||"")}–${esc(x.end||"")}${x.room?` · ауд. ${esc(x.room)}`:""}</strong><small>½ пари · ${esc(x.type||specialKindMeta(x.specialKind).short)}</small></div></div>`;
+      return `<div class="teacher-slot-event teacher-slot-special ${x.specialKind==="consult_master"?"master-consultation":""} subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-slot-event-main"><b title="${esc(specialStudentFirstAndLastName(x))}">${esc(specialStudentFirstAndLastName(x))}</b><span>${esc(x.discipline||"Заняття")}</span></div><div class="teacher-slot-event-meta"><strong>${esc(x.start||"")}–${esc(x.end||"")}${x.room?` · ауд. ${esc(x.room)}`:""}</strong><small>½ пари · ${esc(x.type||specialKindMeta(x.specialKind).short)}</small></div></div>`;
     }
     return `<div class="teacher-slot-event subject-colored" style="${scheduleColorVars(x)}">
       <div class="teacher-slot-event-main"><b>${esc(scheduleAudienceLabel(x)||"—")}</b><span>${esc(x.discipline||"Заняття")}</span></div>
@@ -8866,7 +8888,7 @@ function teacherMonthEventCard(ev,source){
   const pair=teacherEventPairLabel(x,source);
   if(ev.source==="schedule"){
     if(x.specialSchedule){
-      return `<div class="teacher-month-event teacher-month-special subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-month-event-top"><b>½ ${esc(pair)}</b><strong>${esc(x.start||"")}–${esc(x.end||"")}</strong></div><span class="teacher-month-group">${esc(specialStudentName(x))}</span><span class="teacher-month-discipline">${esc(x.discipline||"Заняття")}</span><small>${esc(x.type||specialKindMeta(x.specialKind).short)}${x.room?` · ауд. ${esc(x.room)}`:""}</small></div>`;
+      return `<div class="teacher-month-event teacher-month-special ${x.specialKind==="consult_master"?"master-consultation":""} subject-colored" style="${scheduleColorVars(x)}"><div class="teacher-month-event-top"><b>½ ${esc(pair)}</b><strong>${esc(x.start||"")}–${esc(x.end||"")}</strong></div><span class="teacher-month-group" title="${esc(specialStudentFirstAndLastName(x))}">${esc(specialStudentFirstAndLastName(x))}</span><span class="teacher-month-discipline">${esc(x.discipline||"Заняття")}</span><small>${esc(x.type||specialKindMeta(x.specialKind).short)}${x.room?` · ауд. ${esc(x.room)}`:""}</small></div>`;
     }
     return `<div class="teacher-month-event subject-colored" style="${scheduleColorVars(x)}">
       <div class="teacher-month-event-top"><b>${esc(pair)}</b><strong>${x.room?`ауд. ${esc(x.room)}`:"—"}</strong></div>
