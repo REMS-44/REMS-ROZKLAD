@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=52;
+const APP_SCHEMA_VERSION=53;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -1003,6 +1003,46 @@ function migrate(old){
     });
     fresh.rosterRepairVersion="2026-09-17-rems43-trofymenko-improv-v2";
   }
+  // v2.0.66: full elective-audience repair. Reapply every documented selected
+  // audience from the bundled authoritative seed and remove stale per-lesson
+  // audience snapshots whenever a lesson is linked to those disciplines.
+  if(previousSchemaVersion<53){
+    const documentedGroups=new Set([
+      "РЕМС-45","РЕМС-44","РЕМС-34","РЕМС-43",
+      "ТА-15","ТА-25","ТА-14","ТА-24","ТА-13","ТА-23","ТА-53","ТР-33"
+    ].map(normIdentity));
+    // Protocol №19 spelling correction used by the authoritative elective lists.
+    const shum=fresh.students.find(st=>normIdentity(st.group)===normIdentity("РЕМС-43")&&normIdentity(st.name)===normIdentity("Шумляківська Анастасія Юрївна"));
+    if(shum)shum.name="Шумляківська Анастасія Юріївна";
+    const seedStudentById=new Map(bundledStudents.map(st=>[Number(st.id),st]));
+    bundledDisciplines.filter(seed=>
+      documentedGroups.has(normIdentity(seed.group))
+      &&seed.audienceMode==="selected"
+      &&Array.isArray(seed.selectedStudentIds)
+    ).forEach(seed=>{
+      const target=fresh.disciplines.find(d=>
+        normIdentity(d.group)===normIdentity(seed.group)
+        &&normIdentity(String(d.name||"").replace(/\s*\(вибіркова\s+ок\)\s*/ig,""))===normIdentity(String(seed.name||"").replace(/\s*\(вибіркова\s+ок\)\s*/ig,""))
+        &&Number(d.semester||0)===Number(seed.semester||0)
+      );
+      if(!target)return;
+      const mapped=seed.selectedStudentIds.map(seedId=>{
+        const source=seedStudentById.get(Number(seedId));if(!source)return null;
+        return fresh.students.find(st=>st.status!=="archived"&&normIdentity(st.group)===normIdentity(source.group)&&normIdentity(st.name)===normIdentity(source.name))?.id||null;
+      }).map(Number).filter(Boolean);
+      target.audienceMode="selected";target.selectedStudentIds=[...new Set(mapped)];
+    });
+    (fresh.schedule||[]).forEach(item=>{
+      if(item.specialSchedule||isReadyExternalScheduleItem(item))return;
+      const linked=scheduleDisciplineIds(item).map(id=>fresh.disciplines.find(d=>Number(d.id)===Number(id))).filter(Boolean);
+      if(!linked.some(d=>documentedGroups.has(normIdentity(d.group))))return;
+      // Current discipline records now drive the audience. These fields were
+      // snapshots and are unsafe after corrections to elective membership.
+      delete item.audiencePartitionsSource;delete item.audienceStudentNamesOfficial;delete item.audienceStudentNamesOfficialByGroup;
+      delete item.audienceStudentIds;delete item.audiencePartitions;
+    });
+    fresh.rosterRepairVersion="2026-09-17-elective-audience-full-v3";
+  }
   // v2.0.49: import the approved half-pair MSM-25 consultations and remap
   // student/discipline IDs to the authoritative local roster.
   if(previousSchemaVersion<41){
@@ -1659,13 +1699,16 @@ function scheduleAudiencePartitions(item,state=db){
   if(!item)return[];
   if(item.specialSchedule){const studentId=Number(item.studentId)||null,student=(state?.students||[]).find(s=>Number(s.id)===studentId),group=item.group||student?.group||"";return group&&studentId?[{group,mode:"selected",studentIds:[studentId]}]:[];}
   const sourceExplicit=Array.isArray(item.audiencePartitions)&&item.audiencePartitionsSource?item.audiencePartitions.map(p=>normalizeAudiencePartition(p,state)).filter(Boolean):[];
-  if(sourceExplicit.length)return sourceExplicit;
+  // v2.0.66: for our own schedule, the CURRENT discipline audience is authoritative.
+  // Old cloud rows may still contain stale audiencePartitions from an earlier import.
   if(!isReadyExternalScheduleItem(item)){
     const byGroup=new Map();
     scheduleDisciplineIds(item).forEach(id=>{const d=(state?.disciplines||[]).find(x=>Number(x.id)===Number(id));if(!d||d.status==="archived"||!d.group)return;byGroup.set(normIdentity(d.group),disciplineAudiencePartition(d,state));});
-    scheduleAudienceGroups(item).forEach(group=>{const key=normIdentity(group);if(!byGroup.has(key))byGroup.set(key,{group,mode:"group",studentIds:[]});});
+    const explicitByGroup=new Map(sourceExplicit.map(p=>[normIdentity(p.group),p]));
+    scheduleAudienceGroups(item).forEach(group=>{const key=normIdentity(group);if(!byGroup.has(key))byGroup.set(key,explicitByGroup.get(key)||{group,mode:"group",studentIds:[]});});
     if(byGroup.size)return [...byGroup.values()].filter(Boolean);
   }
+  if(sourceExplicit.length)return sourceExplicit;
   const explicit=Array.isArray(item.audiencePartitions)?item.audiencePartitions.map(p=>normalizeAudiencePartition(p,state)).filter(Boolean):[];
   if(explicit.length)return explicit;
   return scheduleAudienceGroups(item).map(group=>({group,mode:"group",studentIds:[]}));
@@ -1687,7 +1730,10 @@ function scheduleAudienceOverlap(a,b,state=db){
   for(const pa of A)for(const pb of B){
     const groupKey=normIdentity(pa.group);if(groupKey!==normIdentity(pb.group))continue;
     if(pa.mode==="group"||pb.mode==="group")return true;
-    const ids=new Set((pa.studentIds||[]).map(Number));if((pb.studentIds||[]).some(id=>ids.has(Number(id))))return true;
+    const aIds=(pa.studentIds||[]).map(Number).filter(Boolean),bIds=(pb.studentIds||[]).map(Number).filter(Boolean);
+    // If both sides resolve to real roster IDs, they are definitive. Do NOT let
+    // stale imported name metadata manufacture a false conflict.
+    if(aIds.length&&bIds.length){const ids=new Set(aIds);if(bIds.some(id=>ids.has(id)))return true;continue;}
     const aNames=new Set((aNamesByGroup[groupKey]||[]).map(normIdentity));
     if(aNames.size&&(bNamesByGroup[groupKey]||[]).some(name=>aNames.has(normIdentity(name))))return true;
   }
@@ -2561,11 +2607,15 @@ function globalConflictOverlapStudentsHtml(c){
   if(!c?.kinds?.includes("audience"))return"";
   const ids=globalConflictOverlapStudentIds(c.a,c.b);
   const names=ids.map(id=>db.students.find(st=>Number(st.id)===Number(id))?.name).filter(Boolean);
-  const aBy=scheduleOfficialAudienceNamesByGroup(c.a),bBy=scheduleOfficialAudienceNamesByGroup(c.b);
-  Object.keys(aBy).forEach(groupKey=>{
-    if(!bBy[groupKey])return;const bSet=new Set(bBy[groupKey].map(normIdentity));
-    aBy[groupKey].forEach(name=>{if(bSet.has(normIdentity(name)))names.push(name);});
-  });
+  // Name-only fallback is used only when roster IDs cannot be resolved.
+  if(!ids.length){
+    const aParts=scheduleAudiencePartitions(c.a,db),bParts=scheduleAudiencePartitions(c.b,db);
+    const hasResolvedPair=aParts.some(pa=>bParts.some(pb=>normIdentity(pa.group)===normIdentity(pb.group)&&pa.mode==="selected"&&pb.mode==="selected"&&(pa.studentIds||[]).length&&(pb.studentIds||[]).length));
+    if(!hasResolvedPair){
+      const aBy=scheduleOfficialAudienceNamesByGroup(c.a),bBy=scheduleOfficialAudienceNamesByGroup(c.b);
+      Object.keys(aBy).forEach(groupKey=>{if(!bBy[groupKey])return;const bSet=new Set(bBy[groupKey].map(normIdentity));aBy[groupKey].forEach(name=>{if(bSet.has(normIdentity(name)))names.push(name);});});
+    }
+  }
   const unique=[...new Map(names.map(name=>[normIdentity(name),name])).values()];
   if(!unique.length)return"";
   const shown=unique.slice(0,6),more=unique.length-shown.length;
