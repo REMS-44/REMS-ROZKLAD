@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=51;
+const APP_SCHEMA_VERSION=52;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -971,6 +971,38 @@ function migrate(old){
       });
     });
   }
+  // v2.0.65: authoritative REMS-43 correction from protocol №19.
+  // Трофименко Софія Олександрівна does NOT attend
+  // "Імпровізація та інтерактив у розважальних програмах".
+  if(previousSchemaVersion<52){
+    const target=fresh.disciplines.find(d=>
+      normIdentity(d.group)===normIdentity("РЕМС-43")
+      &&normIdentity(String(d.name||"").replace(/\s*\(вибіркова\s+ок\)\s*/ig,""))===normIdentity("Імпровізація та інтерактив у розважальних програмах")
+    );
+    const trof=fresh.students.find(st=>
+      normIdentity(st.group)===normIdentity("РЕМС-43")
+      &&normIdentity(st.name)===normIdentity("Трофименко Софія Олександрівна")
+      &&st.status!=="archived"
+    );
+    if(target){
+      target.audienceMode="selected";
+      target.selectedStudentIds=[...new Set((target.selectedStudentIds||[]).map(Number).filter(id=>!trof||Number(id)!==Number(trof.id)))];
+      target.audienceSource="Витяг з протоколу №19 від 07.07.2026 · вибір ОК на 2026/2027";
+    }
+    (fresh.schedule||[]).filter(item=>
+      scheduleAudienceGroups(item).some(g=>normIdentity(g)===normIdentity("РЕМС-43"))
+      &&normIdentity(String(item.discipline||"").replace(/\s*\(вибіркова\s+ок\)\s*/ig,""))===normIdentity("Імпровізація та інтерактив у розважальних програмах")
+    ).forEach(item=>{
+      delete item.audiencePartitionsSource;
+      delete item.audienceStudentNamesOfficial;
+      delete item.audienceStudentNamesOfficialByGroup;
+      delete item.audienceStudentIds;
+      delete item.audiencePartitions;
+      item.audienceMode="selected";
+      item.coverage="Вибрані студенти";
+    });
+    fresh.rosterRepairVersion="2026-09-17-rems43-trofymenko-improv-v2";
+  }
   // v2.0.49: import the approved half-pair MSM-25 consultations and remap
   // student/discipline IDs to the authoritative local roster.
   if(previousSchemaVersion<41){
@@ -1469,16 +1501,33 @@ function loadData(){
 }
 let db=loadData(), currentPage="home";
 normalizeCurricula();
+
+// v2.0.65 performance: avoid repeated multi-megabyte serialization/cloning and
+// repeated full conflict scans in the same edit cycle.
+let localPersistTimer=null,globalConflictDataVersion=0,globalConflictCacheVersion=-1,globalConflictCacheValue=[];
+function persistLocalStateSoon(){
+  clearTimeout(localPersistTimer);
+  localPersistTimer=setTimeout(()=>{
+    localPersistTimer=null;
+    try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){console.error("Local save failed",e);}
+  },40);
+}
+function persistLocalStateNow(){
+  clearTimeout(localPersistTimer);localPersistTimer=null;
+  try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){console.error("Local save failed",e);}
+}
+window.addEventListener("beforeunload",persistLocalStateNow);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")persistLocalStateNow();});
+function invalidateGlobalConflictCache(){globalConflictDataVersion++;globalConflictCacheVersion=-1;}
 function save(){
   repairScheduleLinks(db);
   db.schemaVersion=APP_SCHEMA_VERSION;
-  localStorage.setItem(KEY,JSON.stringify(db));
+  invalidateGlobalConflictCache();
+  persistLocalStateSoon();
   scheduleAutomaticBackup();
   renderCurrent();
-  updateConflictNavBadge();
-  document.dispatchEvent(new CustomEvent("rems-rendered"));
   if(window.REMS_CLOUD?.configured){
-    if(window.REMS_CLOUD.canWrite?.()) window.REMS_CLOUD.schedulePush(clone(db));
+    if(window.REMS_CLOUD.canWrite?.()) window.REMS_CLOUD.schedulePush(db);
     else window.REMS_CLOUD.rejectLocalEdit?.();
   }
 }
@@ -1505,6 +1554,7 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
     window.REMS_INITIAL_DATA?.schedule||[]
   );
   db=migrate(reconciledRemote);
+  invalidateGlobalConflictCache();
 
   const addedSeedCurriculum=(db.curricula||[]).some(c=>!remoteCurriculumKeys.has(curriculumSeedKey(c)));
   const addedSeedGroup=(db.groups||[]).some(g=>!remoteGroupKeys.has(groupSeedKey(g)));
@@ -2410,9 +2460,9 @@ function openRoomBookingModal(id=null,preset={}){
   openModal(`<h2>${id?"Редагувати":"Нове"} бронювання аудиторії</h2><div class="notice">Цей запис блокує аудиторію. Він не впливає на навчальне навантаження викладача.</div><form id="roomBookingForm" class="form-grid"><label>Тип<select id="rbKind">${ROOM_BOOKING_KINDS.map(k=>`<option ${k===b.kind?"selected":""}>${esc(k)}</option>`).join("")}</select></label><label>Назва<input id="rbTitle" value="${esc(b.title||"")}" placeholder="Напр. Репетиція показу"></label><label>Дата<input id="rbDate" type="date" ${dateAttrs()} value="${esc(clampDate(b.date))}" required></label><label>Пара<select id="rbPair">${pairOptions(b.pairId)}</select></label><label>Аудиторія<select id="rbRoom">${scheduleRoomOptionsHtml(b.room,{allowEmpty:false})}</select></label><label>Група (необов’язково)<select id="rbGroup"><option value="">— без групи —</option>${groupOptions(b.group||"")}</select></label><label>Викладач / відповідальний (необов’язково)<select id="rbTeacher"><option value="">—</option>${activeTeacherOptions(b.teacherId)}</select></label><label class="check-label"><span>Основний розклад</span><span class="check-inline"><input id="rbShow" type="checkbox" ${b.showInTimetable?"checked":""}> Показувати в календарі обраної групи</span></label><label class="wide">Примітка<textarea id="rbNote" rows="3">${esc(b.note||"")}</textarea></label><div id="rbConflict" class="wide"></div><div class="wide actions"><button class="primary">${id?"Зберегти":"Забронювати"}</button>${id?`<button type="button" class="danger" onclick="deleteRoomBooking(${b.id})">Видалити бронювання</button>`:""}</div></form>`,true);
   const preview=()=>{const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),item={id:b.id,date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:$("#rbRoom").value,group:$("#rbGroup").value,teacherId:tid,teacher:teacherDisplay(t)};const cs=bookingConflicts(item,id);$("#rbConflict").innerHTML=cs.length?`<div class="conflict"><b>Конфлікт:</b><br>${cs.map(esc).join("<br>")}</div>`:`<div class="ok-box">Час вільний.</div>`;};
   initAdHocRoomSelect($("#rbRoom"),preview);["rbDate","rbPair","rbGroup","rbTeacher"].forEach(x=>$("#"+x).onchange=preview);preview();
-  $("#roomBookingForm").onsubmit=e=>{e.preventDefault();if(!dateInBounds($("#rbDate").value))return alert(`Дата має бути в межах навчального року: ${academicDateMessage()}.`);const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),group=$("#rbGroup").value,programId=db.groups.find(g=>normIdentity(g.code)===normIdentity(group))?.programId||activeProgramId(),obj={kind:$("#rbKind").value,title:$("#rbTitle").value.trim(),date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:rememberAdHocRoom($("#rbRoom").value),group,teacherId:tid,teacher:teacherDisplay(t),programId,showInTimetable:$("#rbShow").checked,note:$("#rbNote").value.trim()};const cs=bookingConflicts(obj,id);if(cs.length)return alert("Не можна зберегти через конфлікт:\n\n"+cs.join("\n"));if(id)Object.assign(b,obj);else db.roomBookings.push({id:uid(db.roomBookings),...obj});roomGridState.date=obj.date;closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();};
+  $("#roomBookingForm").onsubmit=e=>{e.preventDefault();if(!dateInBounds($("#rbDate").value))return alert(`Дата має бути в межах навчального року: ${academicDateMessage()}.`);const pair=pairById($("#rbPair").value),tid=Number($("#rbTeacher").value)||null,t=teacherById(tid),group=$("#rbGroup").value,programId=db.groups.find(g=>normIdentity(g.code)===normIdentity(group))?.programId||activeProgramId(),obj={kind:$("#rbKind").value,title:$("#rbTitle").value.trim(),date:$("#rbDate").value,pairId:$("#rbPair").value,start:pair?.start||"",end:pair?.end||"",room:rememberAdHocRoom($("#rbRoom").value),group,teacherId:tid,teacher:teacherDisplay(t),programId,showInTimetable:$("#rbShow").checked,note:$("#rbNote").value.trim()};const cs=bookingConflicts(obj,id);if(cs.length)return alert("Не можна зберегти через конфлікт:\n\n"+cs.join("\n"));if(id)Object.assign(b,obj);else db.roomBookings.push({id:uid(db.roomBookings),...obj});roomGridState.date=obj.date;closeModal();save();};
 }
-function deleteRoomBooking(id){const b=roomBookingById(id);if(!b)return;if(confirm(`Видалити бронювання «${roomBookingLabel(b)}»?`)){db.roomBookings=db.roomBookings.filter(x=>Number(x.id)!==Number(id));closeModal();save();if(currentPage==="roomGrid")renderRoomGrid();}}
+function deleteRoomBooking(id){const b=roomBookingById(id);if(!b)return;if(confirm(`Видалити бронювання «${roomBookingLabel(b)}»?`)){db.roomBookings=db.roomBookings.filter(x=>Number(x.id)!==Number(id));closeModal();save();}}
 
 
 /* v2.0.62 · global conflict dashboard */
@@ -2457,6 +2507,7 @@ function globalConflictEvents(){
   return [...lessons,...bookings].filter(x=>x.date);
 }
 function collectGlobalConflicts(){
+  if(globalConflictCacheVersion===globalConflictDataVersion)return globalConflictCacheValue;
   const events=globalConflictEvents().sort((a,b)=>(a.date||"").localeCompare(b.date||"")||String(a.start||"").localeCompare(String(b.start||"")));
   const out=[];
   for(let i=0;i<events.length;i++)for(let j=i+1;j<events.length;j++){
@@ -2479,6 +2530,7 @@ function collectGlobalConflicts(){
     if(!kinds.length)continue;
     out.push({id:`${globalConflictEventKey(a)}|${globalConflictEventKey(b)}`,date:a.date,kinds:[...new Set(kinds)],a,b});
   }
+  globalConflictCacheValue=out;globalConflictCacheVersion=globalConflictDataVersion;
   return out;
 }
 function conflictKindLabel(kinds){
@@ -7243,19 +7295,27 @@ function refreshTeachersAndLoad(preferredTeacherId=null){
   if(tid){const rem=remainingLoad(d,tid,type,currentEditingLessonId);$("#lwh").value=Math.max(0,Math.min(num(lt?.defaultUnit||1),rem||num(lt?.defaultUnit||1)));}renderLoadHint();
 }
 function recurringEditPeers(existing){
-  if(!existing?.repeatBatchId)return [];
+  if(!existing)return [];
   const same=(a,b)=>normIdentity(a.group)===normIdentity(b.group)
     &&Number(a.disciplineId||0)===Number(b.disciplineId||0)
     &&normIdentity(a.discipline||"")===normIdentity(b.discipline||"")
     &&normIdentity(a.type||"")===normIdentity(b.type||"")
     &&Number(resolvedScheduleTeacherId(a,db)||0)===Number(resolvedScheduleTeacherId(b,db)||0)
-    &&String(a.scheduleSource||"")===String(b.scheduleSource||"");
-  return db.schedule.filter(x=>x.repeatBatchId===existing.repeatBatchId&&same(x,existing)).sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.pairId||99)-Number(b.pairId||99));
+    &&String(a.scheduleSource||"")===String(b.scheduleSource||"")
+    &&String(a.pairId||"")===String(b.pairId||"")
+    &&normIdentity(a.start||"")===normIdentity(b.start||"")
+    &&normIdentity(a.end||"")===normIdentity(b.end||"");
+  if(existing.repeatBatchId){
+    return db.schedule.filter(x=>x.repeatBatchId===existing.repeatBatchId&&same(x,existing))
+      .sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.pairId||99)-Number(b.pairId||99));
+  }
+  const peers=db.schedule.filter(x=>!x.specialSchedule&&same(x,existing));
+  return peers.length>1?peers.sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.pairId||99)-Number(b.pairId||99)):[];
 }
 function recurringEditScopeHtml(existing,prefix){
   const peers=recurringEditPeers(existing);
   if(peers.length<2)return "";
-  return `<div class="wide recurring-edit-scope"><b>Ця пара повторюється (${peers.length} дат)</b><label>Змінити<select id="${prefix}EditScope"><option value="one">Лише цю дату</option><option value="all">Усі повторення цієї пари</option><option value="selected">Обрати конкретні дати</option></select></label><div id="${prefix}EditDates" class="recurring-edit-dates" style="display:none">${peers.map(x=>`<label><input type="checkbox" data-${prefix}-edit-date value="${x.id}" checked> ${formatDate(x.date)} · ${pairDisplay(x)}</label>`).join("")}</div><div class="small">Для «усі» або «обрані дати» дата кожного заняття зберігається, а вибрані зміни застосовуються одразу до всіх зазначених повторень.</div></div>`;
+  return `<div class="wide recurring-edit-scope"><b>Ця пара повторюється (${peers.length} дат)</b><label>Змінити<select id="${prefix}EditScope"><option value="one">Лише цю дату</option><option value="all">Усі повторення цієї пари</option><option value="selected">Обрати конкретні дати</option></select></label><div id="${prefix}EditDates" class="recurring-edit-dates" style="display:none">${peers.map(x=>`<label><input type="checkbox" data-${prefix}-edit-date value="${x.id}" checked> ${formatDate(x.date)} · ${pairDisplay(x)}</label>`).join("")}</div><div class="small">Працює і для зміни аудиторії: «усі» змінить аудиторію на всій серії, а «обрані дати» — тільки на відмічених датах. Дати занять при цьому не змінюються.</div></div>`;
 }
 function recurringEditTargetIds(existing,prefix){
   if(!existing)return [];

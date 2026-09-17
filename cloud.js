@@ -715,11 +715,11 @@ function settingsPart(st){return clean({schemaVersion:Number(st.schemaVersion)||
 function stateMap(items=[]){const m=new Map();for(const x of items)m.set(String(x.id),x);return m;}
 function schedulePush(state){
   if(!configured||!user||!profile||!["admin","dispatcher"].includes(profile.role))return;
-  pendingPush=clean(state);clearTimeout(pushTimer);pushTimer=setTimeout(flushPush,250);
+  pendingPush=state;clearTimeout(pushTimer);pushTimer=setTimeout(flushPush,300);
 }
 async function flushPush(){
   if(pushing||!pendingPush||!remoteState)return;
-  pushing=true;const wanted=pendingPush;pendingPush=null;
+  pushing=true;const wanted=clean(pendingPush);pendingPush=null;
   setSidebar("syncing","Синхронізація…",`${user.email} · ${roleLabel(profile.role)}`);
   try{
     const changedCatalog=[];
