@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=48;
+const APP_SCHEMA_VERSION=49;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -1002,6 +1002,19 @@ function migrate(old){
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.
+  // v2.0.57: consultations follow Fisher's existing bachelor workdays while bachelor classes run;
+  // after bachelor classes end, dedicated consultation days are concentrated midweek.
+  // Pairs 1, 6 and 7 remain forbidden; every consultation is also checked against the master's own timetable.
+  if(previousSchemaVersion<49){
+    fresh.schedule=fresh.schedule.filter(x=>!(x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084));
+    const consultationKeys=new Set();
+    bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084).forEach(seed=>{
+      const key=[seed.date,seed.pairId,seed.specialHalf,normIdentity(seed.students||seed.coverage),normIdentity(seed.type)].join("|");
+      if(!consultationKeys.has(key)){fresh.schedule.push({...seed});consultationKeys.add(key);}
+    });
+    fresh.msm25ConsultationVersion="2026-09-17-v8-existing-workdays-then-midweek";
+  }
+
   if(previousSchemaVersion<24){
     const masterTeacherIds=new Set();
     (fresh.disciplines||[]).filter(d=>isMasterGroupCode(d.group)).forEach(d=>(d.teacherIds||[]).forEach(id=>masterTeacherIds.add(Number(id))));
