@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=38;
+const APP_SCHEMA_VERSION=39;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -834,6 +834,13 @@ function migrate(old){
     fresh.schedule=mergeApprovedSchedule(
       fresh.schedule,
       bundledSchedule.filter(x=>scheduleAudienceGroups(x).some(code=>normIdentity(code)===normIdentity("МСМ-26")))
+    );
+  }
+  // v2.0.47: import the approved third-semester MSM-25 timetable once.
+  if(previousSchemaVersion<39){
+    fresh.schedule=mergeApprovedSchedule(
+      fresh.schedule,
+      bundledSchedule.filter(x=>scheduleAudienceGroups(x).some(code=>normIdentity(code)===normIdentity("МСМ-25")))
     );
   }
   // Teachers stay attached to their home departments. If an existing teacher already
