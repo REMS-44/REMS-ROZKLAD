@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=39;
+const APP_SCHEMA_VERSION=41;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -137,6 +137,10 @@ function approvedScheduleSemanticKey(item){
   const groups=scheduleAudienceGroups(item).map(normIdentity).sort().join("+");
   const slot=item.pairId!==null&&item.pairId!==undefined&&String(item.pairId)!==""
     ?`p:${item.pairId}`:`t:${item.start||""}-${item.end||""}`;
+  if(item.specialSchedule){
+    const student=normIdentity(item.students||item.coverage||item.studentId||"");
+    return [item.date||"",slot,groups,normIdentity(item.discipline),normIdentity(item.type),`half:${item.specialHalf||""}`,`student:${student}`].join("|");
+  }
   return [item.date||"",slot,groups,normIdentity(item.discipline),normIdentity(item.type)].join("|");
 }
 function mergeApprovedSchedule(remoteRows=[],seedRows=[]){
@@ -729,6 +733,30 @@ function migrate(old){
       fresh.disciplines.push(copy);
     });
   }
+  // v2.0.49: add Fisher's MSM-25 master's-supervision load for four students.
+  if(previousSchemaVersion<41){
+    const seed=bundledDisciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    if(seed){
+      let target=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity(seed.group)&&normIdentity(d.name)===normIdentity(seed.name));
+      if(!target){
+        target=clone(seed);
+        if(fresh.disciplines.some(d=>Number(d.id)===Number(target.id)))target.id=uid(fresh.disciplines);
+        fresh.disciplines.push(target);
+      }
+      const seedStudentById=new Map(bundledStudents.map(s=>[Number(s.id),s]));
+      const mappedIds=(seed.selectedStudentIds||[]).map(seedId=>{
+        const source=seedStudentById.get(Number(seedId));
+        return fresh.students.find(s=>source&&normIdentity(s.group)===normIdentity(source.group)&&normIdentity(s.name)===normIdentity(source.name)&&s.status!=="archived")?.id||null;
+      }).map(Number).filter(Boolean);
+      target.course=6;target.programId="master";target.semester=3;target.academicYear="2026/2027";
+      target.audienceMode="selected";target.selectedStudentIds=[...new Set(mappedIds)];
+      target.hours={...(target.hours||{}),11:14};
+      target.teacherIds=[...new Set([...(target.teacherIds||[]).map(Number),1084])];
+      target.teacherLoads={...(target.teacherLoads||{}),"1084":{...(target.teacherLoads?.["1084"]||{}),"11":mappedIds.length*14}};
+      target.teacherStudentLoads={...(target.teacherStudentLoads||{}),"1084":{...(target.teacherStudentLoads?.["1084"]||{}),"11":[...mappedIds]}};
+      target.note="По 14 консультацій кожному магістру згідно з узгодженим графіком.";
+    }
+  }
   // v2.0.41: fill the documented elective audiences once, but preserve any
   // composition the administrator has already entered manually.
   if(previousSchemaVersion<36){
@@ -842,6 +870,42 @@ function migrate(old){
       fresh.schedule,
       bundledSchedule.filter(x=>scheduleAudienceGroups(x).some(code=>normIdentity(code)===normIdentity("МСМ-25")))
     );
+  }
+  // v2.0.48: enrich MSM-25 elective rows with the documented student lists.
+  if(previousSchemaVersion<40){
+    const msm25Seeds=bundledSchedule.filter(x=>scheduleAudienceGroups(x).some(code=>normIdentity(code)===normIdentity("МСМ-25")));
+    fresh.schedule=mergeApprovedSchedule(
+      fresh.schedule,
+      msm25Seeds
+    );
+    // The approved audience document is authoritative for elective membership,
+    // even if an older cloud row was previously stored as "whole group".
+    msm25Seeds.filter(seed=>seed.sourceAudienceFile).forEach(seed=>{
+      const item=fresh.schedule.find(x=>approvedScheduleSemanticKey(x)===approvedScheduleSemanticKey(seed));
+      if(!item)return;
+      item.audiencePartitions=clone(seed.audiencePartitions||[]);
+      item.audiencePartitionsSource=seed.audiencePartitionsSource;
+      item.audienceStudentIds=clone(seed.audienceStudentIds||[]);
+      item.audienceMode="selected";
+      item.coverage="Вибрані студенти";
+      item.sourceAudienceFile=seed.sourceAudienceFile;
+    });
+  }
+  // v2.0.49: import the approved half-pair MSM-25 consultations and remap
+  // student/discipline IDs to the authoritative local roster.
+  if(previousSchemaVersion<41){
+    const targetDiscipline=fresh.disciplines.find(d=>normIdentity(d.group)===normIdentity("МСМ-25")&&normIdentity(d.name)===normIdentity("Керівництво магістерською роботою"));
+    const consultationSeeds=bundledSchedule.filter(x=>x.specialSchedule===true&&x.specialKind==="consult_master"&&normIdentity(x.group)===normIdentity("МСМ-25")&&Number(x.teacherId)===1084);
+    const specialKey=item=>[item.date||"",item.pairId||"",item.specialHalf||"",normIdentity(item.group),normIdentity(item.students||item.coverage),normIdentity(item.type)].join("|");
+    const existing=new Set(fresh.schedule.map(specialKey));
+    consultationSeeds.forEach(seed=>{
+      const student=fresh.students.find(s=>normIdentity(s.group)===normIdentity("МСМ-25")&&normIdentity(s.name)===normIdentity(seed.students||seed.coverage)&&s.status!=="archived");
+      if(!student||!targetDiscipline)return;
+      const item={...clone(seed),studentId:Number(student.id),students:student.name,coverage:student.name,disciplineId:targetDiscipline.id,disciplineIds:[targetDiscipline.id]};
+      const key=specialKey(item);if(existing.has(key))return;
+      if(fresh.schedule.some(x=>Number(x.id)===Number(item.id)))item.id=uid(fresh.schedule);
+      fresh.schedule.push(item);existing.add(key);
+    });
   }
   // Teachers stay attached to their home departments. If an existing teacher already
   // teaches a master's discipline / lesson, only add the master's programme link.

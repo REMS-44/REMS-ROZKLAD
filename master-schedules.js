@@ -90,7 +90,7 @@
 (()=>{
   const state=window.REMS_INITIAL_DATA;
   if(!state)return;
-  state.schemaVersion=Math.max(Number(state.schemaVersion)||0,39);
+  state.schemaVersion=Math.max(Number(state.schemaVersion)||0,41);
 
   const norm=value=>String(value||"").trim().toLocaleLowerCase("uk-UA").replace(/\s+/g," ");
   const ensureTeacher=teacher=>{
@@ -118,8 +118,24 @@
     pyroghova:ensureTeacher({id:1094,name:"Пирогова Т.І.",shortName:"Пирогова Т.І."}),
     kuznetsova:ensureTeacher({id:1091,name:"Кузнецова Л.В.",shortName:"Кузнецова Л.В.",position:"Доцент"}),
     kunderevych:ensureTeacher({id:1089,name:"Кундеревич О.В.",shortName:"Кундеревич О.В.",position:"Професор"}),
-    kuzmenko:ensureTeacher({id:1095,name:"Кузьменко Т.Г.",shortName:"Кузьменко Т.Г."})
+    kuzmenko:ensureTeacher({id:1095,name:"Кузьменко Т.Г.",shortName:"Кузьменко Т.Г."}),
+    fisher:ensureTeacher({id:1084,name:"Фішер Володимир Михайлович",shortName:"Фішер В.М.",position:"Професор"})
   };
+
+  const thesisStudentNames=[
+    "Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович",
+    "Морська Юлія Русланівна","Чирва Дарина Олегівна"
+  ];
+  const msm25StudentIdByName=()=>new Map((state.students||[])
+    .filter(s=>norm(s.group)===norm("МСМ-25")&&s.status!=="archived")
+    .map(s=>[norm(s.name),Number(s.id)]));
+  const thesisStudentIds=thesisStudentNames.map(name=>msm25StudentIdByName().get(norm(name))).filter(Boolean);
+  state.disciplines=state.disciplines||[];
+  let thesisDiscipline=state.disciplines.find(d=>norm(d.group)===norm("МСМ-25")&&norm(d.name)===norm("Керівництво магістерською роботою"));
+  if(!thesisDiscipline){
+    thesisDiscipline={id:3101,name:"Керівництво магістерською роботою",course:6,group:"МСМ-25",programId:"master",semester:3,academicYear:"2026/2027",teacherIds:[teacherIds.fisher],teacherLoads:{[teacherIds.fisher]:{11:56}},teacherStudentLoads:{[teacherIds.fisher]:{11:[...thesisStudentIds]}},teacherStudentHours:{},teacherStreams:{},audienceMode:"selected",selectedStudentIds:[...thesisStudentIds],controlForm:"Немає",color:"#7c3aed",hours:{11:14},extraHours:{},note:"По 14 консультацій кожному магістру згідно з узгодженим графіком.",status:"active",sourceCurriculumId:null,sourceComponentId:null,sourceRowId:null,planMeta:{}};
+    state.disciplines.push(thesisDiscipline);
+  }
 
   const rows=[
     {name:"Стартапи в галузі культури і мистецтв",componentId:5,pair:2,type:"Лекція",dates:["2026-09-07","2026-09-14","2026-09-21","2026-09-28","2026-10-19","2026-10-26","2026-11-02","2026-11-09"],teacher:"Черемних І.В.",teacherId:teacherIds.cheremnykh},
@@ -178,5 +194,110 @@
   const key=x=>[x.date,x.pairId,norm(x.group),norm(x.discipline),norm(x.type)].join("|");
   const existing=new Set(state.schedule.map(key));
   seed.forEach(item=>{if(!existing.has(key(item))){state.schedule.push(item);existing.add(key(item));}});
-  state.msm25ScheduleVersion="2026-09-17-v1";
+  // Documented elective audiences for MSM-25. These explicit partitions make
+  // an elective lesson busy only for the students who actually selected it.
+  const electiveAudiences={
+    "Мистецькі студії":[
+      "Ванджура Вікторія Юріївна","Гапонов Микита Олександрович","Грошева Марія Олександрівна",
+      "Колотурський Єгор Ярославович","Рудий Владислав Іванович","Самовілов Сергій Олександрович",
+      "Скоробагатько Тамара Сергіївна","Смердова Тетяна Дмитрівна","Цесарчук Єлизавета Євгеніївна",
+      "Янкова Анастасія Віталіївна","Петриченко Лейла Ельчинівна","Невмержицька Анна Сергіївна",
+      "Колесніков Гліб Максимович"
+    ],
+    "Медійна та інформаційна грамотність":[
+      "Бондарчук Анастасія Сергіївна","Гапон Олександр Миколайович","Кононенко Марія Юріївна",
+      "Лєбєдєва Світлана Сергіївна","Поліщук Михайло Романович","Самовілов Сергій Олександрович"
+    ],
+    "Стартапи в галузі культури і мистецтв":[
+      "Будяк Станіслав Миколайович","Ванджура Вікторія Юріївна","Гапон Олександр Миколайович",
+      "Гапонов Микита Олександрович","Грошева Марія Олександрівна","Колотурський Єгор Ярославович",
+      "Кононенко Марія Юріївна","Лєбєдєва Світлана Сергіївна","Морська Юлія Русланівна",
+      "Поліщук Михайло Романович","Рудий Владислав Іванович","Скоробагатько Тамара Сергіївна",
+      "Смердова Тетяна Дмитрівна","Цесарчук Єлизавета Євгеніївна","Чирва Дарина Олегівна",
+      "Янкова Анастасія Віталіївна","Петриченко Лейла Ельчинівна","Невмержицька Анна Сергіївна",
+      "Колесніков Гліб Максимович"
+    ],
+    "Управління start-up-проєктами":[
+      "Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович",
+      "Морська Юлія Русланівна","Чирва Дарина Олегівна"
+    ],
+    "Сценічно-виконавська майстерність":[
+      "Ванджура Вікторія Юріївна","Гапон Олександр Миколайович","Гапонов Микита Олександрович",
+      "Грошева Марія Олександрівна","Колотурський Єгор Ярославович","Лєбєдєва Світлана Сергіївна",
+      "Поліщук Михайло Романович","Рудий Владислав Іванович","Скоробагатько Тамара Сергіївна",
+      "Смердова Тетяна Дмитрівна","Цесарчук Єлизавета Євгеніївна","Янкова Анастасія Віталіївна",
+      "Петриченко Лейла Ельчинівна","Колесніков Гліб Максимович"
+    ],
+    "Візуальний сторітелінг в дизайні":[
+      "Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович","Кононенко Марія Юріївна",
+      "Морська Юлія Русланівна","Самовілов Сергій Олександрович","Чирва Дарина Олегівна",
+      "Невмержицька Анна Сергіївна"
+    ]
+  };
+  const studentIdByName=new Map((state.students||[])
+    .filter(s=>norm(s.group)===norm("МСМ-25")&&s.status!=="archived")
+    .map(s=>[norm(s.name),Number(s.id)]));
+  Object.entries(electiveAudiences).forEach(([discipline,names])=>{
+    const studentIds=names.map(name=>studentIdByName.get(norm(name))).filter(Boolean);
+    state.schedule.filter(item=>norm(item.group)===norm("МСМ-25")&&norm(item.discipline)===norm(discipline)).forEach(item=>{
+      item.audiencePartitions=[{group:"МСМ-25",mode:"selected",studentIds:[...studentIds]}];
+      item.audiencePartitionsSource="documented_elective_choices";
+      item.audienceStudentIds=[...studentIds];
+      item.audienceMode="selected";
+      item.coverage="Вибрані студенти";
+      item.sourceAudienceFile="Назва ОК.docx";
+    });
+  });
+
+  const consultationPlan=[
+    ["2026-09-21",2,["Бондарчук Анастасія Сергіївна"]],
+    ["2026-09-22",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-09-24",5,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
+    ["2026-09-28",2,["Бондарчук Анастасія Сергіївна"]],
+    ["2026-09-29",2,["Чирва Дарина Олегівна","Будяк Станіслав Миколайович"]],
+    ["2026-10-20",2,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
+    ["2026-10-20",3,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-10-21",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-10-27",2,["Бондарчук Анастасія Сергіївна"]],
+    ["2026-10-27",3,["Будяк Станіслав Миколайович","Морська Юлія Русланівна"]],
+    ["2026-11-03",2,["Бондарчук Анастасія Сергіївна"]],
+    ["2026-11-03",3,["Чирва Дарина Олегівна","Будяк Станіслав Миколайович"]],
+    ["2026-11-10",2,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
+    ["2026-11-10",5,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-11-17",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-11-17",3,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
+    ["2026-11-18",2,["Бондарчук Анастасія Сергіївна","Морська Юлія Русланівна"]],
+    ["2026-11-18",3,["Чирва Дарина Олегівна","Будяк Станіслав Миколайович"]],
+    ["2026-11-19",2,["Морська Юлія Русланівна","Будяк Станіслав Миколайович"]],
+    ["2026-11-19",3,["Бондарчук Анастасія Сергіївна","Чирва Дарина Олегівна"]],
+    ["2026-11-20",2,["Бондарчук Анастасія Сергіївна","Чирва Дарина Олегівна"]],
+    ["2026-11-20",3,["Морська Юлія Русланівна","Будяк Станіслав Миколайович"]],
+    ["2026-11-24",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-11-24",3,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
+    ["2026-12-01",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-12-01",3,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]],
+    ["2026-12-08",2,["Морська Юлія Русланівна","Будяк Станіслав Миколайович"]],
+    ["2026-12-08",3,["Чирва Дарина Олегівна","Бондарчук Анастасія Сергіївна"]],
+    ["2026-12-15",2,["Морська Юлія Русланівна","Чирва Дарина Олегівна"]],
+    ["2026-12-15",3,["Бондарчук Анастасія Сергіївна","Будяк Станіслав Миколайович"]]
+  ];
+  const consultationHalfTimes={
+    2:[["10:40","11:20"],["11:20","12:00"]],
+    3:[["12:30","13:10"],["13:10","13:50"]],
+    5:[["15:40","16:20"],["16:20","17:00"]]
+  };
+  const studentIdsByName=msm25StudentIdByName();
+  const consultationRows=[];
+  let consultationId=940001;
+  consultationPlan.forEach(([date,pair,names])=>names.forEach((name,index)=>{
+    const studentId=studentIdsByName.get(norm(name));
+    const [start,end]=consultationHalfTimes[pair][index];
+    if(!studentId)return;
+    consultationRows.push({id:consultationId++,date,start,end,pairId:pair,group:"МСМ-25",disciplineId:thesisDiscipline.id,disciplineIds:[thesisDiscipline.id],discipline:thesisDiscipline.name,type:"Керівництво магістерською роботою",coverage:name,students:name,studentId,teacherId:teacherIds.fisher,teacher:"Фішер В.М.",room:"",workloadHours:1,note:"Консультація · онлайн",repeatBatchId:null,specialSchedule:true,specialKind:"consult_master",specialHalf:index+1,scheduleSource:"special",sourceSemester:3,sourceSemesters:[3],sourceCourse:6,sourceCourses:[6],sourceFile:"Узгоджений графік консультацій МСМ-25",deliveryMode:"online",platform:"Zoom"});
+  }));
+  const consultationKey=item=>[item.date,item.pairId,item.specialHalf,norm(item.group),norm(item.students||item.coverage),norm(item.type)].join("|");
+  const existingConsultations=new Set((state.schedule||[]).map(consultationKey));
+  consultationRows.forEach(item=>{if(!existingConsultations.has(consultationKey(item))){state.schedule.push(item);existingConsultations.add(consultationKey(item));}});
+  state.msm25ConsultationVersion="2026-09-17-v1-fisher";
+  state.msm25ScheduleVersion="2026-09-17-v2-elective-audiences";
 })();
