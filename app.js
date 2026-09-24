@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=56;
+const APP_SCHEMA_VERSION=57;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -1193,6 +1193,67 @@ function migrate(old){
       const label=normIdentity(item.discipline||item.type||"").replace(/\s+/g,"");
       if(label.includes("40хв")&&item.start)item.end=clockPlusMinutes(item.start,40);
     });
+  }
+  // v2.0.70: authoritative REMS department roster and elective-audience repair.
+  // Force-sync verified student audiences from the bundled data because old cloud/browser
+  // discipline cards can otherwise keep whole-group or stale elective memberships.
+  if(previousSchemaVersion<57){
+    const remsTeacherShorts=[
+      "Бзенко В.А.","Деркач С.М.","Козак З.О.","Кравченко Е.Г.","Крикуненко С.В.",
+      "Кучер Д.Ю.","Кучер Р.С.","Мельник М.М.","Працков Р.Є.","Фішер В.М.",
+      "Харченко М.В.","Юдіна В.В.","Ковпак Н.К.","Мясоєдов Н.С.","Клісенко Н.О.",
+      "Майкут К.В.","Рожковська В.О."
+    ];
+    remsTeacherShorts.forEach(shortName=>{
+      let t=(fresh.teachers||[]).find(x=>normIdentity(x.shortName||x.name)===normIdentity(shortName));
+      if(!t){
+        const seed=(bundledSchedule||[]).find(x=>normIdentity(String(x.teacher||"").replace(/^викл\.\s*/i,""))===normIdentity(shortName));
+        t={id:uid(fresh.teachers),name:shortName,shortName,scope:"department",homeDepartmentId:"rems-dept",programIds:["rems"],note:"Викладач кафедри режисури естради і шоу. Додано за підтвердженим користувачем складом кафедри.",status:"active"};
+        fresh.teachers.push(t);
+      }
+      t.scope="department";t.homeDepartmentId="rems-dept";t.programIds=uniqueStrings([...(t.programIds||[]),"rems"]);if(t.status==="archived")t.status="active";
+    });
+
+    const bundledStudentById=new Map(bundledStudents.map(st=>[Number(st.id),st]));
+    const syncSeedAudience=(seed)=>{
+      if(!seed?.group||seed.audienceMode!=="selected")return null;
+      let target=(fresh.disciplines||[]).find(d=>normIdentity(d.group)===normIdentity(seed.group)&&normIdentity(d.name)===normIdentity(seed.name));
+      if(!target){target={...clone(seed),id:uid(fresh.disciplines)};fresh.disciplines.push(target);}
+      const mapped=(seed.selectedStudentIds||[]).map(seedId=>{
+        const src=bundledStudentById.get(Number(seedId));if(!src)return null;
+        return (fresh.students||[]).find(st=>st.status!=="archived"&&normIdentity(st.group)===normIdentity(src.group)&&normIdentity(st.name)===normIdentity(src.name))?.id||null;
+      }).filter(Boolean);
+      target.audienceMode="selected";target.selectedStudentIds=[...new Set(mapped.map(Number))];
+      return target;
+    };
+    // All verified REMS elective audiences are authoritative, including REMS-45 protocol №19.
+    bundledDisciplines.filter(seed=>String(seed.group||"").startsWith("РЕМС-")&&seed.audienceMode==="selected").forEach(syncSeedAudience);
+    // Also force-sync the actor-group rosters that the user explicitly corrected in this audit.
+    bundledDisciplines.filter(seed=>["ТА-15","ТА-25"].some(g=>normIdentity(g)===normIdentity(seed.group))&&[
+      "Психологія (вибіркова ОК)","Емоційний інтелект (вибіркова ОК)","Штучний інтелект та креатив (вибіркова ОК)"
+    ].some(n=>normIdentity(n)===normIdentity(seed.name))).forEach(syncSeedAudience);
+
+    // Every shared elective row must carry the discipline card for EACH participating group.
+    (fresh.schedule||[]).forEach(item=>{
+      if(item.specialSchedule)return;
+      const ids=[...(item.disciplineIds||[])].map(Number).filter(Boolean);
+      scheduleAudienceGroups(item).forEach(group=>{
+        const d=(fresh.disciplines||[]).find(x=>x.status!=="archived"&&normIdentity(x.group)===normIdentity(group)&&normIdentity(x.name)===normIdentity(item.discipline));
+        if(d&&!ids.includes(Number(d.id)))ids.push(Number(d.id));
+      });
+      if(ids.length){item.disciplineIds=[...new Set(ids)];if(!item.disciplineId)item.disciplineId=ids[0];}
+    });
+    // 03.12: "Історія театру" is TA-15 only; TA-25 has "Сценічне мовлення" in the same slot.
+    (fresh.schedule||[]).filter(item=>item.date==="2026-12-03"&&item.start==="10:40"&&normIdentity(item.discipline)===normIdentity("Історія театру")&&scheduleAudienceGroups(item).some(g=>normIdentity(g)===normIdentity("ТА-15"))).forEach(item=>{
+      item.group="ТА-15";item.audienceGroups=["ТА-15"];
+      const d=(fresh.disciplines||[]).find(x=>normIdentity(x.group)===normIdentity("ТА-15")&&normIdentity(x.name)===normIdentity("Історія театру"));
+      if(d){item.disciplineId=d.id;item.disciplineIds=[d.id];}
+      item.note="Уточнено 24.09.2026: 03.12 Історія театру належить лише ТА-15; ТА-25 у цей час має Сценічне мовлення.";
+    });
+
+    // Kovpak's imported individual rows used a teacher string only; bind them to the department card.
+    const kovpak=(fresh.teachers||[]).find(t=>normIdentity(t.shortName||t.name)===normIdentity("Ковпак Н.К."));
+    if(kovpak)(fresh.schedule||[]).forEach(item=>{if(normIdentity(String(item.teacher||"").replace(/^викл\.\s*/i,""))===normIdentity("Ковпак Н.К."))item.teacherId=kovpak.id;});
   }
   // v2.0.69: confirmed timetable corrections from manual cross-checking.
   // The weekday table is authoritative when a date inside that table is an obvious weekday typo.
