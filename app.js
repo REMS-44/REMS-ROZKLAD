@@ -2697,16 +2697,22 @@ function globalConflictOpenAction(x){
 }
 function globalConflictSemanticKey(x){
   if(!x)return"";
-  const parts=(x.sourceType==="booking"?[]:scheduleAudiencePartitions(x,db)).map(p=>({
-    group:normIdentity(p.group||""),
-    mode:p.mode||"group",
-    studentIds:[...(p.studentIds||[])].map(Number).filter(Boolean).sort((a,b)=>a-b)
-  })).sort((a,b)=>a.group.localeCompare(b.group,"uk")||a.mode.localeCompare(b.mode)||String(a.studentIds).localeCompare(String(b.studentIds)));
+  const teacherKey=Number(globalConflictTeacherId(x))||normIdentity(x.teacher||"");
+  const groupKeys=(x.sourceType==="booking"
+    ?[normIdentity(x.group||"")]
+    :scheduleAudienceGroups(x).map(normIdentity).filter(Boolean).sort((a,b)=>a.localeCompare(b,"uk")));
+  const studentKey=x.specialSchedule
+    ?(Number(x.studentId)||normIdentity(specialStudentName(x)||x.students||x.coverage||""))
+    :"";
   return JSON.stringify([
-    x.sourceType||"lesson",x.date||"",x.start||"",x.end||"",String(x.pairId||""),
-    normIdentity(x.group||""),normIdentity(x.discipline||x.title||x.kind||""),
-    Number(globalConflictTeacherId(x))||0,normIdentity(x.teacher||""),normIdentity(x.room||""),
-    normIdentity(x.type||""),Number(x.studentId)||0,!!x.specialSchedule,normIdentity(x.specialKind||""),parts
+    x.sourceType||"lesson",
+    x.date||"",normalizeClockTime(x.start||""),normalizeClockTime(x.end||""),String(x.pairId||""),
+    groupKeys,
+    normIdentity(x.discipline||x.title||x.kind||""),
+    teacherKey,
+    normIdentity(x.room||""),
+    normIdentity(x.type||""),
+    !!x.specialSchedule,normIdentity(x.specialKind||""),studentKey
   ]);
 }
 function globalConflictEvents(){
@@ -2729,6 +2735,7 @@ function collectGlobalConflicts(){
     const a=events[i],b=events[j];
     if(b.date!==a.date){if((b.date||"")>(a.date||""))break;continue;}
     if(!globalConflictSameSlot(a,b))continue;
+    if(globalConflictSemanticKey(a)===globalConflictSemanticKey(b))continue;
     if(globalConflictIsSharedLesson(a,b))continue;
     const kinds=[];
     if(physicalRoomSame(a.room,b.room))kinds.push("room");
@@ -7469,7 +7476,7 @@ function roomBusyOptionLabel(room,record){
 function conflictsFor(item,ignore=null,extra=[]){
   const ignored=new Set((Array.isArray(ignore)?ignore:(ignore==null?[]:[ignore])).map(Number));
   const sameSlot=x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;};
-  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>!ignored.has(Number(x.id))&&sameSlot(x)).filter(x=>(physicalRoomSame(item.room,x.room))||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
+  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>!ignored.has(Number(x.id))&&sameSlot(x)&&globalConflictSemanticKey({...x,sourceType:"lesson"})!==globalConflictSemanticKey({...item,sourceType:"lesson"})).filter(x=>(physicalRoomSame(item.room,x.room))||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
   const bookingConflicts=db.roomBookings.filter(x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;}).filter(x=>(physicalRoomSame(item.room,x.room))||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }

@@ -504,7 +504,7 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
-  // v2.0.85: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
+  // v2.0.86: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
   // FAST HARD REPLACE: use Firestore writeBatch instead of thousands of individual
   // deleteDoc/setDoc requests. Also clear stale room bookings and technical locks so
   // old schedule rows cannot survive or manufacture conflicts after a reconnect.
