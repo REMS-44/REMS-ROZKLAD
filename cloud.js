@@ -531,13 +531,18 @@ async function applyWorkingDataCleanupOnce(state){
       ...oldStudents.filter(x=>!studentIds.has(String(x.id))).map(x=>({type:"delete",ref:itemRef("students",x.id)}))
     ];
 
-    setSidebar("syncing",`Контингент: запис 1/${Math.max(1,Math.ceil(rosterOps.length/400))}…`,user?.email||"");
-    await commitRosterOps(rosterOps,400,(done,total)=>
+    // Show the authoritative roster immediately. Cloud writes continue below; this
+    // prevents the Groups page from displaying the old partial roster while repair runs.
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-roster apply failed",e);}
+
+    const rosterParts=Math.max(1,Math.ceil(rosterOps.length/50));
+    setSidebar("syncing",`Контингент: запис 1/${rosterParts}…`,user?.email||"");
+    await writeRosterOpsIndividually(rosterOps,50,(done,total)=>
       setSidebar("syncing",`Контингент: запис ${done}/${total}…`,user?.email||"")
     );
 
     // Persist only migration markers / normal settings fields; no other collections are rewritten.
-    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),20000,"settings");
+    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings");
     try{await publishCatalogSignal(["groups","students"]);}catch(e){console.warn("Roster signal failed",e);}
 
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
@@ -798,6 +803,29 @@ async function withTimeout(promise,ms,label="операція"){
       },ms);})
     ]);
   }finally{if(timer)clearTimeout(timer);}
+}
+
+
+async function writeRosterOpsIndividually(ops,chunkSize=50,onProgress=null){
+  const size=Math.max(1,Math.min(75,Number(chunkSize)||50));
+  const list=ops||[];
+  const total=Math.max(1,Math.ceil(list.length/size));
+  for(let i=0,part=1;i<list.length;i+=size,part++){
+    const chunk=list.slice(i,i+size);
+    const results=await Promise.allSettled(chunk.map((op,idx)=>{
+      const label=`контингент ${part}/${total}, запис ${i+idx+1}`;
+      const promise=op.type==="delete"?deleteDoc(op.ref):setDoc(op.ref,op.data);
+      return withTimeout(promise,8000,label);
+    }));
+    const failed=results.map((r,idx)=>({r,op:chunk[idx]})).filter(x=>x.r.status==="rejected");
+    if(failed.length){
+      const first=failed.slice(0,5).map(x=>x.r.reason?.code||x.r.reason?.message||"помилка").join("; ");
+      const e=new Error(`Не записано ${failed.length} елемент(ів) у порції ${part}/${total}: ${first}`);
+      e.code=failed[0]?.r?.reason?.code||"ROSTER_WRITE_FAILED";
+      throw e;
+    }
+    try{onProgress?.(part,total);}catch(_){}
+  }
 }
 
 async function commitRosterOps(ops,batchSize=400,onProgress=null){
