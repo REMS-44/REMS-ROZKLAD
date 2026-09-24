@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=54;
+const APP_SCHEMA_VERSION=56;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -101,7 +101,10 @@ function dateAttrs(bounds=academicYearBounds()){return `min="${bounds.start}" ma
 function academicMonthAllowed(month){const b=academicYearBounds();return !!month&&month>=b.minMonth&&month<=b.maxMonth;}
 function clampAcademicMonth(month){const b=academicYearBounds();if(!month||month<b.minMonth)return b.minMonth;if(month>b.maxMonth)return b.maxMonth;return month;}
 function academicDateMessage(bounds=academicYearBounds()){return `${formatDate(bounds.start)} — ${formatDate(bounds.end)}`;}
-function timeOverlap(aStart,aEnd,bStart,bEnd){return aStart<bEnd&&aEnd>bStart}
+function clockMinutes(value){const m=String(value||"").trim().match(/^(\d{1,3}):(\d{2})$/);if(!m)return null;return Number(m[1])*60+Number(m[2]);}
+function normalizeClockTime(value){const n=clockMinutes(value);return n===null?String(value||""):`${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;}
+function clockPlusMinutes(value,minutes){const n=clockMinutes(value);if(n===null)return String(value||"");const x=n+Number(minutes||0);return `${String(Math.floor(x/60)).padStart(2,"0")}:${String(x%60).padStart(2,"0")}`;}
+function timeOverlap(aStart,aEnd,bStart,bEnd){const a1=clockMinutes(aStart),a2=clockMinutes(aEnd),b1=clockMinutes(bStart),b2=clockMinutes(bEnd);if([a1,a2,b1,b2].every(Number.isFinite))return a1<b2&&a2>b1;return String(aStart||"")<String(bEnd||"")&&String(aEnd||"")>String(bStart||"");}
 function normIdentity(v){return String(v||"").trim().replace(/\s+/g," ").toLowerCase();}
 function uniqueStrings(values=[]){
   const seen=new Set(),out=[];
@@ -1179,6 +1182,46 @@ function migrate(old){
     (fresh.schedule||[]).filter(x=>scheduleAudienceGroups(x).some(isMasterGroupCode)).forEach(x=>{if(x.teacherId)masterTeacherIds.add(Number(x.teacherId));});
     (fresh.teachers||[]).forEach(t=>{if(masterTeacherIds.has(Number(t.id)))t.programIds=uniqueStrings([...(t.programIds||[]),"master"]);});
   }
+  // v2.0.68: time-accurate conflict repair.
+  // 1) normalize imported 009:00 / 009:40 clock values;
+  // 2) curator hours explicitly marked "40 хв." occupy only the first 40 minutes
+  //    of the selected pair, not the entire 80-minute pair.
+  if(previousSchemaVersion<55){
+    (fresh.schedule||[]).forEach(item=>{
+      if(item.start)item.start=normalizeClockTime(item.start);
+      if(item.end)item.end=normalizeClockTime(item.end);
+      const label=normIdentity(item.discipline||item.type||"").replace(/\s+/g,"");
+      if(label.includes("40хв")&&item.start)item.end=clockPlusMinutes(item.start,40);
+    });
+  }
+  // v2.0.69: confirmed timetable corrections from manual cross-checking.
+  // The weekday table is authoritative when a date inside that table is an obvious weekday typo.
+  if(previousSchemaVersion<56){
+    // 09.09: one shared Bzenko lesson for REMS-34 + REMS-44 + REMS-43 in room 809.
+    const bzenko=(fresh.schedule||[]).filter(x=>x.date==="2026-09-09"&&x.start==="14:10"&&normIdentity(x.teacher)===normIdentity("Бзенко В.А.")&&normIdentity(x.discipline).includes(normIdentity("Імпровізація та інтерактив")));
+    const bBase=bzenko.find(x=>scheduleAudienceGroups(x).some(g=>normIdentity(g)===normIdentity("РЕМС-34")));
+    if(bBase){
+      const bIds=[]; bzenko.forEach(x=>(x.disciplineIds||[]).forEach(id=>{if(!bIds.includes(id))bIds.push(id);}));
+      bBase.room="809"; bBase.audienceGroups=["РЕМС-34","РЕМС-44","РЕМС-43"]; bBase.disciplineIds=bIds;
+      bBase.note="Уточнено 24.09.2026: спільна пара РЕМС-34 + РЕМС-44 + РЕМС-43, ауд. 809.";
+      fresh.schedule=(fresh.schedule||[]).filter(x=>x===bBase||!bzenko.includes(x));
+    }
+    // 30.10 only: Yudina's two individual halves are in room 323.
+    (fresh.schedule||[]).filter(x=>x.date==="2026-10-30"&&normIdentity(x.teacher)===normIdentity("Юдіна В.В.")&&x.specialKind==="individual"&&(x.start==="14:10"||x.start==="14:50")).forEach(x=>x.room="323");
+    // 4th course: weekday table is authoritative; 04.11 in Thursday/Friday cells is a mistyped date.
+    (fresh.schedule||[]).forEach(x=>{
+      if(x.date!=="2026-11-04"||x.start!=="14:10"||x.sourceFile!=="4 курс ФТКЕ.docx")return;
+      const groups=scheduleAudienceGroups(x).map(normIdentity);
+      const isTa13Ta53=groups.includes(normIdentity("ТА-13"))&&groups.includes(normIdentity("ТА-53"));
+      if(!isTa13Ta53)return;
+      if(normIdentity(x.discipline).includes(normIdentity("Теорії та практики творчих досліджень"))){x.date="2026-11-05";x.note="Уточнено 24.09.2026: четвергова таблиця; 04.11 виправлено на 05.11.2026.";}
+      if(normIdentity(x.discipline).includes(normIdentity("Акторський знімальний практикум"))){x.date="2026-11-06";x.note="Уточнено 24.09.2026: п’ятнична таблиця; 04.11 виправлено на 06.11.2026.";}
+    });
+    // TA-25 Psychology: current active roster includes Rudko Andrii Dmytrovych.
+    const rudko=(fresh.students||[]).find(st=>normIdentity(st.group)===normIdentity("ТА-25")&&normIdentity(st.name)===normIdentity("Рудько Андрій Дмитрович")&&st.status!=="archived");
+    const psych=(fresh.disciplines||[]).find(d=>normIdentity(d.group)===normIdentity("ТА-25")&&normIdentity(d.name)===normIdentity("Психологія (вибіркова ОК)"));
+    if(rudko&&psych)psych.selectedStudentIds=[...new Set([...(psych.selectedStudentIds||[]).map(Number),Number(rudko.id)])];
+  }
   repairScheduleLinks(fresh);
   return fresh;
 }
@@ -1711,6 +1754,11 @@ function scheduleAudiencePartitions(item,state=db){
     const byGroup=new Map();
     scheduleDisciplineIds(item).forEach(id=>{const d=(state?.disciplines||[]).find(x=>Number(x.id)===Number(id));if(!d||d.status==="archived"||!d.group)return;byGroup.set(normIdentity(d.group),disciplineAudiencePartition(d,state));});
     const explicitByGroup=new Map(sourceExplicit.map(p=>[normIdentity(p.group),p]));
+    const explicitFallback=Array.isArray(item.audiencePartitions)?item.audiencePartitions.map(p=>normalizeAudiencePartition(p,state)).filter(Boolean):[];
+    // Some approved master/elective rows intentionally have no local discipline card,
+    // but already contain the authoritative student partition. Use it instead of
+    // manufacturing a whole-group audience (which creates false conflicts).
+    if(!byGroup.size&&explicitFallback.length)return explicitFallback;
     scheduleAudienceGroups(item).forEach(group=>{const key=normIdentity(group);if(!byGroup.has(key))byGroup.set(key,explicitByGroup.get(key)||{group,mode:"group",studentIds:[]});});
     if(byGroup.size)return [...byGroup.values()].filter(Boolean);
   }
@@ -7256,9 +7304,9 @@ function roomBusyOptionLabel(room,record){
 
 function conflictsFor(item,ignore=null,extra=[]){
   const ignored=new Set((Array.isArray(ignore)?ignore:(ignore==null?[]:[ignore])).map(Number));
-  const sameSlot=x=>{if(x.date!==item.date)return false;if(item.specialSchedule||x.specialSchedule)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);};
+  const sameSlot=x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;};
   const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>!ignored.has(Number(x.id))&&sameSlot(x)).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
-  const bookingConflicts=db.roomBookings.filter(x=>x.date===item.date&&(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end))).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
+  const bookingConflicts=db.roomBookings.filter(x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;}).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }
 function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
