@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=53;
+const APP_SCHEMA_VERSION=54;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -581,6 +581,12 @@ function migrate(old){
   // If a database already has a students array, keep it EXACTLY as the authority:
   // future schema upgrades must never restore deleted students, old names or old group membership.
   fresh.students=Array.isArray(old.students)?clone(old.students):clone(fresh.students||[]);
+  // v2.0.67: confirmed transfer on 2026-09-24. Keep the existing student ID so
+  // individual lessons and any saved links continue to point to the same person.
+  if(previousSchemaVersion<54){
+    const shablova=fresh.students.find(s=>normIdentity(s.name)===normIdentity("Шаблова Олександра Ігорівна")&&s.status!=="archived");
+    if(shablova)shablova.group="РЕМС-46";
+  }
   // v2.0.41: import the newly received first-year master's roster once.
   // Later deletions remain authoritative because databases already on schema 36
   // do not run this seed merge again.
