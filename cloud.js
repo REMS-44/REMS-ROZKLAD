@@ -516,13 +516,28 @@ async function applyWorkingDataCleanupOnce(state){
     cleaned.dataCleanupVersion=target;
     cleaned.rosterRepairVersion=String(seed.rosterRepairVersion||"2026-09-24-authoritative-contingent-v1");
 
-    // Write only the two roster collections. Everything else stays exactly as it is in Firestore.
-    setSidebar("syncing","Контингент: запис груп…",user?.email||"");
-    await replaceCollection("groups",cleaned.groups);
-    setSidebar("syncing","Контингент: запис студентів…",user?.email||"");
-    await replaceCollection("students",cleaned.students);
+    // Write only groups + students, using the already loaded remote state.
+    // Do NOT call getDocs() here: on some clients that server read can hang indefinitely.
+    // Upsert the authoritative rows first, then delete only stale IDs, so the roster is
+    // never temporarily empty while the restore is running.
+    const oldGroups=clean(remoteState?.groups||cleaned.groups||[]);
+    const oldStudents=clean(remoteState?.students||cleaned.students||[]);
+    const groupIds=new Set((cleaned.groups||[]).map(x=>String(x.id)));
+    const studentIds=new Set((cleaned.students||[]).map(x=>String(x.id)));
+    const rosterOps=[
+      ...(cleaned.groups||[]).map(x=>({type:"set",ref:itemRef("groups",x.id),data:clean(x)})),
+      ...oldGroups.filter(x=>!groupIds.has(String(x.id))).map(x=>({type:"delete",ref:itemRef("groups",x.id)})),
+      ...(cleaned.students||[]).map(x=>({type:"set",ref:itemRef("students",x.id),data:clean(x)})),
+      ...oldStudents.filter(x=>!studentIds.has(String(x.id))).map(x=>({type:"delete",ref:itemRef("students",x.id)}))
+    ];
+
+    setSidebar("syncing",`Контингент: запис 1/${Math.max(1,Math.ceil(rosterOps.length/400))}…`,user?.email||"");
+    await commitRosterOps(rosterOps,400,(done,total)=>
+      setSidebar("syncing",`Контингент: запис ${done}/${total}…`,user?.email||"")
+    );
+
     // Persist only migration markers / normal settings fields; no other collections are rewritten.
-    await setDoc(settingsRef(),settingsPart(cleaned));
+    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),20000,"settings");
     try{await publishCatalogSignal(["groups","students"]);}catch(e){console.warn("Roster signal failed",e);}
 
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
@@ -768,6 +783,32 @@ async function applyWorkingDataCleanupOnce(state){
   for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){}}
   toast("Затверджений розклад ФТКЕ та розподіл фактичного навантаження завантажено.","ok",8000);
   return cleaned;
+}
+
+
+async function withTimeout(promise,ms,label="операція"){
+  let timer;
+  try{
+    return await Promise.race([
+      promise,
+      new Promise((_,reject)=>{timer=setTimeout(()=>{
+        const e=new Error(`Таймаут Firebase: ${label}`);
+        e.code="deadline-exceeded";
+        reject(e);
+      },ms);})
+    ]);
+  }finally{if(timer)clearTimeout(timer);}
+}
+
+async function commitRosterOps(ops,batchSize=400,onProgress=null){
+  const size=Math.max(1,Math.min(400,Number(batchSize)||400));
+  const total=Math.max(1,Math.ceil((ops||[]).length/size));
+  for(let i=0,part=1;i<(ops||[]).length;i+=size,part++){
+    const batch=writeBatch(fire);
+    for(const op of ops.slice(i,i+size))op.type==="delete"?batch.delete(op.ref):batch.set(op.ref,op.data);
+    await withTimeout(batch.commit(),20000,`контингент ${part}/${total}`);
+    try{onProgress?.(part,total);}catch(_){}
+  }
 }
 
 async function commitOps(ops,batchSize=450){
