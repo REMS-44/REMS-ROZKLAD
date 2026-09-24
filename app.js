@@ -105,6 +105,11 @@ function clockMinutes(value){const m=String(value||"").trim().match(/^(\d{1,3}):
 function normalizeClockTime(value){const n=clockMinutes(value);return n===null?String(value||""):`${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;}
 function clockPlusMinutes(value,minutes){const n=clockMinutes(value);if(n===null)return String(value||"");const x=n+Number(minutes||0);return `${String(Math.floor(x/60)).padStart(2,"0")}:${String(x%60).padStart(2,"0")}`;}
 function timeOverlap(aStart,aEnd,bStart,bEnd){const a1=clockMinutes(aStart),a2=clockMinutes(aEnd),b1=clockMinutes(bStart),b2=clockMinutes(bEnd);if([a1,a2,b1,b2].every(Number.isFinite))return a1<b2&&a2>b1;return String(aStart||"")<String(bEnd||"")&&String(aEnd||"")>String(bStart||"");}
+function isVirtualRoomName(room){
+  const k=normIdentity(room||"").replace(/[^a-zа-яіїєґ0-9]/g,"");
+  return ["zoom","онлайн","online","googlemeet","meet","teams","microsoftteams"].includes(k);
+}
+function physicalRoomSame(a,b){return !!a&&!!b&&!isVirtualRoomName(a)&&!isVirtualRoomName(b)&&normIdentity(a)===normIdentity(b);}
 function normIdentity(v){return String(v||"").trim().replace(/\s+/g," ").toLowerCase();}
 function uniqueStrings(values=[]){
   const seen=new Set(),out=[];
@@ -2639,8 +2644,8 @@ function shiftRoomGridDate(days){const next=addDays(roomGridState.date,days);if(
 function roomGridToday(){selectRoomGridDate(currentAcademicDate());}
 function bookingConflicts(item,ignoreId=null){
   const conflicts=[];
-  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&normIdentity(x.room)===normIdentity(item.room))conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
-  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(item.room&&normIdentity(x.room)===normIdentity(item.room))conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
+  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(physicalRoomSame(item.room,x.room))conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
+  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(physicalRoomSame(item.room,x.room))conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
   return [...new Set(conflicts)];
 }
 function openRoomBookingModal(id=null,preset={}){
@@ -2705,7 +2710,7 @@ function collectGlobalConflicts(){
     if(!globalConflictSameSlot(a,b))continue;
     if(globalConflictIsSharedLesson(a,b))continue;
     const kinds=[];
-    if(a.room&&b.room&&normIdentity(a.room)===normIdentity(b.room))kinds.push("room");
+    if(physicalRoomSame(a.room,b.room))kinds.push("room");
     const ta=globalConflictTeacherId(a),tb=globalConflictTeacherId(b);
     if(ta&&tb&&ta===tb)kinds.push("teacher");
     if(a.sourceType!=="booking"&&b.sourceType!=="booking"){
@@ -7394,8 +7399,8 @@ function roomBusyOptionLabel(room,record){
 function conflictsFor(item,ignore=null,extra=[]){
   const ignored=new Set((Array.isArray(ignore)?ignore:(ignore==null?[]:[ignore])).map(Number));
   const sameSlot=x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;};
-  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>!ignored.has(Number(x.id))&&sameSlot(x)).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
-  const bookingConflicts=db.roomBookings.filter(x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;}).filter(x=>(item.room&&normIdentity(x.room)===normIdentity(item.room))||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
+  const lessonConflicts=db.schedule.concat(extra||[]).filter(x=>!ignored.has(Number(x.id))&&sameSlot(x)).filter(x=>(physicalRoomSame(item.room,x.room))||scheduleAudienceOverlap(item,x,db)||(item.teacherId&&Number(resolvedScheduleTeacherId(x,db))===Number(item.teacherId)));
+  const bookingConflicts=db.roomBookings.filter(x=>{if(x.date!==item.date)return false;if(item.start&&item.end&&x.start&&x.end)return timeOverlap(item.start,item.end,x.start,x.end);return item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false;}).filter(x=>(physicalRoomSame(item.room,x.room))||(x.group&&scheduleIncludesGroup(item,x.group))||(item.teacherId&&x.teacherId&&Number(x.teacherId)===Number(item.teacherId))).map(x=>({...x,discipline:x.title||x.kind||"Бронювання"}));
   return [...lessonConflicts,...bookingConflicts];
 }
 function teacherAvailabilityInfo(item,ignoreId=null,extra=[]){
