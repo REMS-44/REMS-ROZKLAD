@@ -504,6 +504,52 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  // v2.0.79: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
+  // Replace ONLY schedule + derived room bookings. Keep roster, teachers, disciplines,
+  // elective rosters, curricula and settings intact.
+  const scheduleOnlyRestore=target.includes("schedule-only-authoritative-rebuild");
+  if(scheduleOnlyRestore){
+    cleaned.schedule=clean(seed.schedule||[]);
+    cleaned.roomBookings=[];
+    cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,63);
+    cleaned.dataCleanupVersion=target;
+    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-24-authoritative-sources-v1");
+
+    // Show the approved schedule immediately; Firestore persistence follows in chunks.
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-schedule apply failed",e);}
+
+    const oldSchedule=clean(remoteState?.schedule||[]);
+    const wantedIds=new Set((cleaned.schedule||[]).map(x=>String(x.id)));
+    const ops=[
+      ...(cleaned.schedule||[]).map(x=>({type:"set",ref:itemRef(SCHEDULE_COLLECTION,x.id),data:clean(x)})),
+      ...oldSchedule.filter(x=>!wantedIds.has(String(x.id))).map(x=>({type:"delete",ref:itemRef(SCHEDULE_COLLECTION,x.id)}))
+    ];
+    const size=75,total=Math.max(1,Math.ceil(ops.length/size));
+    setSidebar("syncing",`Розклад: запис 1/${total}…`,user?.email||"");
+    for(let i=0,part=1;i<ops.length;i+=size,part++){
+      const chunk=ops.slice(i,i+size);
+      const results=await Promise.allSettled(chunk.map((op,idx)=>{
+        const promise=op.type==="delete"?deleteDoc(op.ref):setDoc(op.ref,op.data);
+        return withTimeout(promise,10000,`розклад ${part}/${total}, запис ${i+idx+1}`);
+      }));
+      const failed=results.filter(r=>r.status==="rejected");
+      if(failed.length){
+        const e=new Error(`Не записано ${failed.length} занять у порції ${part}/${total}: ${failed[0]?.reason?.code||failed[0]?.reason?.message||"помилка"}`);
+        e.code=failed[0]?.reason?.code||"SCHEDULE_WRITE_FAILED";
+        throw e;
+      }
+      setSidebar("syncing",`Розклад: запис ${part}/${total}…`,user?.email||"");
+    }
+    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings schedule restore");
+    try{await publishCatalogSignal([]);}catch(_){}
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
+    remoteState=clean(cleaned);liveState=clean(cleaned);
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post-schedule restore apply failed",e);}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast(`Чистий розклад завантажено: ${cleaned.schedule.length} занять. Контингент та довідники не змінено.`,"ok",10000);
+    return cleaned;
+  }
+
   // v2.0.75: authoritative contingent supplied by the administrator.
   // Replace ONLY groups and students. Never touch schedule, room bookings,
   // teachers, disciplines/elective rosters, curricula or system settings.

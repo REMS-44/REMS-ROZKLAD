@@ -511,8 +511,14 @@ function migrate(old){
   if(targetCleanupVersion&&String(old.dataCleanupVersion||"")!==targetCleanupVersion){
     old=clone(old);
     old.dataCleanupVersion=targetCleanupVersion;
+    const scheduleOnlyUpdate=targetCleanupVersion.includes("schedule-only-authoritative-rebuild");
     const remsOnlyUpdate=targetCleanupVersion.includes("rems-plans-full-refresh-xlsx");
-    if(remsOnlyUpdate){
+    if(scheduleOnlyUpdate){
+      old.schedule=clone(fresh.schedule||[]);
+      old.roomBookings=[];
+      old.dataCleanupVersion=targetCleanupVersion;
+      old.scheduleRebuildVersion=String(fresh.scheduleRebuildVersion||"");
+    }else if(remsOnlyUpdate){
       // Verified REMS-only release: refresh only REMS working plans and REMS workload cards.
       // Do not overwrite TA/TR/master plans, faculty schedule, room bookings or teacher cards.
       const keepCurricula=(old.curricula||[]).filter(c=>c?.programId!=="rems");
