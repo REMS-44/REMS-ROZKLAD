@@ -504,6 +504,47 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  // v2.0.87: the Excel source times were already correct; an old normalizer treated
+  // string half markers ("half1" / "half2") as numbers and collapsed both halves
+  // into the first 40 minutes. Repair only schedule documents that differ from the
+  // authoritative bundle. No lock scan, no room-booking reset and no full delete/rewrite.
+  const specialTimeCanonicalRepair=target.includes("special-time-canonical-fast-repair");
+  if(specialTimeCanonicalRepair){
+    cleaned.schedule=clean(seed.schedule||[]);
+    cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,68);
+    cleaned.dataCleanupVersion=target;
+    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-24-authoritative-sources-v8-exact-special-times-numeric-halves");
+
+    // The local interface immediately uses the verified Excel-derived timetable.
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre exact-time repair apply failed",e);}
+
+    setSidebar("syncing","Розклад: швидка звірка точного часу…",user?.email||"");
+    const scheduleSnap=await withTimeout(getDocs(collRef(SCHEDULE_COLLECTION)),30000,"звірка розкладу");
+    const wanted=new Map((cleaned.schedule||[]).map(x=>[String(x.id),clean(x)]));
+    const existing=new Map(scheduleSnap.docs.map(d=>[String(d.id),clean(d.data())]));
+    const ops=[];
+    for(const d of scheduleSnap.docs){
+      if(!wanted.has(String(d.id)))ops.push({type:"delete",ref:d.ref});
+    }
+    for(const [id,item] of wanted){
+      const current=existing.get(id);
+      // Compare document bodies. Usually only imported 40-minute rows differ;
+      // missing rows from an interrupted older migration are restored as well.
+      if(!current||!eq(current,item))ops.push({type:"set",ref:itemRef(SCHEDULE_COLLECTION,id),data:item});
+    }
+    if(ops.length){
+      setSidebar("syncing",`Розклад: виправляю ${ops.length} записів пакетно…`,user?.email||"");
+      await withTimeout(commitOps(ops,450),60000,"швидке виправлення точного часу");
+    }
+    // Mark complete last. Subsequent reloads do not repeat the migration.
+    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings exact-time repair");
+    remoteState=clean(cleaned);liveState=clean(cleaned);
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post exact-time repair apply failed",e);}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast(ops.length?`Точний час звірено. Виправлено ${ops.length} хмарних записів.`:"Точний час уже збігається з джерелами.","ok",7000);
+    return cleaned;
+  }
+
   // v2.0.86: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
   // FAST HARD REPLACE: use Firestore writeBatch instead of thousands of individual
   // deleteDoc/setDoc requests. Also clear stale room bookings and technical locks so

@@ -105,6 +105,7 @@ function clockMinutes(value){const m=String(value||"").trim().match(/^(\d{1,3}):
 function normalizeClockTime(value){const n=clockMinutes(value);return n===null?String(value||""):`${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;}
 function clockPlusMinutes(value,minutes){const n=clockMinutes(value);if(n===null)return String(value||"");const x=n+Number(minutes||0);return `${String(Math.floor(x/60)).padStart(2,"0")}:${String(x%60).padStart(2,"0")}`;}
 function timeOverlap(aStart,aEnd,bStart,bEnd){const a1=clockMinutes(aStart),a2=clockMinutes(aEnd),b1=clockMinutes(bStart),b2=clockMinutes(bEnd);if([a1,a2,b1,b2].every(Number.isFinite))return a1<b2&&a2>b1;return String(aStart||"")<String(bEnd||"")&&String(aEnd||"")>String(bStart||"");}
+function specialHalfNumber(value){const v=String(value??"").trim().toLowerCase();if(v==="2"||v==="half2"||v==="ii"||v==="2.2")return 2;if(v==="1"||v==="half1"||v==="i"||v==="1.1")return 1;const n=Number(value);return Number.isFinite(n)&&n===2?2:1;}
 function isVirtualRoomName(room){
   const k=normIdentity(room||"").replace(/[^a-zа-яіїєґ0-9]/g,"");
   return ["zoom","онлайн","online","googlemeet","meet","teams","microsoftteams"].includes(k);
@@ -348,11 +349,17 @@ function repairScheduleLinks(state){
       if(pair){
         let desiredStart=pair.start||"",desiredEnd=pair.end||"";
         if(item.specialSchedule&&item.specialHalf&&pair.start&&pair.end){
-          const toMin=v=>{const [h,m]=String(v).split(":").map(Number);return h*60+m;};
-          const toTime=v=>`${String(Math.floor(v/60)).padStart(2,"0")}:${String(v%60).padStart(2,"0")}`;
-          const a=toMin(pair.start),b=toMin(pair.end),mid=Math.round((a+b)/2);
-          if(Number(item.specialHalf)===2){desiredStart=toTime(mid);desiredEnd=toTime(b);}
-          else{desiredStart=toTime(a);desiredEnd=toTime(mid);}
+          // Imported individual lessons/consultations carry authoritative exact times from Excel.
+          // Never stretch or move them merely because they belong to the same 80-minute pair.
+          if(item.start&&item.end){
+            desiredStart=normalizeClockTime(item.start);desiredEnd=normalizeClockTime(item.end);
+          }else{
+            const toMin=v=>{const [h,m]=String(v).split(":").map(Number);return h*60+m;};
+            const toTime=v=>`${String(Math.floor(v/60)).padStart(2,"0")}:${String(v%60).padStart(2,"0")}`;
+            const a=toMin(pair.start),b=toMin(pair.end),mid=Math.round((a+b)/2);
+            if(specialHalfNumber(item.specialHalf)===2){desiredStart=toTime(mid);desiredEnd=toTime(b);}
+            else{desiredStart=toTime(a);desiredEnd=toTime(mid);}
+          }
         }
         if(desiredStart&&item.start!==desiredStart){item.start=desiredStart;changed++;}
         if(desiredEnd&&item.end!==desiredEnd){item.end=desiredEnd;changed++;}
@@ -5338,7 +5345,7 @@ function specialLoadRows(kind=specialScheduleState.kind){
   });
   return rows.sort((a,b)=>Number(a.d.course||99)-Number(b.d.course||99)||String(a.d.group||"").localeCompare(String(b.d.group||""),"uk")||teacherDisplay(a.t).localeCompare(teacherDisplay(b.t),"uk")||a.d.name.localeCompare(b.d.name,"uk"));
 }
-function specialEventRows(kind=specialScheduleState.kind){return db.schedule.filter(x=>x.specialSchedule===true&&x.specialKind===kind&&dateInBounds(x.date)&&scheduleVisibleInProgram(x)).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.pairId||99)-Number(b.pairId||99)||Number(a.specialHalf||1)-Number(b.specialHalf||1));}
+function specialEventRows(kind=specialScheduleState.kind){return db.schedule.filter(x=>x.specialSchedule===true&&x.specialKind===kind&&dateInBounds(x.date)&&scheduleVisibleInProgram(x)).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.pairId||99)-Number(b.pairId||99)||specialHalfNumber(a.specialHalf)-specialHalfNumber(b.specialHalf));}
 function specialGroups(kind=specialScheduleState.kind){const set=new Set([...specialLoadRows(kind).map(x=>x.d.group),...specialEventRows(kind).map(x=>x.group)].filter(Boolean));return visibleGroups().filter(g=>set.has(g.code)).sort((a,b)=>a.course-b.course||a.code.localeCompare(b.code,"uk"));}
 function specialDisciplineChoices(kind=specialScheduleState.kind,group=specialScheduleState.group){
   const byId=new Map();
@@ -5384,7 +5391,7 @@ function setSpecialMonth(month){specialScheduleState.month=month;renderSpecialSc
 function timeToMinutesValue(v){const [h,m]=String(v||"00:00").split(":").map(Number);return h*60+m;}
 function minutesToTimeValue(v){const h=Math.floor(v/60),m=v%60;return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;}
 function specialHalfTimes(pairId,half){const p=pairById(pairId);if(!p||!p.start||!p.end)return {start:"",end:""};const start=timeToMinutesValue(p.start),end=timeToMinutesValue(p.end),mid=Math.round((start+end)/2);return Number(half)===2?{start:minutesToTimeValue(mid),end:minutesToTimeValue(end)}:{start:minutesToTimeValue(start),end:minutesToTimeValue(mid)};}
-function specialSlotLabel(x){const p=pairById(x.pairId),half=Number(x.specialHalf)===2?"ІІ половина":"І половина";return `${p?.id||x.pairId||"—"} пара · ${half}${x.start&&x.end?` · ${x.start}–${x.end}`:""}`;}
+function specialSlotLabel(x){const p=pairById(x.pairId),half=specialHalfNumber(x.specialHalf)===2?"ІІ половина":"І половина";return `${p?.id||x.pairId||"—"} пара · ${half}${x.start&&x.end?` · ${x.start}–${x.end}`:""}`;}
 function specialStudentName(x){const s=db.students.find(s=>Number(s.id)===Number(x.studentId));return s?.name||x.students||x.coverage||"Студент";}
 function specialStudentFirstAndLastName(x){
   return String(specialStudentName(x)||"Студент").trim().split(/\s+/).slice(0,2).join(" ");
@@ -5846,7 +5853,7 @@ function openSpecialScheduleModal(disciplineId,teacherId,typeId,editId=null){
   const bounds=semesterDateBounds(d.semester);
   const defaultDate=editing?existing.date:clampDate(currentAcademicDate(),bounds);
   const firstPair=editing?(existing.pairId||bellPairs()[0]?.id||1):(bellPairs()[0]?.id||1);
-  const defaultHalf=editing?(Number(existing.specialHalf)||1):1;
+  const defaultHalf=editing?specialHalfNumber(existing.specialHalf):1;
   const defaultStudentId=editing?Number(existing.studentId):Number(availableStudents[0].id);
   const defaultRoom=editing?(existing.room||""):"";
   const defaultNote=editing?(existing.note||""):"";
