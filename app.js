@@ -2695,10 +2695,31 @@ function globalConflictOpenAction(x){
   if(isReadyExternalScheduleItem(x))return `openReadyScheduleModal(${Number(x.id)})`;
   return `openLessonModal(${Number(x.id)})`;
 }
+function globalConflictSemanticKey(x){
+  if(!x)return"";
+  const parts=(x.sourceType==="booking"?[]:scheduleAudiencePartitions(x,db)).map(p=>({
+    group:normIdentity(p.group||""),
+    mode:p.mode||"group",
+    studentIds:[...(p.studentIds||[])].map(Number).filter(Boolean).sort((a,b)=>a-b)
+  })).sort((a,b)=>a.group.localeCompare(b.group,"uk")||a.mode.localeCompare(b.mode)||String(a.studentIds).localeCompare(String(b.studentIds)));
+  return JSON.stringify([
+    x.sourceType||"lesson",x.date||"",x.start||"",x.end||"",String(x.pairId||""),
+    normIdentity(x.group||""),normIdentity(x.discipline||x.title||x.kind||""),
+    Number(globalConflictTeacherId(x))||0,normIdentity(x.teacher||""),normIdentity(x.room||""),
+    normIdentity(x.type||""),Number(x.studentId)||0,!!x.specialSchedule,normIdentity(x.specialKind||""),parts
+  ]);
+}
 function globalConflictEvents(){
   const lessons=(db.schedule||[]).map(x=>({...x,sourceType:"lesson"}));
   const bookings=(db.roomBookings||[]).map(x=>({...x,sourceType:"booking",discipline:x.title||x.kind||"Бронювання"}));
-  return [...lessons,...bookings].filter(x=>x.date);
+  const seen=new Set(),out=[];
+  for(const x of [...lessons,...bookings]){
+    if(!x.date)continue;
+    const key=globalConflictSemanticKey(x);
+    if(seen.has(key))continue;
+    seen.add(key);out.push(x);
+  }
+  return out;
 }
 function collectGlobalConflicts(){
   if(globalConflictCacheVersion===globalConflictDataVersion)return globalConflictCacheValue;

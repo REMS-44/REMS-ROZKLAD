@@ -504,10 +504,10 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
-  // v2.0.84: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
-  // HARD REPLACE only the schedule collection: first delete every existing cloud row,
-  // then write the authoritative bundle. This prevents legacy schedule documents from
-  // surviving when the previously loaded client snapshot was incomplete.
+  // v2.0.85: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
+  // FAST HARD REPLACE: use Firestore writeBatch instead of thousands of individual
+  // deleteDoc/setDoc requests. Also clear stale room bookings and technical locks so
+  // old schedule rows cannot survive or manufacture conflicts after a reconnect.
   const scheduleOnlyRestore=target.includes("schedule-only-authoritative-rebuild");
   if(scheduleOnlyRestore){
     cleaned.schedule=clean(seed.schedule||[]);
@@ -519,43 +519,33 @@ async function applyWorkingDataCleanupOnce(state){
     // Show the approved schedule immediately while the cloud copy is rebuilt.
     try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-schedule apply failed",e);}
 
-    setSidebar("syncing","Розклад: читаю старі записи для повного очищення…",user?.email||"");
-    const snap=await withTimeout(getDocs(collRef(SCHEDULE_COLLECTION)),20000,"читання старого розкладу");
-    const stale=snap.docs.map(d=>({type:"delete",ref:d.ref}));
+    setSidebar("syncing","Розклад: читаю старі записи…",user?.email||"");
+    const [scheduleSnap,bookingSnap,lockSnap]=await Promise.all([
+      withTimeout(getDocs(collRef(SCHEDULE_COLLECTION)),30000,"читання старого розкладу"),
+      withTimeout(getDocs(collRef(ROOM_BOOKINGS_COLLECTION)),30000,"читання старих бронювань"),
+      withTimeout(getDocs(collRef("locks")),30000,"читання старих технічних блокувань")
+    ]);
 
-    // Delete ALL existing schedule documents in small chunks. We intentionally do not
-    // trust remoteState here because it can be a partial realtime snapshot.
-    const deleteSize=50,deleteTotal=Math.max(1,Math.ceil(stale.length/deleteSize));
-    for(let i=0,part=1;i<stale.length;i+=deleteSize,part++){
-      setSidebar("syncing",`Розклад: очищення ${part}/${deleteTotal}…`,user?.email||"");
-      const chunk=stale.slice(i,i+deleteSize);
-      const results=await Promise.allSettled(chunk.map((op,idx)=>
-        withTimeout(deleteDoc(op.ref),10000,`очищення ${part}/${deleteTotal}, запис ${i+idx+1}`)
-      ));
-      const failed=results.filter(r=>r.status==="rejected");
-      if(failed.length){
-        const e=new Error(`Не видалено ${failed.length} старих записів у порції ${part}/${deleteTotal}: ${failed[0]?.reason?.code||failed[0]?.reason?.message||"помилка"}`);
-        e.code=failed[0]?.reason?.code||"SCHEDULE_DELETE_FAILED";
-        throw e;
-      }
+    const deleteScheduleOps=scheduleSnap.docs.map(d=>({type:"delete",ref:d.ref}));
+    const deleteBookingOps=bookingSnap.docs.map(d=>({type:"delete",ref:d.ref}));
+    const deleteLockOps=lockSnap.docs.map(d=>({type:"delete",ref:d.ref}));
+
+    setSidebar("syncing",`Розклад: пакетне очищення (${deleteScheduleOps.length} занять)…`,user?.email||"");
+    if(deleteScheduleOps.length)await withTimeout(commitOps(deleteScheduleOps,400),120000,"пакетне очищення розкладу");
+    if(deleteBookingOps.length){
+      setSidebar("syncing",`Розклад: очищення ${deleteBookingOps.length} старих бронювань…`,user?.email||"");
+      await withTimeout(commitOps(deleteBookingOps,400),60000,"очищення бронювань");
+    }
+    if(deleteLockOps.length){
+      setSidebar("syncing",`Розклад: очищення технічних блокувань…`,user?.email||"");
+      await withTimeout(commitOps(deleteLockOps,400),120000,"очищення технічних блокувань");
     }
 
-    // Write only the authoritative rows after the collection is empty.
-    const writes=(cleaned.schedule||[]).map(x=>({ref:itemRef(SCHEDULE_COLLECTION,x.id),data:clean(x)}));
-    const writeSize=50,writeTotal=Math.max(1,Math.ceil(writes.length/writeSize));
-    for(let i=0,part=1;i<writes.length;i+=writeSize,part++){
-      setSidebar("syncing",`Розклад: запис ${part}/${writeTotal}…`,user?.email||"");
-      const chunk=writes.slice(i,i+writeSize);
-      const results=await Promise.allSettled(chunk.map((op,idx)=>
-        withTimeout(setDoc(op.ref,op.data),10000,`запис ${part}/${writeTotal}, заняття ${i+idx+1}`)
-      ));
-      const failed=results.filter(r=>r.status==="rejected");
-      if(failed.length){
-        const e=new Error(`Не записано ${failed.length} занять у порції ${part}/${writeTotal}: ${failed[0]?.reason?.code||failed[0]?.reason?.message||"помилка"}`);
-        e.code=failed[0]?.reason?.code||"SCHEDULE_WRITE_FAILED";
-        throw e;
-      }
-    }
+    // Write the authoritative schedule in ~10 batch commits instead of ~3800 requests.
+    const writes=(cleaned.schedule||[]).map(x=>({type:"set",ref:itemRef(SCHEDULE_COLLECTION,x.id),data:clean(x)}));
+    setSidebar("syncing",`Розклад: пакетний запис ${writes.length} занять…`,user?.email||"");
+    if(writes.length)await withTimeout(commitOps(writes,400),120000,"пакетний запис розкладу");
+    cleaned.roomBookings=[];
 
     // Mark complete LAST, so any interrupted rebuild retries next time.
     await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings schedule restore");
