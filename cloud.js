@@ -572,6 +572,50 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  const canonicalCloudReset=target.includes("canonical-cloud-reset");
+
+  if(canonicalCloudReset){
+    // v2.0.71: administrator requested a clean rebuild instead of layering fixes
+    // over legacy cloud state. Replace every schedule-critical collection with
+    // the bundled, audited canonical dataset. User/auth profile documents live
+    // outside these collections and are intentionally untouched. Settings are
+    // written LAST so an interrupted reset retries on the next connection.
+    setSidebar("syncing","Очищення старої бази…",user?.email||"");
+
+    cleaned.groups=clean(seed.groups||[]);
+    cleaned.students=clean(seed.students||[]);
+    cleaned.rooms=clean(seed.rooms||[]);
+    cleaned.teachers=clean(seed.teachers||[]);
+    cleaned.curricula=clean(seed.curricula||[]);
+    cleaned.disciplines=clean(seed.disciplines||[]);
+    cleaned.lessonTypes=clean(seed.lessonTypes||[]);
+    cleaned.schedule=clean(seed.schedule||[]);
+    cleaned.roomBookings=clean(seed.roomBookings||[]);
+    cleaned.adHocRooms=clean(seed.adHocRooms||[]);
+    cleaned.bellSchedule=clean(seed.bellSchedule||[]);
+    cleaned.studyPeriods=clean(seed.studyPeriods||{});
+    cleaned.schemaVersion=Number(seed.schemaVersion)||58;
+    cleaned.rosterRepairVersion=String(seed.rosterRepairVersion||"");
+    cleaned.electiveRosterVersion=String(seed.electiveRosterVersion||"");
+    cleaned.dataCleanupVersion=target;
+
+    for(const name of ARRAY_COLLECTIONS){
+      setSidebar("syncing",`Очищення та запис: ${name}…`,user?.email||"");
+      await replaceCollection(name,cleaned[name]||[]);
+    }
+    setSidebar("syncing","Очищення та запис розкладу…",user?.email||"");
+    await replaceSchedule(cleaned.schedule||[]);
+    setSidebar("syncing","Очищення бронювань аудиторій…",user?.email||"");
+    await replaceRoomBookings(cleaned.roomBookings||[]);
+
+    // Mark the reset complete only after ALL collections were successfully rebuilt.
+    await setDoc(settingsRef(),settingsPart(cleaned));
+    try{await publishCatalogSignal(ARRAY_COLLECTIONS);}catch(e){console.warn("Catalog signal after canonical reset failed",e);}
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
+    toast("Стару робочу базу видалено. Завантажено перевірений розклад і довідники v2.0.71.","ok",10000);
+    return cleaned;
+  }
+
   const remsOnlyUpdate=target.includes("rems-plans-full-refresh-xlsx");
 
   if(remsOnlyUpdate){
