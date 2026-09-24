@@ -3862,7 +3862,11 @@ let loadPageState={...rememberedLoadPageState()};
 
 function disciplineLoadState(d){
   const plan=disciplineWorkloadPlan(d);
-  const allocated=disciplineWorkloadAllocated(d);
+  const actualRows=(db.schedule||[]).filter(x=>dateInBounds(x.date)&&scheduleCoversDiscipline(x,d.id));
+  const scheduledActual=actualRows.reduce((sum,x)=>sum+num(x.workloadHours),0);
+  // Після імпорту затвердженого розкладу фактичний розклад є джерелом істини.
+  // Старі teacherLoads не повинні створювати фіктивне навантаження викладачів.
+  const allocated=actualRows.length?scheduledActual:disciplineWorkloadAllocated(d);
   let status="noaud";
   if(plan>0){
     if(allocated>plan+0.001)status="over";
@@ -4123,7 +4127,11 @@ function readyExternalDisciplineCardHtml(s){
 
 function loadDisciplineRowHtml(d){
   const s=disciplineLoadState(d);
-  const teacherNames=explicitlyAllocatedTeacherIds(d)
+  const actualTeacherNames=uniqueStrings((db.schedule||[])
+    .filter(x=>dateInBounds(x.date)&&scheduleCoversDiscipline(x,d.id))
+    .map(x=>teacherDisplay(teacherById(resolvedScheduleTeacherId(x,db)))||x.teacher)
+    .filter(Boolean));
+  const teacherNames=actualTeacherNames.length?actualTeacherNames:explicitlyAllocatedTeacherIds(d)
     .map(id=>teacherDisplay(teacherById(id)))
     .filter(Boolean);
 
@@ -4155,6 +4163,27 @@ function loadDisciplineRowHtml(d){
       <button class="secondary bulk-across-groups-btn" onclick="openBulkDisciplineAllocation(${d.id})">По всіх групах</button>
       <button class="quiet-danger" onclick="deleteDiscipline(${d.id})">Видалити</button>
     </div>
+  </article>`;
+}
+function specialWorkloadSummariesForGroup(group){
+  const rows=(db.schedule||[]).filter(x=>x.specialSchedule===true&&dateInBounds(x.date)&&scheduleIncludesGroup(x,group));
+  const map=new Map();
+  rows.forEach(x=>{
+    const tid=Number(resolvedScheduleTeacherId(x,db))||0;
+    const key=[normIdentity(x.discipline),tid,normIdentity(x.specialKind||"individual"),normIdentity(x.type)].join("|");
+    if(!map.has(key))map.set(key,{group,discipline:x.discipline||"Окреме заняття",teacherId:tid,teacher:teacherDisplay(teacherById(tid))||x.teacher||"—",specialKind:x.specialKind||"individual",type:x.type||"",hours:0,records:0,students:new Set()});
+    const z=map.get(key);z.hours+=num(x.workloadHours)||1;z.records++;if(x.studentId)z.students.add(Number(x.studentId));
+  });
+  return [...map.values()].map(x=>({...x,studentCount:x.students.size})).sort((a,b)=>a.discipline.localeCompare(b.discipline,"uk")||a.teacher.localeCompare(b.teacher,"uk"));
+}
+function specialWorkloadCardHtml(x){
+  const master=x.specialKind==="consult_master";
+  const title=master?"МАГІСТЕРСЬКІ КОНСУЛЬТАЦІЇ":x.specialKind==="project_consultation"?"КОНСУЛЬТАЦІЇ ПРОЄКТІВ":"ІНДИВІДУАЛЬНІ";
+  return `<article class="load-discipline-row load-discipline-card special-workload-card ${master?"master-consultation":""}" style="${master?"background:#c9789c;color:#fff;border-left:4px solid #9e5677;":scheduleColorVars({group:x.group,discipline:x.discipline})}">
+    <div class="compact-discipline-head"><div class="load-discipline-title"><span class="load-discipline-color"></span><div><b>${esc(x.discipline)}</b><span>${esc(title)}</span></div></div><span class="compact-status-badge done">З РОЗКЛАДУ</span></div>
+    <div class="compact-discipline-teachers"><span>Викладач</span>${compactTeacherChips([x.teacher])}</div>
+    <div class="ready-load-stats has-plan"><div><b>${fmtHours(x.hours)}</b><span>акад. год у розкладі</span></div><div><b>${x.studentCount}</b><span>студентів</span></div><div><b>${x.records}</b><span>окремих записів</span></div></div>
+    <div class="compact-discipline-actions"><button class="secondary" onclick="openTeacherSchedule(${Number(x.teacherId)||0})">Переглянути розклад викладача</button></div>
   </article>`;
 }
 function renderLoadDisciplinePanel(){
@@ -4210,6 +4239,11 @@ function renderLoadDisciplinePanel(){
         ? filtered.map(loadDisciplineRowHtml).join("")
         : `<div class="empty load-filter-empty">${loadPageState.filter==="attention"?"У цій групі зараз немає дисциплін, які потребують розподілу.":"За вибраним фільтром кафедральних дисциплін немає."}</div>`}
     </div>
+
+    ${loadPageState.filter==="all"?(()=>{
+      const special=specialWorkloadSummariesForGroup(group);
+      return special.length?`<section class="ready-load-section special-workload-section"><div class="ready-load-section-head"><div><span>ФАКТИЧНО З РОЗКЛАДУ</span><h3>Індивідуальні та консультації</h3><p>Показуються за точним часом кожного студента; 1 запис = 1 академічна година.</p></div></div><div class="load-discipline-list ready-load-grid">${special.map(specialWorkloadCardHtml).join("")}</div></section>`:"";
+    })():""}
 
     ${loadPageState.filter==="all"?(()=>{
       let ready=readyExternalDisciplineSummaries(group);
@@ -5993,15 +6027,30 @@ function activeTeacherOptions(selected=null){return visibleTeachers().map(t=>`<o
 function workloadTeacherRowsForGroup(group){
   const rows=[];
   db.disciplines.filter(d=>d.status!=="archived"&&normIdentity(d.group)===normIdentity(group)).forEach(d=>{
+    const actual=(db.schedule||[]).filter(s=>dateInBounds(s.date)&&scheduleCoversDiscipline(s,d.id));
+    if(actual.length){
+      const byTeacher=new Map();
+      actual.forEach(s=>{
+        const tid=Number(resolvedScheduleTeacherId(s,db));if(!tid)return;
+        if(!byTeacher.has(tid))byTeacher.set(tid,[]);byTeacher.get(tid).push(s);
+      });
+      byTeacher.forEach((items,teacherId)=>{
+        const t=teacherById(teacherId);if(!t)return;
+        const byType=new Map();items.forEach(s=>{const k=s.type||"Заняття";if(!byType.has(k))byType.set(k,[]);byType.get(k).push(s);});
+        const types=[...byType.entries()].map(([name,list])=>{
+          const lt=db.lessonTypes.find(x=>x.name===name)||{id:`actual-${name}`,name};
+          const scheduled=list.reduce((sum,s)=>sum+num(s.workloadHours),0);
+          const planned=Math.max(scheduled,teacherTypePlan(d,t.id,name));
+          return {lt,planned,scheduled,remaining:Math.max(0,planned-scheduled),scheduleDerived:true,special:list.some(x=>x.specialSchedule)};
+        });
+        rows.push({d,t,types,planned:types.reduce((a,x)=>a+x.planned,0),scheduled:types.reduce((a,x)=>a+x.scheduled,0),remaining:types.reduce((a,x)=>a+x.remaining,0),scheduleDerived:true});
+      });
+      return;
+    }
     explicitlyAllocatedTeacherIds(d).forEach(teacherId=>{
       const t=teacherById(teacherId);if(!t)return;
-      const types=schedulableTypes(d).map(lt=>{
-        const planned=teacherTypePlan(d,t.id,lt.name);if(planned<=0)return null;
-        const scheduled=scheduledLoad(d.id,t.id,lt.name);
-        return {lt,planned,scheduled,remaining:Math.max(0,planned-scheduled)};
-      }).filter(Boolean);
-      if(!types.length)return;
-      rows.push({d,t,types,planned:types.reduce((a,x)=>a+x.planned,0),scheduled:types.reduce((a,x)=>a+x.scheduled,0),remaining:types.reduce((a,x)=>a+x.remaining,0)});
+      const types=schedulableTypes(d).map(lt=>{const planned=teacherTypePlan(d,t.id,lt.name);if(planned<=0)return null;const scheduled=scheduledLoad(d.id,t.id,lt.name);return {lt,planned,scheduled,remaining:Math.max(0,planned-scheduled)};}).filter(Boolean);
+      if(types.length)rows.push({d,t,types,planned:types.reduce((a,x)=>a+x.planned,0),scheduled:types.reduce((a,x)=>a+x.scheduled,0),remaining:types.reduce((a,x)=>a+x.remaining,0)});
     });
   });
   return rows;
@@ -6103,9 +6152,9 @@ function workloadTeacherCardHtml(x){
       <span class="schedule-remaining ${x.remaining<=0?"done":""}">
         ${x.remaining<=0?"✓ усе виставлено":`залишилось ${fmtHours(x.remaining)} год`}
       </span>
-      <button class="${x.remaining>0?"primary-inline":"secondary"}"
-        onclick="safeOpenDisciplineTeacherScheduler(${x.d.id},${x.t.id})">
-        ${x.remaining>0?"Розставити":"Переглянути календар"}
+      <button class="${x.scheduleDerived?"secondary":(x.remaining>0?"primary-inline":"secondary")}"
+        onclick="${x.scheduleDerived?`openTeacherSchedule(${x.t.id})`:`safeOpenDisciplineTeacherScheduler(${x.d.id},${x.t.id})`}">
+        ${x.scheduleDerived?"Переглянути фактичний розклад":(x.remaining>0?"Розставити":"Переглянути календар")}
       </button>
     </div>
   </div>`;

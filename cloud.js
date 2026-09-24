@@ -504,7 +504,7 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
-  // v2.0.83: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
+  // v2.0.84: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
   // HARD REPLACE only the schedule collection: first delete every existing cloud row,
   // then write the authoritative bundle. This prevents legacy schedule documents from
   // surviving when the previously loaded client snapshot was incomplete.
