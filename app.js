@@ -2644,8 +2644,8 @@ function shiftRoomGridDate(days){const next=addDays(roomGridState.date,days);if(
 function roomGridToday(){selectRoomGridDate(currentAcademicDate());}
 function bookingConflicts(item,ignoreId=null){
   const conflicts=[];
-  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(physicalRoomSame(item.room,x.room))conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
-  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):timeOverlap(item.start,item.end,x.start,x.end);if(!sameSlot)return;if(physicalRoomSame(item.room,x.room))conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
+  db.schedule.forEach(x=>{if(x.date!==item.date)return;const sameSlot=item.start&&item.end&&x.start&&x.end?timeOverlap(item.start,item.end,x.start,x.end):(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false);if(!sameSlot)return;if(physicalRoomSame(item.room,x.room))conflicts.push(`Аудиторія ${item.room} вже зайнята заняттям ${x.group||""} ${x.discipline||""}.`);if(item.group&&x.group===item.group)conflicts.push(`Група ${item.group} уже має заняття.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`Викладач ${item.teacher||""} уже має заняття.`);});
+  db.roomBookings.forEach(x=>{if(Number(x.id)===Number(ignoreId)||x.date!==item.date)return;const sameSlot=item.start&&item.end&&x.start&&x.end?timeOverlap(item.start,item.end,x.start,x.end):(item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false);if(!sameSlot)return;if(physicalRoomSame(item.room,x.room))conflicts.push(`Аудиторія ${item.room} вже заброньована: ${roomBookingLabel(x)}.`);if(item.group&&x.group===item.group)conflicts.push(`Для групи ${item.group} уже є бронювання.`);if(item.teacherId&&Number(x.teacherId)===Number(item.teacherId))conflicts.push(`У викладача ${item.teacher||""} уже є бронювання.`);});
   return [...new Set(conflicts)];
 }
 function openRoomBookingModal(id=null,preset={}){
@@ -6714,9 +6714,9 @@ function readySameExternalTeacherConflict(item,ignoreId=null,extra=[]){
   const ignored=new Set((Array.isArray(ignoreId)?ignoreId:(ignoreId==null?[]:[ignoreId])).map(Number));
   return db.schedule.concat(extra||[]).filter(x=>{
     if(ignored.has(Number(x.id))||x.date!==item.date)return false;
-    const sameSlot=item.pairId&&x.pairId
-      ? String(item.pairId)===String(x.pairId)
-      : timeOverlap(item.start,item.end,x.start,x.end);
+    const sameSlot=item.start&&item.end&&x.start&&x.end
+      ? timeOverlap(item.start,item.end,x.start,x.end)
+      : (item.pairId&&x.pairId?String(item.pairId)===String(x.pairId):false);
     return sameSlot&&!x.teacherId&&normIdentity(x.teacher)===key;
   });
 }

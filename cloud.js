@@ -504,49 +504,67 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
-  // v2.0.79: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
-  // Replace ONLY schedule + derived room bookings. Keep roster, teachers, disciplines,
-  // elective rosters, curricula and settings intact.
+  // v2.0.83: authoritative schedule rebuilt from the uploaded faculty/REMS/master sources.
+  // HARD REPLACE only the schedule collection: first delete every existing cloud row,
+  // then write the authoritative bundle. This prevents legacy schedule documents from
+  // surviving when the previously loaded client snapshot was incomplete.
   const scheduleOnlyRestore=target.includes("schedule-only-authoritative-rebuild");
   if(scheduleOnlyRestore){
     cleaned.schedule=clean(seed.schedule||[]);
     cleaned.roomBookings=[];
-    cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,63);
+    cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,64);
     cleaned.dataCleanupVersion=target;
-    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-24-authoritative-sources-v1");
+    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-24-authoritative-sources-v4-latest-masters-exact-halves");
 
-    // Show the approved schedule immediately; Firestore persistence follows in chunks.
+    // Show the approved schedule immediately while the cloud copy is rebuilt.
     try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-schedule apply failed",e);}
 
-    const oldSchedule=clean(remoteState?.schedule||[]);
-    const wantedIds=new Set((cleaned.schedule||[]).map(x=>String(x.id)));
-    const ops=[
-      ...(cleaned.schedule||[]).map(x=>({type:"set",ref:itemRef(SCHEDULE_COLLECTION,x.id),data:clean(x)})),
-      ...oldSchedule.filter(x=>!wantedIds.has(String(x.id))).map(x=>({type:"delete",ref:itemRef(SCHEDULE_COLLECTION,x.id)}))
-    ];
-    const size=75,total=Math.max(1,Math.ceil(ops.length/size));
-    setSidebar("syncing",`Розклад: запис 1/${total}…`,user?.email||"");
-    for(let i=0,part=1;i<ops.length;i+=size,part++){
-      const chunk=ops.slice(i,i+size);
-      const results=await Promise.allSettled(chunk.map((op,idx)=>{
-        const promise=op.type==="delete"?deleteDoc(op.ref):setDoc(op.ref,op.data);
-        return withTimeout(promise,10000,`розклад ${part}/${total}, запис ${i+idx+1}`);
-      }));
+    setSidebar("syncing","Розклад: читаю старі записи для повного очищення…",user?.email||"");
+    const snap=await withTimeout(getDocs(collRef(SCHEDULE_COLLECTION)),20000,"читання старого розкладу");
+    const stale=snap.docs.map(d=>({type:"delete",ref:d.ref}));
+
+    // Delete ALL existing schedule documents in small chunks. We intentionally do not
+    // trust remoteState here because it can be a partial realtime snapshot.
+    const deleteSize=50,deleteTotal=Math.max(1,Math.ceil(stale.length/deleteSize));
+    for(let i=0,part=1;i<stale.length;i+=deleteSize,part++){
+      setSidebar("syncing",`Розклад: очищення ${part}/${deleteTotal}…`,user?.email||"");
+      const chunk=stale.slice(i,i+deleteSize);
+      const results=await Promise.allSettled(chunk.map((op,idx)=>
+        withTimeout(deleteDoc(op.ref),10000,`очищення ${part}/${deleteTotal}, запис ${i+idx+1}`)
+      ));
       const failed=results.filter(r=>r.status==="rejected");
       if(failed.length){
-        const e=new Error(`Не записано ${failed.length} занять у порції ${part}/${total}: ${failed[0]?.reason?.code||failed[0]?.reason?.message||"помилка"}`);
+        const e=new Error(`Не видалено ${failed.length} старих записів у порції ${part}/${deleteTotal}: ${failed[0]?.reason?.code||failed[0]?.reason?.message||"помилка"}`);
+        e.code=failed[0]?.reason?.code||"SCHEDULE_DELETE_FAILED";
+        throw e;
+      }
+    }
+
+    // Write only the authoritative rows after the collection is empty.
+    const writes=(cleaned.schedule||[]).map(x=>({ref:itemRef(SCHEDULE_COLLECTION,x.id),data:clean(x)}));
+    const writeSize=50,writeTotal=Math.max(1,Math.ceil(writes.length/writeSize));
+    for(let i=0,part=1;i<writes.length;i+=writeSize,part++){
+      setSidebar("syncing",`Розклад: запис ${part}/${writeTotal}…`,user?.email||"");
+      const chunk=writes.slice(i,i+writeSize);
+      const results=await Promise.allSettled(chunk.map((op,idx)=>
+        withTimeout(setDoc(op.ref,op.data),10000,`запис ${part}/${writeTotal}, заняття ${i+idx+1}`)
+      ));
+      const failed=results.filter(r=>r.status==="rejected");
+      if(failed.length){
+        const e=new Error(`Не записано ${failed.length} занять у порції ${part}/${writeTotal}: ${failed[0]?.reason?.code||failed[0]?.reason?.message||"помилка"}`);
         e.code=failed[0]?.reason?.code||"SCHEDULE_WRITE_FAILED";
         throw e;
       }
-      setSidebar("syncing",`Розклад: запис ${part}/${total}…`,user?.email||"");
     }
+
+    // Mark complete LAST, so any interrupted rebuild retries next time.
     await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings schedule restore");
     try{await publishCatalogSignal([]);}catch(_){}
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
     remoteState=clean(cleaned);liveState=clean(cleaned);
     try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post-schedule restore apply failed",e);}
     setSidebar("online","Онлайн",user?.email||"");
-    toast(`Чистий розклад завантажено: ${cleaned.schedule.length} занять. Контингент та довідники не змінено.`,"ok",10000);
+    toast(`Старий хмарний розклад повністю очищено. Завантажено ${cleaned.schedule.length} чистих занять.`,"ok",10000);
     return cleaned;
   }
 

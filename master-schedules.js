@@ -2,7 +2,7 @@
 // Source: "МСМ-26 розклад I семестр 2026-2027 н.р.docx".
 (()=>{
   const state=window.REMS_INITIAL_DATA;
-  if(!state)return;
+  if(!state||String(state.scheduleRebuildVersion||"").includes("authoritative-sources"))return;
   // v2.0.74: schedule reset mode intentionally starts with an empty timetable.
   // Do not auto-inject master schedules or consultations until they are re-imported.
   if(String(state.dataCleanupVersion||"").includes("schedule-only-reset"))return;
@@ -92,7 +92,7 @@
 // Source: "МСМ_25_розклад_III_семестр_2026_2027_н_р_ (1).docx".
 (()=>{
   const state=window.REMS_INITIAL_DATA;
-  if(!state)return;
+  if(!state||String(state.scheduleRebuildVersion||"").includes("authoritative-sources"))return;
   state.schemaVersion=Math.max(Number(state.schemaVersion)||0,41);
 
   const norm=value=>String(value||"").trim().toLocaleLowerCase("uk-UA").replace(/\s+/g," ");
