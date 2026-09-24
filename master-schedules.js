@@ -3,6 +3,9 @@
 (()=>{
   const state=window.REMS_INITIAL_DATA;
   if(!state)return;
+  // v2.0.74: schedule reset mode intentionally starts with an empty timetable.
+  // Do not auto-inject master schedules or consultations until they are re-imported.
+  if(String(state.dataCleanupVersion||"").includes("schedule-only-reset"))return;
   state.schemaVersion=Math.max(Number(state.schemaVersion)||0,38);
 
   const norm=value=>String(value||"").trim().toLocaleLowerCase("uk-UA").replace(/\s+/g," ");

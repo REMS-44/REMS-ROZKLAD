@@ -573,6 +573,37 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  const scheduleOnlyReset=target.includes("schedule-only-reset");
+
+  if(scheduleOnlyReset){
+    // v2.0.74: start timetable work from zero without touching the catalogue.
+    // Preserve groups/students, teachers, disciplines (including elective rosters),
+    // curricula/study plans, rooms, lesson types and all system settings.
+    // Remove only timetable-derived working data and its Firestore locks.
+    setSidebar("syncing","Очищення всіх розкладів…",user?.email||"");
+    cleaned.schedule=[];
+    cleaned.roomBookings=[];
+    cleaned.dataCleanupVersion=target;
+    cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,61);
+
+    // Switch the visible UI to the empty timetable immediately; do not render
+    // legacy conflicts while Firestore deletes are still running.
+    try{window.REMS_APPLY_CANONICAL_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-reset empty schedule apply failed",e);}
+
+    await replaceSchedule([]);
+    await replaceRoomBookings([]);
+
+    // Settings are written LAST. If deletion is interrupted, the reset retries.
+    await setDoc(settingsRef(),settingsPart(cleaned));
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
+    remoteState=clean(cleaned);
+    liveState=clean(cleaned);
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post-reset empty schedule apply failed",e);}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast("Усі розклади та бронювання очищено. Групи, студенти, викладачі, дисципліни, вибіркові, налаштування і навчальні плани збережено.","ok",10000);
+    return cleaned;
+  }
+
   const canonicalCloudReset=target.includes("canonical-cloud-reset");
 
   if(canonicalCloudReset){
@@ -600,6 +631,11 @@ async function applyWorkingDataCleanupOnce(state){
     cleaned.electiveRosterVersion=String(seed.electiveRosterVersion||"");
     cleaned.dataCleanupVersion=target;
 
+    // v2.0.73: display the canonical state immediately, before the long cloud
+    // rewrite. Otherwise the conflict page can temporarily combine old schedule
+    // rows with freshly replaced rosters and show dozens of false conflicts.
+    try{window.REMS_APPLY_CANONICAL_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-reset canonical apply failed",e);}
+
     for(const name of ARRAY_COLLECTIONS){
       setSidebar("syncing",`Очищення та запис: ${name}…`,user?.email||"");
       await replaceCollection(name,cleaned[name]||[]);
@@ -613,7 +649,7 @@ async function applyWorkingDataCleanupOnce(state){
     await setDoc(settingsRef(),settingsPart(cleaned));
     try{await publishCatalogSignal(ARRAY_COLLECTIONS);}catch(e){console.warn("Catalog signal after canonical reset failed",e);}
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
-    toast("Стару робочу базу видалено. Завантажено перевірений розклад і довідники v2.0.72.","ok",10000);
+    toast("Стару робочу базу видалено. Завантажено перевірений розклад і довідники v2.0.73.","ok",10000);
     setSidebar("online","Онлайн",user?.email||"");
     // Apply the rebuilt canonical state immediately so the conflict page cannot keep rendering stale pre-reset data.
     try{ window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned)); }catch(e){ console.warn("Post-reset local apply failed",e); }

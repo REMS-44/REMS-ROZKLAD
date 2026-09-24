@@ -1,6 +1,6 @@
 
 const KEY="remsScheduleData_v09";
-const APP_SCHEMA_VERSION=59;
+const APP_SCHEMA_VERSION=61;
 const OLD_KEYS=["remsScheduleData_v08","remsScheduleData_v07","remsScheduleData_v06","remsScheduleData_v051","remsScheduleData_v04","remsScheduleData_v02","remsScheduleData_v01"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -158,7 +158,10 @@ function mergeApprovedSchedule(remoteRows=[],seedRows=[]){
       // Cloud/user values win, but the approved source repairs fields lost by an
       // interrupted migration (teacher, room, stream links, source metadata).
       const keepId=current.id;
-      const merged={...clone(seed),...current,id:keepId};
+      // v2.0.73: canonical approved source wins over stale local/cloud copies.
+      // This keeps exact 40-minute intervals, corrected rooms and documented
+      // elective audiences from being stretched or broadened by legacy data.
+      const merged={...current,...clone(seed),id:keepId};
       const idx=out.indexOf(current);
       if(idx>=0)out[idx]=merged;
       byId.set(String(keepId),merged);
@@ -1194,6 +1197,14 @@ function migrate(old){
       if(label.includes("40хв")&&item.start)item.end=clockPlusMinutes(item.start,40);
     });
   }
+  // v2.0.73: reconcile ALL bundled approved lessons against the canonical
+  // source on upgrade. The four approved individual spreadsheets contain exact
+  // 40-minute start/end times; these, corrected rooms/teachers and documented
+  // elective audiences are authoritative. Manual/user-created rows not present
+  // in the bundle are preserved.
+  if(previousSchemaVersion<60){
+    fresh.schedule=mergeApprovedSchedule(fresh.schedule||[],bundledSchedule||[]);
+  }
   // v2.0.70: authoritative REMS department roster and elective-audience repair.
   // Force-sync verified student audiences from the bundled data because old cloud/browser
   // discipline cards can otherwise keep whole-group or stale elective memberships.
@@ -1684,6 +1695,17 @@ function save(){
 window.REMS_GET_STATE=()=>clone(db);
 window.REMS_MIGRATE_STATE=(state)=>migrate(state);
 window.REMS_CURRENT_PAGE=()=>currentPage;
+window.REMS_APPLY_CANONICAL_STATE=(state)=>{
+  db=migrate(clone(state||window.REMS_INITIAL_DATA||{}));
+  repairScheduleLinks(db);
+  db.schemaVersion=APP_SCHEMA_VERSION;
+  normalizeCurricula();
+  invalidateGlobalConflictCache();
+  try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){}
+  renderCurrent();
+  updateConflictNavBadge();
+  document.dispatchEvent(new CustomEvent("rems-rendered"));
+};
 window.REMS_APPLY_REMOTE_STATE=(remote)=>{
   const remoteCurriculumKeys=new Set((remote?.curricula||[]).map(curriculumSeedKey));
   const remoteGroupKeys=new Set((remote?.groups||[]).map(groupSeedKey));
