@@ -508,12 +508,12 @@ async function applyWorkingDataCleanupOnce(state){
   // string half markers ("half1" / "half2") as numbers and collapsed both halves
   // into the first 40 minutes. Repair only schedule documents that differ from the
   // authoritative bundle. No lock scan, no room-booking reset and no full delete/rewrite.
-  const specialTimeCanonicalRepair=target.includes("special-time-canonical-fast-repair");
+  const specialTimeCanonicalRepair=target.includes("special-time-canonical-fast-repair")||target.includes("special-schedule-authoritative-curator-halves");
   if(specialTimeCanonicalRepair){
     cleaned.schedule=clean(seed.schedule||[]);
     cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,68);
     cleaned.dataCleanupVersion=target;
-    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-24-authoritative-sources-v8-exact-special-times-numeric-halves");
+    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-24-authoritative-sources-v9-curator-first-half-special-exact");
 
     // The local interface immediately uses the verified Excel-derived timetable.
     try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre exact-time repair apply failed",e);}

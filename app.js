@@ -1739,10 +1739,27 @@ window.REMS_APPLY_REMOTE_STATE=(remote)=>{
   // by overlaying cloud/user changes on top of the bundled approved source.
   // This is local/read-time reconciliation: it does NOT bulk-upload 2600+ rows.
   const reconciledRemote=clone(remote||{});
-  reconciledRemote.schedule=mergeApprovedSchedule(
-    reconciledRemote.schedule||[],
-    window.REMS_INITIAL_DATA?.schedule||[]
-  );
+  const seedSchedule=window.REMS_INITIAL_DATA?.schedule||[];
+  // v2.0.88: exact-time rows from the uploaded Excel sources are authoritative.
+  // Old Firebase copies of individual lessons / consultations / curator hours may
+  // have different IDs or stale half-pair times, so merely overlaying by ID can
+  // leave a second legacy row beside the correct one. Remove those timed rows
+  // locally first, then restore the verified bundled rows. This makes the UI
+  // correct immediately, even while cloud cleanup is still finishing.
+  const isExactTimedRow=x=>{
+    if(!x)return false;
+    if(x.specialSchedule)return true;
+    const label=normIdentity(x.discipline||x.type||"");
+    return label.includes("кураторська");
+  };
+  const timedGroups=new Set(seedSchedule.filter(isExactTimedRow).flatMap(x=>scheduleAudienceGroups(x).length?scheduleAudienceGroups(x):[x.group]).map(normIdentity).filter(Boolean));
+  const remoteWithoutStaleTimed=(reconciledRemote.schedule||[]).filter(x=>{
+    if(!isExactTimedRow(x))return true;
+    const groups=scheduleAudienceGroups(x);
+    const keys=(groups.length?groups:[x.group]).map(normIdentity).filter(Boolean);
+    return !keys.some(k=>timedGroups.has(k));
+  });
+  reconciledRemote.schedule=mergeApprovedSchedule(remoteWithoutStaleTimed,seedSchedule);
   db=migrate(reconciledRemote);
   invalidateGlobalConflictCache();
 
