@@ -428,7 +428,8 @@ async function applyWorkingDataCleanupOnce(state){
   }
 
   const cleaned=clean(state);
-  const seed=clean(window.REMS_INITIAL_DATA||{});
+  const rawSeed=clean(window.REMS_INITIAL_DATA||{});
+  const seed=window.REMS_MIGRATE_STATE?clean(window.REMS_MIGRATE_STATE(rawSeed)):rawSeed;
   cleaned.dataCleanupVersion=target;
 
   // v22: import the approved individual timetable for REMS-34 / REMS-44
@@ -612,7 +613,10 @@ async function applyWorkingDataCleanupOnce(state){
     await setDoc(settingsRef(),settingsPart(cleaned));
     try{await publishCatalogSignal(ARRAY_COLLECTIONS);}catch(e){console.warn("Catalog signal after canonical reset failed",e);}
     for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
-    toast("Стару робочу базу видалено. Завантажено перевірений розклад і довідники v2.0.71.","ok",10000);
+    toast("Стару робочу базу видалено. Завантажено перевірений розклад і довідники v2.0.72.","ok",10000);
+    setSidebar("online","Онлайн",user?.email||"");
+    // Apply the rebuilt canonical state immediately so the conflict page cannot keep rendering stale pre-reset data.
+    try{ window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned)); }catch(e){ console.warn("Post-reset local apply failed",e); }
     return cleaned;
   }
 
