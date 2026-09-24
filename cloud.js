@@ -504,6 +504,34 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  // v2.0.75: authoritative contingent supplied by the administrator.
+  // Replace ONLY groups and students. Never touch schedule, room bookings,
+  // teachers, disciplines/elective rosters, curricula or system settings.
+  const rosterOnlyRestore=target.includes("roster-only-restore");
+  if(rosterOnlyRestore){
+    setSidebar("syncing","Відновлення актуального контингенту…",user?.email||"");
+    cleaned.groups=clean(seed.groups||[]);
+    cleaned.students=clean(seed.students||[]);
+    cleaned.schemaVersion=Math.max(Number(cleaned.schemaVersion)||0,62);
+    cleaned.dataCleanupVersion=target;
+    cleaned.rosterRepairVersion=String(seed.rosterRepairVersion||"2026-09-24-authoritative-contingent-v1");
+
+    // Write only the two roster collections. Everything else stays exactly as it is in Firestore.
+    await replaceCollection("groups",cleaned.groups);
+    await replaceCollection("students",cleaned.students);
+    // Persist only migration markers / normal settings fields; no other collections are rewritten.
+    await setDoc(settingsRef(),settingsPart(cleaned));
+    try{await publishCatalogSignal(["groups","students"]);}catch(e){console.warn("Roster signal failed",e);}
+
+    for(const key of LOCAL_DATA_KEYS){try{localStorage.removeItem(key);}catch(_){} }
+    remoteState=clean(cleaned);
+    liveState=clean(cleaned);
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post-roster restore apply failed",e);}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast(`Актуальний контингент відновлено: ${cleaned.students.length} студентів у ${cleaned.groups.length} групах. Розклад та інші довідники не змінено.`,"ok",10000);
+    return cleaned;
+  }
+
   // v18+: safe catalogue refresh. It never rewrites the approved timetable or
   // room bookings. The visible state is updated immediately; Firestore writes
   // continue in the background so the sidebar cannot get stuck on "loading".
