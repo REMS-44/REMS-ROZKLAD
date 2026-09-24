@@ -367,10 +367,10 @@ async function uploadWholeState(state,sourceLabel="поточний браузе
 
 async function replaceCollection(name,items){
   const snap=await getDocs(collRef(name));
-  const ops=[];
-  snap.docs.forEach(d=>ops.push({type:"delete",ref:d.ref}));
-  items.forEach(it=>ops.push({type:"set",ref:itemRef(name,it.id),data:clean(it)}));
-  await commitOps(ops);
+  const deleteOps=snap.docs.map(d=>({type:"delete",ref:d.ref}));
+  const setOps=(items||[]).map(it=>({type:"set",ref:itemRef(name,it.id),data:clean(it)}));
+  if(deleteOps.length) await commitOps(deleteOps,450);
+  if(setOps.length) await commitOps(setOps,450);
 }
 async function replaceSchedule(items){
   const snap=await getDocs(collRef(SCHEDULE_COLLECTION));
@@ -517,7 +517,9 @@ async function applyWorkingDataCleanupOnce(state){
     cleaned.rosterRepairVersion=String(seed.rosterRepairVersion||"2026-09-24-authoritative-contingent-v1");
 
     // Write only the two roster collections. Everything else stays exactly as it is in Firestore.
+    setSidebar("syncing","Контингент: запис груп…",user?.email||"");
     await replaceCollection("groups",cleaned.groups);
+    setSidebar("syncing","Контингент: запис студентів…",user?.email||"");
     await replaceCollection("students",cleaned.students);
     // Persist only migration markers / normal settings fields; no other collections are rewritten.
     await setDoc(settingsRef(),settingsPart(cleaned));
@@ -768,10 +770,11 @@ async function applyWorkingDataCleanupOnce(state){
   return cleaned;
 }
 
-async function commitOps(ops){
-  for(let i=0;i<ops.length;i+=8){
+async function commitOps(ops,batchSize=450){
+  const size=Math.max(1,Math.min(450,Number(batchSize)||450));
+  for(let i=0;i<ops.length;i+=size){
     const batch=writeBatch(fire);
-    for(const op of ops.slice(i,i+8))op.type==="delete"?batch.delete(op.ref):batch.set(op.ref,op.data);
+    for(const op of ops.slice(i,i+size))op.type==="delete"?batch.delete(op.ref):batch.set(op.ref,op.data);
     await batch.commit();
   }
 }
