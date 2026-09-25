@@ -599,6 +599,48 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  // v2.0.94: clear ONLY the masters timetable (MSM-25 / MSM-26 and master consultations).
+  // Preserve every non-master schedule row and the entire contingent/catalogue.
+  const masterScheduleResetOnly=target.includes("master-schedule-reset-only");
+  if(masterScheduleResetOnly){
+    const isMasterScheduleItem=(x)=>{
+      if(!x)return false;
+      if(/^МСМ-/i.test(String(x.group||"")))return true;
+      if((x.audienceGroups||[]).some(g=>/^МСМ-/i.test(String(g||""))))return true;
+      if((x.audiencePartitions||[]).some(p=>/^МСМ-/i.test(String(p?.group||""))))return true;
+      if(String(x.specialKind||"")==="consult_master")return true;
+      return false;
+    };
+
+    setSidebar("syncing","Обнуляю тільки розклад магістрів…",user?.email||"");
+    const before=(cleaned.schedule||[]).length;
+    cleaned.schedule=(cleaned.schedule||[]).filter(x=>!isMasterScheduleItem(x));
+    cleaned.dataCleanupVersion=target;
+    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-25-master-schedule-empty-awaiting-new-import-v1");
+
+    // Remove only matching master documents from Firestore. Do not rewrite the
+    // non-master timetable, so manual corrections outside masters remain intact.
+    const scheduleSnap=await withTimeout(getDocs(collRef(SCHEDULE_COLLECTION)),30000,"читання розкладу магістрів");
+    const deleteOps=[];
+    for(const d of scheduleSnap.docs){
+      const item=clean(d.data());
+      if(isMasterScheduleItem(item))deleteOps.push({type:"delete",ref:d.ref});
+    }
+    if(deleteOps.length){
+      setSidebar("syncing",`Видаляю ${deleteOps.length} записів магістрів…`,user?.email||"");
+      await withTimeout(commitOps(deleteOps,400),60000,"очищення розкладу магістрів");
+    }
+
+    // Mark migration complete last. No groups, students, teachers, disciplines,
+    // room bookings or non-master schedule documents are changed here.
+    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings master reset");
+    remoteState=clean(cleaned);liveState=clean(cleaned);
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post master-reset apply failed",e);}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast(`Розклад магістрів обнулено. Видалено ${deleteOps.length} хмарних записів. Інші розклади не змінювались.`,"ok",9000);
+    return cleaned;
+  }
+
   // v2.0.75: authoritative contingent supplied by the administrator.
   // Replace ONLY groups and students. Never touch schedule, room bookings,
   // teachers, disciplines/elective rosters, curricula or system settings.

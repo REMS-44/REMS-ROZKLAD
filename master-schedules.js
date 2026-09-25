@@ -3,6 +3,8 @@
 (()=>{
   const state=window.REMS_INITIAL_DATA;
   if(!state||String(state.scheduleRebuildVersion||"").includes("authoritative-sources"))return;
+  // v2.0.94: masters timetable intentionally cleared; wait for fresh source import.
+  if(String(state.dataCleanupVersion||"").includes("master-schedule-reset-only"))return;
   // v2.0.74: schedule reset mode intentionally starts with an empty timetable.
   // Do not auto-inject master schedules or consultations until they are re-imported.
   if(String(state.dataCleanupVersion||"").includes("schedule-only-reset"))return;
