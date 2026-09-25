@@ -1006,6 +1006,45 @@ function migrate(old){
       item.sourceAudienceFile="Назва ОК(1).docx";
     });
   }
+  // v2.1.7: repair MSM-25 elective audiences even in newer cloud databases.
+  // Earlier schema-gated migrations may already be skipped while the cloud still
+  // contains generic discipline cards. The official audience rows in data.js are
+  // the authority for these six elective subjects.
+  const masterElectiveConflictRepairVersion="2026-09-25-msm25-elective-conflicts-v1";
+  if(old.masterElectiveConflictRepairVersion!==masterElectiveConflictRepairVersion){
+    const bundledStudentById=new Map(bundledStudents.map(st=>[Number(st.id),st]));
+    const seeds=bundledSchedule.filter(seed=>
+      scheduleAudienceGroups(seed).some(code=>normIdentity(code)===normIdentity("МСМ-25"))
+      &&Array.isArray(seed.audiencePartitions)
+      &&seed.audiencePartitions.some(p=>p.mode==="selected"&&(p.studentIds||[]).length)
+      &&/^documented_/i.test(String(seed.audiencePartitionsSource||""))
+    );
+    seeds.forEach(seed=>{
+      const seedPart=(seed.audiencePartitions||[]).find(p=>normIdentity(p.group)===normIdentity("МСМ-25")&&p.mode==="selected");
+      if(!seedPart)return;
+      const mappedIds=(seedPart.studentIds||[]).map(id=>{
+        const src=bundledStudentById.get(Number(id));
+        if(!src)return null;
+        return fresh.students.find(st=>st.status!=="archived"&&normIdentity(st.group)===normIdentity(src.group)&&normIdentity(st.name)===normIdentity(src.name))?.id||null;
+      }).map(Number).filter(Boolean);
+      if(!mappedIds.length)return;
+      fresh.schedule.filter(item=>
+        scheduleAudienceGroups(item).some(code=>normIdentity(code)===normIdentity("МСМ-25"))
+        &&normIdentity(item.discipline||"")===normIdentity(seed.discipline||"")
+      ).forEach(item=>{
+        item.audiencePartitions=[{group:"МСМ-25",mode:"selected",studentIds:[...mappedIds]}];
+        item.audiencePartitionsSource=seed.audiencePartitionsSource||"documented_elective_choices";
+        item.audienceStudentIds=[...mappedIds];
+        item.audienceMode="selected";
+        item.coverage="Вибіркова ОК";
+        if(seed.sourceAudienceFile)item.sourceAudienceFile=seed.sourceAudienceFile;
+      });
+      const d=fresh.disciplines.find(item=>normIdentity(item.group)===normIdentity("МСМ-25")&&normIdentity(item.name)===normIdentity(seed.discipline||""));
+      if(d){d.audienceMode="selected";d.selectedStudentIds=[...mappedIds];d.audienceSource=seed.sourceAudienceFile||"Офіційний вибір ОК";}
+    });
+    fresh.masterElectiveConflictRepairVersion=masterElectiveConflictRepairVersion;
+  }
+
   // v2.0.64: apply the official actor/theatre-director elective audiences
   // from protocol №14 to existing cloud schedule rows without changing dates,
   // teachers, rooms or lesson times.
@@ -1904,6 +1943,12 @@ function scheduleAudiencePartitions(item,state=db){
   if(!item)return[];
   if(item.specialSchedule){const studentId=Number(item.studentId)||null,student=(state?.students||[]).find(s=>Number(s.id)===studentId),group=item.group||student?.group||"";return group&&studentId?[{group,mode:"selected",studentIds:[studentId]}]:[];}
   const sourceExplicit=Array.isArray(item.audiencePartitions)&&item.audiencePartitionsSource?item.audiencePartitions.map(p=>normalizeAudiencePartition(p,state)).filter(Boolean):[];
+  // v2.1.7: documented/approved audience lists are authoritative.
+  // Do not let a generic discipline card ("whole group") overwrite the exact
+  // elective roster stored on the approved timetable row. This was creating
+  // false master's conflicts for students who did not choose that elective.
+  const authoritativeAudienceSource=/^(documented_|approved_|authoritative_)/i.test(String(item.audiencePartitionsSource||""));
+  if(authoritativeAudienceSource&&sourceExplicit.length)return sourceExplicit;
   // v2.0.66: for our own schedule, the CURRENT discipline audience is authoritative.
   // Old cloud rows may still contain stale audiencePartitions from an earlier import.
   if(!isReadyExternalScheduleItem(item)){
