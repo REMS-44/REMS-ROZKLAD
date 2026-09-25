@@ -1935,6 +1935,15 @@ function scheduleOfficialAudienceNamesByGroup(item){
 }
 function scheduleOfficialAudienceStudentNames(item){return Object.values(scheduleOfficialAudienceNamesByGroup(item)).flat();}
 function scheduleAudienceOverlap(a,b,state=db){
+  // v2.1.6: two individual/supervision events for different students of the same
+  // master's group are NOT a group conflict. Only the same student overlaps.
+  if(a?.specialSchedule&&b?.specialSchedule){
+    const aId=Number(a.studentId)||null,bId=Number(b.studentId)||null;
+    if(aId&&bId)return aId===bId;
+    const aName=normIdentity(specialStudentName(a)||a.students||a.coverage||"");
+    const bName=normIdentity(specialStudentName(b)||b.students||b.coverage||"");
+    return !!aName&&aName===bName;
+  }
   const A=scheduleAudiencePartitions(a,state),B=scheduleAudiencePartitions(b,state);
   const aNamesByGroup=scheduleOfficialAudienceNamesByGroup(a),bNamesByGroup=scheduleOfficialAudienceNamesByGroup(b);
   for(const pa of A)for(const pb of B){
@@ -2658,7 +2667,11 @@ function eventResolvedTimes(x){
 function roomEventConflictFlags(events=[]){
   const flags=events.map(()=>false);
   for(let i=0;i<events.length;i++)for(let j=i+1;j<events.length;j++){
-    const a=eventResolvedTimes(events[i]?.data),b=eventResolvedTimes(events[j]?.data);
+    const ai=events[i]?.data||{},bj=events[j]?.data||{};
+    // v2.1.6: Zoom / online platforms are not physical rooms. Several independent
+    // master's consultations may legitimately run online at the same time.
+    if(isVirtualRoomName(ai.room)||isVirtualRoomName(bj.room))continue;
+    const a=eventResolvedTimes(ai),b=eventResolvedTimes(bj);
     const overlaps=a.start&&a.end&&b.start&&b.end?timeOverlap(a.start,a.end,b.start,b.end):true;
     if(overlaps){flags[i]=true;flags[j]=true;}
   }
