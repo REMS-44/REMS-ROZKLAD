@@ -599,6 +599,36 @@ async function applyWorkingDataCleanupOnce(state){
     return cleaned;
   }
 
+  // v2.0.97: replace ONLY the masters timetable from the current bundled authoritative schedules.
+  const masterScheduleImportCurrent=target.includes("master-schedule-import-current-2026-09-25");
+  if(masterScheduleImportCurrent){
+    const isMasterScheduleItem=(x)=>{
+      if(!x)return false;
+      if(/^МСМ-/i.test(String(x.group||"")))return true;
+      if((x.audienceGroups||[]).some(g=>/^МСМ-/i.test(String(g||""))))return true;
+      if((x.audiencePartitions||[]).some(p=>/^МСМ-/i.test(String(p?.group||""))))return true;
+      if(String(x.specialKind||"")==="consult_master")return true;
+      return false;
+    };
+    const masterRows=(seed.schedule||[]).filter(isMasterScheduleItem).map(clean);
+    setSidebar("syncing",`Оновлюю розклад магістрів: ${masterRows.length} занять…`,user?.email||"");
+    const scheduleSnap=await withTimeout(getDocs(collRef(SCHEDULE_COLLECTION)),30000,"читання розкладу магістрів");
+    const deleteOps=[];
+    for(const d of scheduleSnap.docs){if(isMasterScheduleItem(clean(d.data())))deleteOps.push({type:"delete",ref:d.ref});}
+    if(deleteOps.length)await withTimeout(commitOps(deleteOps,400),60000,"очищення старого розкладу магістрів");
+    const writeOps=masterRows.map(x=>({type:"set",ref:itemRef(SCHEDULE_COLLECTION,x.id),data:x}));
+    if(writeOps.length)await withTimeout(commitOps(writeOps,400),60000,"запис нового розкладу магістрів");
+    cleaned.schedule=(cleaned.schedule||[]).filter(x=>!isMasterScheduleItem(x)).concat(masterRows);
+    cleaned.dataCleanupVersion=target;
+    cleaned.scheduleRebuildVersion=String(seed.scheduleRebuildVersion||"2026-09-25-current-masters-from-new-docx-v1");
+    await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings master import");
+    remoteState=clean(cleaned);liveState=clean(cleaned);
+    try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Post master-import apply failed",e);}
+    setSidebar("online","Онлайн",user?.email||"");
+    toast(`Новий розклад магістрів завантажено: ${masterRows.length} занять. Старі магістерські записи прибрано.`,"ok",9000);
+    return cleaned;
+  }
+
   // v2.0.94: clear ONLY the masters timetable (MSM-25 / MSM-26 and master consultations).
   // Preserve every non-master schedule row and the entire contingent/catalogue.
   const masterScheduleResetOnly=target.includes("master-schedule-reset-only");
