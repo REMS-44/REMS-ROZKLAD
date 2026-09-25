@@ -1092,7 +1092,10 @@ async function flushPush(){
     // disciplines / groups snapshot after a successful local save.
     remoteState=clean(wanted);
     liveState=clean(wanted);
-    window.REMS_APPLY_REMOTE_STATE?.(remoteState);
+    // v2.1.0 performance: the local UI already contains `wanted` because the
+    // write was initiated by save(). Re-applying it here used to run the full
+    // migrate/repair/render pipeline a second time after every successful edit.
+    // Realtime listeners still apply genuinely remote changes from other clients.
 
     // Static changes are rare. One tiny signal tells other open clients which
     // reference collections to refresh; no permanent listener per collection.

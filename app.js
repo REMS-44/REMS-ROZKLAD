@@ -1717,12 +1717,17 @@ normalizeCurricula();
 // v2.0.65 performance: avoid repeated multi-megabyte serialization/cloning and
 // repeated full conflict scans in the same edit cycle.
 let localPersistTimer=null,globalConflictDataVersion=0,globalConflictCacheVersion=-1,globalConflictCacheValue=[];
+// v2.1.0 performance: coalesce expensive local persistence and page redraws.
+// A single logical action can call save() and then navigate/open another view;
+// rendering synchronously inside save() made the old page render needlessly first.
+const LOCAL_PERSIST_DELAY_MS=650;
+let pendingRenderFrame=null;
 function persistLocalStateSoon(){
   clearTimeout(localPersistTimer);
   localPersistTimer=setTimeout(()=>{
     localPersistTimer=null;
     try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){console.error("Local save failed",e);}
-  },40);
+  },LOCAL_PERSIST_DELAY_MS);
 }
 function persistLocalStateNow(){
   clearTimeout(localPersistTimer);localPersistTimer=null;
@@ -1737,7 +1742,7 @@ function save(){
   invalidateGlobalConflictCache();
   persistLocalStateSoon();
   scheduleAutomaticBackup();
-  renderCurrent();
+  scheduleRenderCurrent();
   if(window.REMS_CLOUD?.configured){
     if(window.REMS_CLOUD.canWrite?.()) window.REMS_CLOUD.schedulePush(db);
     else window.REMS_CLOUD.rejectLocalEdit?.();
@@ -2136,7 +2141,17 @@ function go(p,options={}){
   $("#pageSubtitle").textContent=pageMeta[1];
   renderCurrent();
 }
+function scheduleRenderCurrent(){
+  if(pendingRenderFrame!==null)return;
+  pendingRenderFrame=requestAnimationFrame(()=>{
+    pendingRenderFrame=null;
+    renderCurrent();
+  });
+}
 function renderCurrent(){
+  // If navigation/manual rendering happens before a queued save-render, the
+  // queued render is obsolete. Cancel it to avoid drawing the same page twice.
+  if(pendingRenderFrame!==null){cancelAnimationFrame(pendingRenderFrame);pendingRenderFrame=null;}
   ({home:renderHome,faculty:renderFaculty,schedule:renderSchedule,specialSchedule:renderSpecialSchedule,timetable:renderTimetable,dayPlanner:renderDayPlanner,mySchedule:renderMySchedule,groups:renderGroups,students:renderStudents,rooms:renderRooms,roomGrid:renderRoomGrid,conflicts:renderConflicts,teachers:renderTeachers,curricula:renderCurricula,disciplines:renderDisciplines,lessonTypes:renderLessonTypes,users:renderUsers,bellSchedule:renderBellSchedule,settings:renderSettings}[currentPage])();
   updateConflictNavBadge();
   document.dispatchEvent(new CustomEvent("rems-rendered"));
@@ -2623,11 +2638,11 @@ function roomBookingProgramId(b){
   return String(g?.programId||"rems");
 }
 function roomEvents(date,room,pairId){
-  const schedule=db.schedule
-    .filter(x=>x.date===date&&normIdentity(x.room)===normIdentity(room)&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))
+  ensureScheduleLookupCaches();
+  const key=scheduleRoomSlotKey(date,room,pairId);
+  const schedule=(roomSlotScheduleCache.get(key)||[])
     .map(x=>({source:"schedule",data:x,external:!scheduleVisibleInProgram(x)}));
-  const bookings=db.roomBookings
-    .filter(x=>x.date===date&&normIdentity(x.room)===normIdentity(room)&&String(x.pairId||pairIdForTimes(x.start,x.end))===String(pairId))
+  const bookings=(roomSlotBookingsCache.get(key)||[])
     .map(x=>({source:"booking",data:x,external:roomBookingProgramId(x)!==activeProgramId()}));
   return [...schedule,...bookings];
 }
@@ -9338,12 +9353,65 @@ function scheduleColorVars(x){
   const subjectSat=62+((subjectHash>>>8)%10);
   return `--group-h:${groupHue};--group-bg:hsl(${groupHue} ${groupSat}% 94%);--group-text:hsl(${groupHue} 48% 24%);--group-muted:hsl(${groupHue} 28% 43%);--subject-h:${subjectHue};--subject-s:${subjectSat}%;--subject-bg:hsl(${groupHue} ${groupSat}% 94%);--subject-border:hsl(${subjectHue} ${subjectSat}% 49%);--subject-text:hsl(${subjectHue} 58% 27%);--subject-muted:hsl(${subjectHue} 34% 42%)`;
 }
+// v2.1.0 performance: build common timetable/room lookups once per data version.
+// Previously the monthly calendar filtered all ~3800 schedule rows dozens of
+// times during a single render (group badges, month tabs and every calendar day).
+let scheduleLookupVersion=-1;
+let scheduleByGroupCache=new Map();
+let bookingsByGroupCache=new Map();
+let roomSlotScheduleCache=new Map();
+let roomSlotBookingsCache=new Map();
+function scheduleRoomSlotKey(date,room,pairId){
+  return `${date||""}|${normIdentity(room||"")}|${String(pairId??"")}`;
+}
+function ensureScheduleLookupCaches(){
+  if(scheduleLookupVersion===globalConflictDataVersion)return;
+  scheduleByGroupCache=new Map();
+  bookingsByGroupCache=new Map();
+  roomSlotScheduleCache=new Map();
+  roomSlotBookingsCache=new Map();
+
+  for(const x of (db.schedule||[])){
+    if(!x.specialSchedule&&dateInBounds(x.date)){
+      for(const group of scheduleAudienceGroups(x)){
+        const key=normGroup(group);
+        if(!key)continue;
+        if(!scheduleByGroupCache.has(key))scheduleByGroupCache.set(key,[]);
+        scheduleByGroupCache.get(key).push(x);
+      }
+    }
+    if(x.date&&x.room){
+      const pairId=x.pairId||pairIdForTimes(x.start,x.end);
+      const key=scheduleRoomSlotKey(x.date,x.room,pairId);
+      if(!roomSlotScheduleCache.has(key))roomSlotScheduleCache.set(key,[]);
+      roomSlotScheduleCache.get(key).push(x);
+    }
+  }
+
+  for(const x of (db.roomBookings||[])){
+    if(x.showInTimetable&&dateInBounds(x.date)){
+      const gkey=normGroup(x.group);
+      if(gkey){
+        if(!bookingsByGroupCache.has(gkey))bookingsByGroupCache.set(gkey,[]);
+        bookingsByGroupCache.get(gkey).push(x);
+      }
+    }
+    if(x.date&&x.room){
+      const pairId=x.pairId||pairIdForTimes(x.start,x.end);
+      const key=scheduleRoomSlotKey(x.date,x.room,pairId);
+      if(!roomSlotBookingsCache.has(key))roomSlotBookingsCache.set(key,[]);
+      roomSlotBookingsCache.get(key).push(x);
+    }
+  }
+  scheduleLookupVersion=globalConflictDataVersion;
+}
 function scheduleLessonsForGroup(group){
-  return db.schedule.filter(x=>!x.specialSchedule&&scheduleIncludesGroup(x,group)&&dateInBounds(x.date));
+  ensureScheduleLookupCaches();
+  return scheduleByGroupCache.get(normGroup(group))||[];
 }
 function timetableBookingsForGroup(group){
-  const key=normGroup(group);
-  return db.roomBookings.filter(x=>x.showInTimetable&&normGroup(x.group)===key&&dateInBounds(x.date));
+  ensureScheduleLookupCaches();
+  return bookingsByGroupCache.get(normGroup(group))||[];
 }
 function timetableDatesForGroup(group){
   return [...new Set([...scheduleLessonsForGroup(group).map(x=>x.date),...timetableBookingsForGroup(group).map(x=>x.date)].filter(Boolean))].sort();
