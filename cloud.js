@@ -630,11 +630,9 @@ async function applyWorkingDataCleanupOnce(state){
     // prevents the Groups page from displaying the old partial roster while repair runs.
     try{window.REMS_APPLY_REMOTE_STATE?.(clean(cleaned));}catch(e){console.warn("Pre-roster apply failed",e);}
 
-    const rosterParts=Math.max(1,Math.ceil(rosterOps.length/50));
-    setSidebar("syncing",`Контингент: запис 1/${rosterParts}…`,user?.email||"");
-    await writeRosterOpsIndividually(rosterOps,50,(done,total)=>
-      setSidebar("syncing",`Контингент: запис ${done}/${total}…`,user?.email||"")
-    );
+    const rosterParts=Math.max(1,Math.ceil(rosterOps.length/400));
+    setSidebar("syncing",`Контингент: пакетний запис 1/${rosterParts}…`,user?.email||"");
+    await withTimeout(commitOps(rosterOps,400),60000,"відновлення контингенту");
 
     // Persist only migration markers / normal settings fields; no other collections are rewritten.
     await withTimeout(setDoc(settingsRef(),settingsPart(cleaned)),10000,"settings");
