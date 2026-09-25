@@ -275,6 +275,21 @@ function resolvedScheduleTeacherId(item,state=db){
 }
 function repairScheduleLinks(state){
   let changed=0;
+  // v2.0.95: one 80-minute pair may intentionally be split in two.
+  // If a curator hour and another lesson share the same date/pair/audience,
+  // curator = first 40 minutes; the other lesson = second 40 minutes.
+  // This must never be treated as a timetable conflict.
+  const curatorSlotKeys=new Set();
+  const curatorSlotKey=(date,pairId,group)=>[date||"",String(pairId??""),normIdentity(group)].join("|");
+  (state?.schedule||[]).forEach(x=>{
+    const label=normIdentity(x?.discipline||x?.type||"");
+    if(!label.includes("кураторська")||x?.pairId===null||x?.pairId===undefined)return;
+    scheduleAudienceGroups(x).forEach(g=>curatorSlotKeys.add(curatorSlotKey(x.date,x.pairId,g)));
+  });
+  const sharesCuratorSlot=item=>{
+    if(item?.pairId===null||item?.pairId===undefined)return false;
+    return scheduleAudienceGroups(item).some(g=>curatorSlotKeys.has(curatorSlotKey(item.date,item.pairId,g)));
+  };
   (state?.schedule||[]).forEach(item=>{
     const ready=isReadyExternalScheduleItem(item);
 
@@ -348,7 +363,25 @@ function repairScheduleLinks(state){
       const pair=(state.bellSchedule||[]).find(p=>String(p.id)===String(item.pairId));
       if(pair){
         let desiredStart=pair.start||"",desiredEnd=pair.end||"";
-        if(item.specialSchedule&&item.specialHalf&&pair.start&&pair.end){
+        const label=normIdentity(item.discipline||item.type||"");
+        const isCuratorHour=label.includes("кураторська");
+        const splitWithCurator=!isCuratorHour&&sharesCuratorSlot(item);
+        if((isCuratorHour||splitWithCurator)&&pair.start&&pair.end){
+          const a=clockMinutes(pair.start),b=clockMinutes(pair.end);
+          const mid=(Number.isFinite(a)&&Number.isFinite(b))?Math.round((a+b)/2):null;
+          if(mid!==null){
+            const midTime=`${String(Math.floor(mid/60)).padStart(2,"0")}:${String(mid%60).padStart(2,"0")}`;
+            if(isCuratorHour){
+              desiredStart=normalizeClockTime(pair.start);
+              desiredEnd=midTime;
+              if(item.specialHalf!=="half1"){item.specialHalf="half1";changed++;}
+            }else{
+              desiredStart=midTime;
+              desiredEnd=normalizeClockTime(pair.end);
+              if(item.specialHalf!=="half2"){item.specialHalf="half2";changed++;}
+            }
+          }
+        }else if(item.specialSchedule&&item.specialHalf&&pair.start&&pair.end){
           // Imported individual lessons/consultations carry authoritative exact times from Excel.
           // Never stretch or move them merely because they belong to the same 80-minute pair.
           if(item.start&&item.end){
