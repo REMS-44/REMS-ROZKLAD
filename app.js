@@ -359,7 +359,7 @@ function repairScheduleLinks(state){
       if(label&&item.teacher!==label){item.teacher=label;changed++;}
     }
 
-    if(item.pairId!==null&&item.pairId!==undefined&&String(item.pairId)!==""){
+    if(!item.sessionPack&&item.pairId!==null&&item.pairId!==undefined&&String(item.pairId)!==""){
       const pair=(state.bellSchedule||[]).find(p=>String(p.id)===String(item.pairId));
       if(pair){
         let desiredStart=pair.start||"",desiredEnd=pair.end||"";
@@ -1384,6 +1384,12 @@ function migrate(old){
     const psych=(fresh.disciplines||[]).find(d=>normIdentity(d.group)===normIdentity("ТА-25")&&normIdentity(d.name)===normIdentity("Психологія (вибіркова ОК)"));
     if(rudko&&psych)psych.selectedStudentIds=[...new Set([...(psych.selectedStudentIds||[]).map(Number),Number(rudko.id)])];
   }
+  // Add the new session to existing browser/cloud data once; preserve other rows.
+  if(old.winterSessionVersion!==window.REMS_INITIAL_DATA.winterSessionVersion){
+    const sessionRows=(window.REMS_INITIAL_DATA.schedule||[]).filter(x=>x.sessionPack);
+    fresh.schedule=mergeApprovedSchedule(fresh.schedule||[],sessionRows);
+  }
+  fresh.winterSessionVersion=window.REMS_INITIAL_DATA.winterSessionVersion;
   repairScheduleLinks(fresh);
   return fresh;
 }
@@ -6179,8 +6185,8 @@ function pairOptions(selected=null,includeCustom=false){
   const rows=bellPairs().map(p=>`<option value="${esc(p.id)}" ${String(p.id)===String(selected)?"selected":""}>${p.id} пара${p.start&&p.end?` · ${esc(p.start)}–${esc(p.end)}`:""}</option>`).join("");
   return rows+(includeCustom?`<option value="__custom__" ${selected==="__custom__"?"selected":""}>Інший час</option>`:"");
 }
-function pairDisplay(x){const p=pairForLesson(x);return p?`${p.id} пара`:(x.start&&x.end?`${x.start}–${x.end}`:"—");}
-function pairTimeDisplay(x){const p=pairForLesson(x);return p&&p.start&&p.end?`${p.start}–${p.end}`:(x.start&&x.end?`${x.start}–${x.end}`:"");}
+function pairDisplay(x){if(x?.sessionPack&&!x.start)return "Час уточнюється";const p=pairForLesson(x);return p?`${p.id} пара`:(x.start&&x.end?`${x.start}–${x.end}`:"—");}
+function pairTimeDisplay(x){if(x?.sessionPack)return x.start?`${x.start} · завершення уточнюється`:"Час уточнюється";const p=pairForLesson(x);return p&&p.start&&p.end?`${p.start}–${p.end}`:(x.start&&x.end?`${x.start}–${x.end}`:"");}
 function activeTeacherOptions(selected=null){return visibleTeachers().map(t=>`<option value="${t.id}" ${Number(t.id)===Number(selected)?"selected":""}>${esc(teacherDisplay(t))}</option>`).join("");}
 function workloadTeacherRowsForGroup(group){
   const rows=[];
